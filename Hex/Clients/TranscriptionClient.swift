@@ -556,6 +556,7 @@ actor TranscriptionClientLive {
     guard !samples.isEmpty else { return EngineResult(text: "") }
     var decode = DecodingOptions(
       language: options.language,
+      temperatureFallbackCount: WhisperDecodingPolicy.temperatureFallbackCount,
       detectLanguage: options.language == nil,
       wordTimestamps: true,
       chunkingStrategy: samples.count > 29 * 16_000 ? .vad : ChunkingStrategy.none
@@ -961,4 +962,14 @@ actor TranscriptionClientLive {
       try fileManager.moveItem(at: src, to: dst)
     }
   }
+}
+
+/// Whisper decoding policy. WhisperKit's default (5 fallbacks) re-samples failed
+/// segments at rising temperatures with random top-k sampling, so the same audio
+/// gave a different transcript on every run. Measured 2026-09-26 on the
+/// terminology recording (Turbo, 3 runs each): fallback 5 → 3 different texts,
+/// fallback 0 → identical texts, same term score (32/47 natural, 31/47 literal)
+/// and WER. Greedy decoding is therefore the default.
+enum WhisperDecodingPolicy {
+  nonisolated(unsafe) static var temperatureFallbackCount = 0
 }

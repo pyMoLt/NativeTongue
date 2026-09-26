@@ -141,6 +141,33 @@ final class EngineSmokeTests: XCTestCase {
 		}
 	}
 
+	/// Measures run-to-run stability of Whisper Turbo with and without the
+	/// temperature fallback. Writes transcripts (test-script text, no PHI) for scoring.
+	func testWhisperTurboDeterminism() async throws {
+		guard ProcessInfo.processInfo.environment["LOCAL_ASR_DETERMINISM"] != nil
+			|| FileManager.default.fileExists(atPath: "/private/tmp/LocalASR-Phase2Fixtures/run-determinism") else {
+			throw XCTSkip("determinism measurement only on request")
+		}
+		let samples = try loadFixture("Terminology-de-en.m4a")
+		let client = TranscriptionClient.liveValue
+		guard await client.isModelDownloaded(turbo) else { throw XCTSkip("Whisper Turbo not installed") }
+		let output = URL(fileURLWithPath: "/private/tmp/LocalASR-Determinism", isDirectory: true)
+		try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+		defer { WhisperDecodingPolicy.temperatureFallbackCount = 0 }
+		for fallback in [5, 0] {
+			WhisperDecodingPolicy.temperatureFallbackCount = fallback
+			for punctuation in [PunctuationPolicy.natural, .suppressed] {
+				for run in 1...3 {
+					let result = try await client.transcribeSamples(samples, turbo, RequestOptions(language: "de", punctuation: punctuation))
+					let name = "fallback\(fallback)-\(punctuation == .natural ? "natural" : "literal")-run\(run).json"
+					let json = try JSONSerialization.data(withJSONObject: ["text": result.text])
+					try json.write(to: output.appendingPathComponent(name))
+				}
+			}
+		}
+		await client.unloadModel()
+	}
+
 	func testIdleUnloadFiresAndInvalidatesPreviousTimer() async throws {
 		let client = TranscriptionClientLive(idleUnloadDelayForTesting: .milliseconds(500))
 		guard await client.isModelDownloaded(turbo) else { throw XCTSkip("Whisper Turbo not installed") }
