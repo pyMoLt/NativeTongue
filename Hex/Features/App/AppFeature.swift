@@ -69,6 +69,7 @@ struct AppFeature {
     case unloadModel
     case presentOnboarding(Bool)
     case finishOnboarding
+    case lexiconMigrated
     case task
     case pasteLastTranscript
 
@@ -243,6 +244,10 @@ struct AppFeature {
         state.isOnboardingPresented = presented
         return .none
 
+      case .lexiconMigrated:
+        state.$hexSettings.withLock { $0.hasMigratedLexicon = true }
+        return .none
+
       case .finishOnboarding:
         state.isOnboardingPresented = false
         state.$hexSettings.withLock { $0.hasCompletedV2Onboarding = true }
@@ -341,17 +346,19 @@ struct AppFeature {
   /// One-time migration of V1 vocabulary/remappings into the user lexicon,
   /// then build the pack index in the background.
   private func prepareLexicon(state: State) -> Effect<Action> {
-    let settings = state.$hexSettings
-    return .run { [lexicon] _ in
-      if !settings.wrappedValue.hasMigratedLexicon {
+    // Plain values only: no `withLock` on shared settings from a background effect
+    // (lock-order deadlock with dependency initialization, see HexAppDelegate).
+    let settings = state.hexSettings
+    return .run { [lexicon] send in
+      if !settings.hasMigratedLexicon {
         do {
-          try await lexicon.migrate(settings.wrappedValue)
-          settings.withLock { $0.hasMigratedLexicon = true }
+          try await lexicon.migrate(settings)
+          await send(.lexiconMigrated)
         } catch {
           HexLog.app.error("Lexicon migration failed: \(error.localizedDescription, privacy: .private)")
         }
       }
-      await lexicon.warmUp(settings.wrappedValue.activeLexiconPacks)
+      await lexicon.warmUp(settings.activeLexiconPacks)
     }
   }
 
