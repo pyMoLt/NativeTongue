@@ -19,6 +19,11 @@ public struct DictationDocument: Sendable, Equatable {
 
 	public private(set) var entries: [Entry] = []
 	private var history: [[Entry]] = []
+	/// Edit commands that found nothing to edit in this document; the dictation
+	/// box applies them to text from earlier dictations.
+	public private(set) var unappliedEdits: [EditCommand] = []
+	/// Box voice commands („Text übertragen“, „buchstabieren“) in spoken order.
+	public private(set) var boxCommands: [BoxCommand] = []
 
 	public init() {}
 
@@ -36,7 +41,15 @@ public struct DictationDocument: Sendable, Equatable {
 		entries.append(Entry(utteranceID: utteranceID, tokens: tokens, corrections: corrections))
 	}
 
+	public mutating func record(_ command: BoxCommand) {
+		boxCommands.append(command)
+	}
+
 	public mutating func apply(_ command: EditCommand) {
+		guard !entries.isEmpty || (command == .undo && !history.isEmpty) else {
+			unappliedEdits.append(command)
+			return
+		}
 		switch command {
 		case .undo:
 			if let previous = history.popLast() { entries = previous }

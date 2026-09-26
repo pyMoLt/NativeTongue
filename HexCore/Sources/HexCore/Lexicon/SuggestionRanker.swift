@@ -7,6 +7,14 @@ public struct Suggestion: Sendable, Equatable, Identifiable {
 	public let isUser: Bool
 	public let lang: String
 	public let category: String
+
+	public init(term: String, score: Double, isUser: Bool, lang: String, category: String) {
+		self.term = term
+		self.score = score
+		self.isUser = isUser
+		self.lang = lang
+		self.category = category
+	}
 }
 
 /// Top-N similar lexicon terms for a word or short phrase (plan 5.7).

@@ -6,10 +6,15 @@ private let sessionLogger = HexLog.transcription
 
 /// Result of one finished dictation: the document (source of truth for the
 /// dictation box) plus the rendered text for direct insertion.
-struct DictationSessionOutput: Equatable {
+struct DictationSessionOutput: Equatable, Sendable {
   var document: DictationDocument
   var language: String
+  /// Plain text for direct insertion.
   var text: String
+  /// Same content with markup (headings, lists, bold/italic) for the dictation box.
+  var markdown: String = ""
+  /// Unprocessed ASR text (used by the spelling mode).
+  var rawText: String = ""
 }
 
 /// Turns one captured recording into a `DictationDocument`.
@@ -57,7 +62,7 @@ struct DictationSessionRunner {
     )
     if request.bypassFormatting {
       let result = try await transcribeSamples(samples, request.model, options)
-      return DictationSessionOutput(document: DictationDocument(), language: result.detectedLanguage ?? fallbackLanguage, text: result.text)
+      return DictationSessionOutput(document: DictationDocument(), language: result.detectedLanguage ?? fallbackLanguage, text: result.text, markdown: result.text, rawText: result.text)
     }
 
     let capabilities = (try? LocalASRModelCatalog.descriptor(named: request.model))?.capabilities
@@ -86,7 +91,9 @@ struct DictationSessionRunner {
       corrector: corrector
     )
     let text = document.render(AssemblerOptions(language: language, mode: request.mode))
-    return DictationSessionOutput(document: document, language: language, text: text)
+    let markdown = document.render(AssemblerOptions(language: language, mode: request.mode, format: .markdown))
+    let rawText = aligned.map(\.text).joined(separator: " ")
+    return DictationSessionOutput(document: document, language: language, text: text, markdown: markdown, rawText: rawText)
   }
 
   /// "de-DE" / "german" → "de".

@@ -15,9 +15,18 @@ import SwiftUI
 
 private let pasteboardLogger = HexLog.pasteboard
 
+/// Text for the dictation box: plain text always, RTF when the box format is Rich Text.
+struct RichPastePayload: Equatable, Sendable {
+    var plain: String
+    var rtf: Data?
+    /// App that was frontmost when the box opened; activated before ⌘V.
+    var targetBundleID: String?
+}
+
 @DependencyClient
 struct PasteboardClient {
     var paste: @Sendable (String) async -> Void
+    var pasteRich: @Sendable (RichPastePayload) async -> Void
     var copy: @Sendable (String) async -> Void
     var sendKeyboardCommand: @Sendable (KeyboardCommand) async -> Void
 }
@@ -28,6 +37,9 @@ extension PasteboardClient: DependencyKey {
         return .init(
             paste: { text in
                 await live.paste(text: text)
+            },
+            pasteRich: { payload in
+                await live.pasteRich(payload)
             },
             copy: { text in
                 await live.copy(text: text)
@@ -217,6 +229,36 @@ struct PasteboardClientLive {
             return result.booleanValue
         }
         return false
+    }
+
+    /// Activates the target app, writes RTF + plain text, sends ⌘V and restores
+    /// the previous clipboard exactly like the plain path (plan 5.9).
+    @MainActor
+    func pasteRich(_ payload: RichPastePayload) async {
+        if let bundleID = payload.targetBundleID,
+           let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
+            app.activate()
+            let deadline = ContinuousClock.now + .milliseconds(800)
+            while NSWorkspace.shared.frontmostApplication?.bundleIdentifier != bundleID, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            try? await Task.sleep(for: .milliseconds(80))
+        }
+        let pasteboard = NSPasteboard.general
+        let snapshot = PasteboardSnapshot(pasteboard: pasteboard)
+        let before = pasteboard.changeCount
+        pasteboard.clearContents()
+        let item = NSPasteboardItem()
+        if let rtf = payload.rtf { item.setData(rtf, forType: .rtf) }
+        item.setString(payload.plain, forType: .string)
+        pasteboard.writeObjects([item])
+        _ = await waitForPasteboardCommit(targetChangeCount: max(pasteboard.changeCount, before + 1))
+        let dictationChangeCount = pasteboard.changeCount
+        let pasteSucceeded = await performPaste(payload.plain)
+        guard !hexSettings.copyToClipboard else { return }
+        try? await Task.sleep(for: pasteSucceeded ? .milliseconds(300) : .seconds(10))
+        guard Self.shouldRestoreSnapshot(currentChangeCount: pasteboard.changeCount, dictationChangeCount: dictationChangeCount) else { return }
+        snapshot.restore(to: pasteboard)
     }
 
     @MainActor

@@ -31,6 +31,12 @@ extension SharedReaderKey
   static var isRemappingScratchpadFocused: Self {
     Self[.inMemory("isRemappingScratchpadFocused"), default: false]
   }
+
+  /// The dictation box is open: results go into the box instead of being pasted,
+  /// and box voice commands („Text übertragen“, „buchstabieren“) are active.
+  static var isDictationBoxPresented: Self {
+    Self[.inMemory("isDictationBoxPresented"), default: false]
+  }
 }
 
 // MARK: - Settings Feature

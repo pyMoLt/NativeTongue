@@ -7,6 +7,7 @@ private let cacheLogger = HexLog.caches
 
 class HexAppDelegate: NSObject, NSApplicationDelegate {
 	var invisibleWindow: InvisibleWindow?
+	var dictationBoxController: DictationBoxPanelController?
 	var settingsWindow: NSWindow?
 	var statusItem: NSStatusItem!
 	private var launchedAtLogin = false
@@ -54,6 +55,7 @@ class HexAppDelegate: NSObject, NSApplicationDelegate {
 
 		// Then present main views
 		presentMainView()
+		dictationBoxController = DictationBoxPanelController(store: HexApp.appStore)
 
 		guard shouldOpenForegroundUIOnLaunch else {
 			appLogger.notice("Suppressing foreground windows for login launch")

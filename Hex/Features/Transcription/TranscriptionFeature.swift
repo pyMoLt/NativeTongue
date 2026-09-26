@@ -75,6 +75,7 @@ struct TranscriptionFeature {
     var sourceAppName: String?
     @Shared(.hexSettings) var hexSettings: HexSettings
     @Shared(.isRemappingScratchpadFocused) var isRemappingScratchpadFocused: Bool = false
+    @Shared(.isDictationBoxPresented) var isDictationBoxPresented: Bool = false
     @Shared(.modelBootstrapState) var modelBootstrapState: ModelBootstrapState
     @Shared(.transcriptionHistory) var transcriptionHistory: TranscriptionHistory
   }
@@ -98,6 +99,9 @@ struct TranscriptionFeature {
     // Transcription result flow
     case transcriptionResult(TranscriptionOutput, URL, TimeInterval)
     case sessionTranscriptionResult(DictationSessionOutput, URL, TimeInterval, isRecovery: Bool)
+    /// Result for the open dictation box (handled by `AppFeature`); the audio stays
+    /// in the recovery folder until the box is confirmed or discarded.
+    case boxDictationFinished(DictationSessionOutput, URL)
     case recoverRecording(URL)
     case capturedRecording(CapturedDictationRequest)
     case transcriptionError(Error, URL?)
@@ -177,6 +181,15 @@ struct TranscriptionFeature {
 
       case let .transcriptionResult(result, audioURL, duration):
         return handleTranscriptionResult(&state, result: result, audioURL: audioURL, duration: duration)
+
+      case let .sessionTranscriptionResult(output, audioURL, _, _)
+        where state.isDictationBoxPresented && !state.isRemappingScratchpadFocused:
+        state.isTranscribing = false
+        state.isPrewarming = false
+        return .send(.boxDictationFinished(output, audioURL))
+
+      case .boxDictationFinished:
+        return .none
 
       case let .sessionTranscriptionResult(output, audioURL, duration, isRecovery):
         return handleSessionTranscriptionResult(
@@ -470,7 +483,8 @@ private extension TranscriptionFeature {
     // Otherwise, proceed to transcription
     state.isTranscribing = true
     state.error = nil
-    let session = DictationSessionRunner.Request(settings: state.hexSettings, bypassFormatting: state.isRemappingScratchpadFocused)
+    var session = DictationSessionRunner.Request(settings: state.hexSettings, bypassFormatting: state.isRemappingScratchpadFocused)
+    session.boxOpen = state.isDictationBoxPresented
 
     return .merge(
       .cancel(id: CancelID.recordingStart),
@@ -845,7 +859,10 @@ struct TranscriptionView: View {
   @ObserveInjection var inject
 
   var status: TranscriptionIndicatorView.Status {
-    if store.isTranscribing {
+    // The dictation box shows its own recording indicator.
+    if store.isDictationBoxPresented {
+      return .hidden
+    } else if store.isTranscribing {
       return .transcribing
     } else if store.isRecording {
       return .recording

@@ -145,6 +145,10 @@ public enum DictationSessionProcessor {
 				document.apply(command)
 				continue
 			}
+			if case let .command(.box(command)) = classification {
+				document.record(command)
+				continue
+			}
 			let pipelineOptions = DictationTextPipeline.Options(
 				mode: options.mode,
 				language: item.language ?? options.language,

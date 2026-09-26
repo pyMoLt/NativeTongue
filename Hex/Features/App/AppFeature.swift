@@ -33,6 +33,7 @@ struct AppFeature {
 		var settings: SettingsFeature.State = .init()
 		var history: HistoryFeature.State = .init()
 		var lexicon: LexiconFeature.State = .init()
+		var dictationBox: DictationBoxFeature.State = .init()
 		var activeTab: ActiveTab = .settings
 		@Shared(.hexSettings) var hexSettings: HexSettings
 		@Shared(.modelBootstrapState) var modelBootstrapState: ModelBootstrapState
@@ -50,6 +51,7 @@ struct AppFeature {
     case settings(SettingsFeature.Action)
     case history(HistoryFeature.Action)
     case lexicon(LexiconFeature.Action)
+    case dictationBox(DictationBoxFeature.Action)
     case setActiveTab(ActiveTab)
     case task
     case pasteLastTranscript
@@ -90,6 +92,10 @@ struct AppFeature {
       LexiconFeature()
     }
 
+    Scope(state: \.dictationBox, action: \.dictationBox) {
+      DictationBoxFeature()
+    }
+
     Reduce { state, action in
       switch action {
       case .binding:
@@ -127,7 +133,32 @@ struct AppFeature {
         }
 		.cancellable(id: CancelID.modelMissingFlash, cancelInFlight: true)
 
+      case .transcription(.startRecording):
+        // Open the dictation box on the first hotkey of a box session (plan 5.8).
+        guard state.transcription.isRecording else { return .none }
+        let mode = state.hexSettings.dictationMode
+        var effects: [Effect<Action>] = []
+        if !state.dictationBox.isPresented, state.hexSettings.dictationBoxEnabled(for: mode) {
+          let frontmost = NSWorkspace.shared.frontmostApplication
+          let isSelf = frontmost?.bundleIdentifier == Bundle.main.bundleIdentifier
+          effects.append(.send(.dictationBox(.present(
+            targetBundleID: isSelf ? nil : frontmost?.bundleIdentifier,
+            targetAppName: isSelf ? nil : frontmost?.localizedName,
+            mode: mode
+          ))))
+        }
+        if state.dictationBox.isPresented || state.hexSettings.dictationBoxEnabled(for: mode) {
+          effects.append(.send(.dictationBox(.recordingStarted)))
+        }
+        return .concatenate(effects)
+
+      case let .transcription(.boxDictationFinished(output, audioURL)):
+        return .send(.dictationBox(.dictationFinished(output, audioURL)))
+
       case .transcription:
+        return .none
+
+      case .dictationBox:
         return .none
 
       case .audioImport(.openModelSettings):
@@ -288,6 +319,25 @@ struct AppFeature {
       do {
         let store = try RecordingRecoveryStore()
         let pending = try store.pendingRecordings()
+        // An unconfirmed dictation box wins: its text already contains all dictations.
+        if let draft = DictationBoxDraftStore.load() {
+          let restore = await MainActor.run { () -> Bool in
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            alert.messageText = "Nicht übertragenes Diktat wiederherstellen?"
+            alert.informativeText = "Die Diktierbox wurde nicht bestätigt oder verworfen (\(BoxTextEditing.wordCount(draft.string)) Wörter). Der Text ist nur auf diesem Mac gespeichert."
+            alert.addButton(withTitle: "Wiederherstellen")
+            alert.addButton(withTitle: "Verwerfen")
+            return alert.runModal() == .alertFirstButtonReturn
+          }
+          for recording in pending { try? store.remove(recording) }
+          if restore {
+            await send(.dictationBox(.restoreDraft(draft)))
+          } else {
+            DictationBoxDraftStore.remove()
+          }
+          return
+        }
         guard let newest = pending.first else { return }
 
         let response = await MainActor.run { () -> NSApplication.ModalResponse in
