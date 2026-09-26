@@ -79,7 +79,10 @@ final class UISnapshotTests: XCTestCase {
 
   func testRenderFloatingSurfaces() throws {
     let store = makeStore(appState(tab: .dictation))
-    try render(MenuPanelView(store: store) {}, name: "10-menueleiste", size: NSSize(width: 340, height: 420))
+    @Shared(.lastTranscript) var last: LastTranscript? = nil
+    $last.withLock { $0 = LastTranscript(text: "Please refactor the ContentView so that the settings sheet uses the new glass buttons and keeps its state.", date: Date().addingTimeInterval(-120), appName: "Xcode") }
+    try render(MenuPanelView(store: store) {}, name: "10-menueleiste", size: NSSize(width: 300, height: 330))
+    try render(AppView(store: makeStore(appState(tab: .dictation))), name: "01b-diktat-schmal", size: NSSize(width: 640, height: 900))
 
     var hudState = appState(tab: .dictation)
     hudState.transcription.isRecording = true

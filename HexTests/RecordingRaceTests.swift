@@ -305,7 +305,9 @@ final class RecordingRaceTests: XCTestCase {
       $0.transcriptPersistence.save = { _, _, _, _, _ in throw persistenceError }
     }
 
-    await store.send(.sessionTranscriptionResult(DictationSessionOutput(document: DictationDocument(), language: "de", text: "Recovered text"), audioURL, 1.0, isRecovery: true))
+    await store.send(.sessionTranscriptionResult(DictationSessionOutput(document: DictationDocument(), language: "de", text: "Recovered text"), audioURL, 1.0, isRecovery: true)) {
+      $0.$lastTranscript.withLock { $0 = LastTranscript(text: "Recovered text", date: Date(timeIntervalSince1970: 1_234), appName: nil) }
+    }
     await store.receive(\.transcriptionError) {
       $0.error = "History persistence failed"
     }
@@ -345,6 +347,7 @@ final class RecordingRaceTests: XCTestCase {
     await store.receive(\.sessionTranscriptionResult) {
       $0.isTranscribing = false
       $0.isPrewarming = false
+      $0.$lastTranscript.withLock { $0 = LastTranscript(text: "ready to paste", date: Date(timeIntervalSince1970: 1_234), appName: nil) }
     }
     await store.finish()
 

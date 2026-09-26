@@ -47,9 +47,9 @@ struct TranscriptionIndicatorView: View {
         EmptyView()
       }
     }
-    .padding(.horizontal, 16)
-    .frame(height: 44)
-    .frame(maxWidth: 520)
+    .padding(.horizontal, 14)
+    .frame(height: 38)
+    .fixedSize()
     .glassEffect(status == .recording ? .regular.tint(.red.opacity(0.12)) : .regular, in: .capsule)
     .opacity(status == .hidden ? 0 : 1)
     .scaleEffect(status == .hidden ? 0.85 : 1)

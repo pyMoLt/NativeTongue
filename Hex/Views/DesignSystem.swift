@@ -122,7 +122,7 @@ struct ModeSwitch: View {
     .glassEffect(selected ? .regular.tint(.accentColor.opacity(0.35)).interactive() : .regular.interactive(), in: .rect(cornerRadius: 12))
     .glassEffectID(value == .normal ? "normal" : "literal", in: namespace)
     .accessibilityAddTraits(selected ? .isSelected : [])
-    .accessibilityLabel("\(title)-Modus")
+    .accessibilityLabel("\(title) mode")
   }
 }
 

@@ -36,7 +36,7 @@ struct FileTranscriptionView: View {
 
   private var queue: some View {
     VStack(alignment: .leading, spacing: 12) {
-      PageHeader(title: "Files", subtitle: "Transcribe recordings on this Mac", symbol: "doc.badge.waveform")
+      PageHeader(title: "Files", subtitle: "Transcribe recordings on this Mac", symbol: "waveform.badge.plus")
       dropZone
       options
       List(selection: Binding(get: { store.selectedJobID }, set: { store.send(.selectJob($0)) })) {
@@ -171,7 +171,7 @@ struct FileTranscriptionView: View {
         }
       }
     } else {
-      placeholder("Choose or drop a file", symbol: "doc.badge.waveform")
+      placeholder("Choose or drop a file", symbol: "waveform.badge.plus")
     }
   }
 

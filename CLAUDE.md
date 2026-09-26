@@ -16,7 +16,7 @@ xcodebuild -scheme Hex -configuration Debug -destination 'platform=macOS,arch=ar
 swift test --package-path HexCore --scratch-path /private/tmp/LocalASR-HexCore
 
 # Release bundle (arm64, ad-hoc, hardened runtime, no sandbox) → dist/NativeTongue.app
-scripts/build-dist.sh
+scripts/build-dist.sh            # add --install to replace /Applications/NativeTongue.app (user wants this after every build)
 
 # App tests (one suite; add CODE_SIGN_ENTITLEMENTS= ENABLE_APP_SANDBOX=NO for tests that need installed models)
 xcodebuild test -scheme Hex -destination 'platform=macOS,arch=arm64' \

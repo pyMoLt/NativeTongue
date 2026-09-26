@@ -631,3 +631,16 @@ struct SettingsFeature {
     }
   }
 }
+
+struct LastTranscript: Equatable, Sendable {
+  var text: String
+  var date: Date
+  var appName: String?
+}
+
+extension SharedReaderKey where Self == InMemoryKey<LastTranscript?>.Default {
+  /// Last inserted dictation (menu bar „Last transcript“), kept in memory only.
+  static var lastTranscript: Self {
+    Self[.inMemory("lastTranscript"), default: nil]
+  }
+}

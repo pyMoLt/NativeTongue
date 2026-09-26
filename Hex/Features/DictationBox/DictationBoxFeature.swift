@@ -58,6 +58,7 @@ struct DictationBoxFeature {
     @Shared(.hexSettings) var hexSettings: HexSettings
     @Shared(.isDictationBoxPresented) var isDictationBoxPresented: Bool = false
     @Shared(.transcriptionHistory) var transcriptionHistory: TranscriptionHistory
+    @Shared(.lastTranscript) var lastTranscript: LastTranscript? = nil
 
     var baseFont: NSFont {
       BoxTextStyle.baseFont(name: hexSettings.boxFontName, size: hexSettings.boxFontSize)
@@ -465,6 +466,7 @@ struct DictationBoxFeature {
     let maxHistoryEntries = state.hexSettings.maxHistoryEntries
     let history = state.$transcriptionHistory
     let historyText = BoxTextConverter.plainText(from: text)
+    state.$lastTranscript.withLock { $0 = LastTranscript(text: historyText, date: Date(), appName: state.targetAppName) }
     let target = (state.targetBundleID, state.targetAppName)
     return .merge(
       .run { [pasteboard, transcriptPersistence] send in

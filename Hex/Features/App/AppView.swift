@@ -22,7 +22,7 @@ struct AppView: View {
     Item(tab: .dictationBox, title: "Dictation Box", symbol: "text.below.photo"),
   ]
   private let secondary: [Item] = [
-    Item(tab: .files, title: "Files", symbol: "doc.badge.waveform"),
+    Item(tab: .files, title: "Files", symbol: "waveform.badge.plus"),
     Item(tab: .history, title: "History", symbol: "clock"),
   ]
   private let footer: [Item] = [

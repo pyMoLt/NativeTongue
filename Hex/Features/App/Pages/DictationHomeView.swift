@@ -16,9 +16,16 @@ struct DictationHomeView: View {
           store.send(.settings(.setDictationMode(mode)))
         }
         statusCard
-        HStack(alignment: .top, spacing: 14) {
-          profileCard
-          hotkeyCard
+        // Side by side when there is room, stacked in a narrow window.
+        ViewThatFits(in: .horizontal) {
+          HStack(alignment: .top, spacing: 14) {
+            profileCard.frame(minWidth: 320)
+            hotkeyCard.frame(minWidth: 260)
+          }
+          VStack(spacing: 14) {
+            profileCard
+            hotkeyCard
+          }
         }
       }
       .padding(LocalASRDesign.pagePadding)
@@ -84,12 +91,12 @@ struct DictationHomeView: View {
     var parts: [String] = []
     if let loaded = store.modelStatus.loadedModel {
       let name = (try? LocalASRModelCatalog.descriptor(named: loaded))?.displayName ?? loaded
-      parts.append("Geladen: \(name)")
+      parts.append("Loaded: \(name)")
     } else {
       parts.append("Not loaded – loads when you press the dictation key")
     }
     if let megabytes = store.modelStatus.footprintMB {
-      parts.append("App-Speicher \(ByteCountFormatter.string(fromByteCount: Int64(megabytes) * 1_048_576, countStyle: .memory))")
+      parts.append("App memory \(ByteCountFormatter.string(fromByteCount: Int64(megabytes) * 1_048_576, countStyle: .memory))")
     }
     if settings.idleUnloadMinutes > 0 {
       parts.append("unloads after \(settings.idleUnloadMinutes) min")
@@ -144,7 +151,7 @@ struct DictationHomeView: View {
         : "Hold to dictate · double-tap to lock recording.")
         .font(.callout)
         .foregroundStyle(.secondary)
-      Toggle("Diktierbox im \(settings.dictationMode == .literal ? "Literal" : "Normal")-Modus", isOn: Binding(
+      Toggle("Dictation box in \(settings.dictationMode == .literal ? "Literal" : "Normal") mode", isOn: Binding(
         get: { settings.dictationBoxEnabled(for: settings.dictationMode) },
         set: { value in
           store.$hexSettings.withLock { settings in

@@ -76,6 +76,7 @@ struct TranscriptionFeature {
     @Shared(.hexSettings) var hexSettings: HexSettings
     @Shared(.isRemappingScratchpadFocused) var isRemappingScratchpadFocused: Bool = false
     @Shared(.isDictationBoxPresented) var isDictationBoxPresented: Bool = false
+    @Shared(.lastTranscript) var lastTranscript: LastTranscript? = nil
     @Shared(.modelBootstrapState) var modelBootstrapState: ModelBootstrapState
     @Shared(.transcriptionHistory) var transcriptionHistory: TranscriptionHistory
   }
@@ -737,6 +738,7 @@ private extension TranscriptionFeature {
     let transcriptionHistory = state.$transcriptionHistory
     let saveTranscriptionHistory = state.hexSettings.saveTranscriptionHistory
     let maxHistoryEntries = state.hexSettings.maxHistoryEntries
+    state.$lastTranscript.withLock { $0 = LastTranscript(text: modifiedResult, date: wallClock.now(), appName: sourceAppName) }
     return .run { send in
       do {
         try await finalizeRecordingAndStoreTranscript(

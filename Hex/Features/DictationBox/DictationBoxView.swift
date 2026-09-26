@@ -256,21 +256,30 @@ struct DictationBoxView: View {
   }
 }
 
-/// Five animated level bars (mint) for the recording indicator.
+/// Five animated level bars (mint) for the recording indicator. The meter is
+/// linear RMS (speech ≈ 0.01–0.1), so it is mapped logarithmically:
+/// −55 dBFS → empty, −15 dBFS → full.
 struct LevelBars: View {
   let level: Double
 
+  static func normalized(_ level: Double) -> Double {
+    let db = 20 * log10(max(level, 0.000_01))
+    return min(max((db + 55) / 40, 0), 1)
+  }
+
   var body: some View {
+    let value = Self.normalized(level)
     HStack(spacing: 2) {
       ForEach(0 ..< 5, id: \.self) { index in
-        let threshold = Double(index) / 5
-        let normalized = min(max(level * 4, 0), 1)
+        // Middle bars react most, outer bars less – reads like a voice level.
+        let weight = [0.55, 0.85, 1.0, 0.85, 0.55][index]
+        let height = 4 + 12 * value * weight
         Capsule()
-          .fill(normalized > threshold ? Color.accentColor : Color.secondary.opacity(0.3))
-          .frame(width: 3, height: 5 + CGFloat(index % 3) * 3 + (normalized > threshold ? 4 : 0))
+          .fill(value * weight > 0.08 ? Color.accentColor : Color.secondary.opacity(0.3))
+          .frame(width: 3, height: height)
       }
     }
     .frame(height: 16)
-    .animation(.easeOut(duration: 0.12), value: level)
+    .animation(.easeOut(duration: 0.1), value: value)
   }
 }
