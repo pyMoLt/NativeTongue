@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>AudioHardwarePowerHint</key>
+	<string>None</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+	<key>CFBundleName</key>
+	<string>Local ASR</string>
+	<key>CFBundleDisplayName</key>
+	<string>Local ASR</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.8.5</string>
+	<key>CFBundleVersion</key>
+	<string>92</string>
+	<key>NSAccessibilityUsageDescription</key>
+	<string>Local ASR needs accessibility access to detect the global dictation shortcut and insert transcribed text.</string>
+	<key>NSInputMonitoringUsageDescription</key>
+	<string>Local ASR needs Input Monitoring permission so your global dictation shortcut works in every app.</string>
+</dict>
+</plist>
