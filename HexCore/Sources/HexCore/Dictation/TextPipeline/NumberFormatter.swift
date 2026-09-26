@@ -203,6 +203,17 @@ public enum SpokenNumberFormatter {
 		(["millimeters"], "mm"), (["millimeter"], "mm"),
 	]
 
+	/// Unit phrases (lowercased words) for joining phrases split by a pause.
+	static func unitPhrases(english: Bool) -> [[String]] {
+		(english ? englishUnitTable : germanUnitTable).map(\.0)
+	}
+
+	/// A single word that reads as a number ("38,5", "fünf", "zwanzig").
+	static func isNumberWord(_ word: String, english: Bool) -> Bool {
+		if word.contains(where: \.isNumber) { return true }
+		return parseNumber([.word(word)], at: 0, english: english) != nil
+	}
+
 	static func matchUnit(_ tokens: [TextToken], at start: Int, english: Bool) -> (symbol: String, consumed: Int)? {
 		let table = (english ? englishUnitTable : germanUnitTable).sorted { $0.0.count > $1.0.count }
 		for (words, symbol) in table {

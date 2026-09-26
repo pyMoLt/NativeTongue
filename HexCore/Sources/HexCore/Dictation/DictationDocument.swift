@@ -59,7 +59,17 @@ public struct DictationDocument: Sendable, Equatable {
 		case .deleteLastUtterance:
 			guard !entries.isEmpty else { return }
 			snapshot()
-			entries.removeLast()
+			let removed = entries.removeLast()
+			// The last utterance finished a sentence that began in an earlier
+			// utterance (thinking pause mid-sentence): remove the whole sentence.
+			if let last = removed.tokens.last(where: { $0.wordText != nil || isSentenceBoundary($0) }), isSentenceBoundary(last),
+			   let flat = flatten(), let lastRemaining = flat.last, !isSentenceBoundary(lastRemaining.token) {
+				var cut = flat.count
+				while cut > 0, !isSentenceBoundary(flat[cut - 1].token) { cut -= 1 }
+				var kept = flat
+				kept.removeSubrange(cut...)
+				rebuild(from: kept)
+			}
 		case .deleteLastWord:
 			guard var flat = flatten(), let lastWord = flat.lastIndex(where: { $0.token.wordText != nil }) else { return }
 			snapshot()

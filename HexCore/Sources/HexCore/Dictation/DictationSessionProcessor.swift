@@ -125,6 +125,7 @@ public enum DictationSessionProcessor {
 		options: DictationSessionOptions,
 		corrector: LexiconCorrector? = nil
 	) -> DictationDocument {
+		let alignedUtterances = joinSplitPhrases(alignedUtterances, language: options.language, englishCommands: options.englishCommands)
 		var document = DictationDocument()
 		let classifierContext = ClassifierContext(
 			mode: options.mode,
@@ -164,6 +165,76 @@ public enum DictationSessionProcessor {
 			document.append(utteranceID: item.utterance.id, tokens: tokens, corrections: corrections)
 		}
 		return document
+	}
+
+	/// A short thinking pause can split a spoken phrase across two utterances
+	/// ("Anführungszeichen" ⏸ "zu", "38,5 Grad" ⏸ "Celsius"). When the words
+	/// on both sides of a boundary form a known punctuation/format command or a
+	/// unit after a number, the continuation is moved back to the previous
+	/// utterance. Utterances that are commands on their own stay untouched.
+	public static func joinSplitPhrases(_ aligned: [AlignedUtterance], language: String, englishCommands: Bool) -> [AlignedUtterance] {
+		guard aligned.count > 1 else { return aligned }
+		let english = language.lowercased().hasPrefix("en")
+		let phrases: [[String]] = (CommandGrammar.punctuation.map(\.0) + CommandGrammar.formatInline.map(\.0))
+			.filter { englishCommands || !$0.english }
+			.map(\.words)
+			.filter { $0.count > 1 }
+		let units = SpokenNumberFormatter.unitPhrases(english: english)
+		func normalized(_ word: Substring) -> String { CommandGrammar.normalizedWords(String(word)).joined(separator: " ") }
+
+		var result = aligned
+		var index = 0
+		while index + 1 < result.count {
+			var previous = result[index].text.split(separator: " ")
+			var next = result[index + 1].text.split(separator: " ")
+			guard !previous.isEmpty, !next.isEmpty else { index += 1; continue }
+			let prevWords = previous.map(normalized)
+			let nextWords = next.map(normalized)
+			var move = 0
+			// Command phrase spanning the boundary.
+			for phrase in phrases {
+				for k in 1 ..< phrase.count where k <= prevWords.count {
+					let m = phrase.count - k
+					guard m <= nextWords.count, Array(prevWords.suffix(k)) == Array(phrase.prefix(k)),
+					      Array(nextWords.prefix(m)) == Array(phrase.suffix(m)) else { continue }
+					move = max(move, m)
+				}
+			}
+			// Unit continuing a number ("38,5" ⏸ "Grad Celsius", "38,5 Grad" ⏸ "Celsius").
+			for unit in units {
+				if unit.count <= nextWords.count, Array(nextWords.prefix(unit.count)) == unit,
+				   let last = previous.last, SpokenNumberFormatter.isNumberWord(String(last), english: english) {
+					move = max(move, unit.count)
+				}
+				for k in 1 ..< unit.count where k < prevWords.count {
+					let m = unit.count - k
+					guard m <= nextWords.count, Array(prevWords.suffix(k)) == Array(unit.prefix(k)),
+					      Array(nextWords.prefix(m)) == Array(unit.suffix(m)),
+					      SpokenNumberFormatter.isNumberWord(String(previous[previous.count - k - 1]), english: english) else { continue }
+					move = max(move, m)
+				}
+			}
+			guard move > 0 else { index += 1; continue }
+			previous += next.prefix(move)
+			next.removeFirst(move)
+			let prevUtterance = result[index].utterance
+			let nextUtterance = result[index + 1].utterance
+			if next.isEmpty {
+				// The whole next utterance was the continuation: merge them.
+				result[index] = AlignedUtterance(
+					utterance: Utterance(id: prevUtterance.id, range: prevUtterance.range.lowerBound ..< nextUtterance.range.upperBound,
+					                     pauseBeforeMs: prevUtterance.pauseBeforeMs, pauseAfterMs: nextUtterance.pauseAfterMs),
+					text: previous.joined(separator: " "),
+					language: result[index].language
+				)
+				result.remove(at: index + 1)
+			} else {
+				result[index] = AlignedUtterance(utterance: prevUtterance, text: previous.joined(separator: " "), language: result[index].language)
+				result[index + 1] = AlignedUtterance(utterance: nextUtterance, text: next.joined(separator: " "), language: result[index + 1].language)
+				index += 1
+			}
+		}
+		return result
 	}
 
 	private static func distance(_ seconds: Double, to range: Range<Int>, sampleRate: Int) -> Double {

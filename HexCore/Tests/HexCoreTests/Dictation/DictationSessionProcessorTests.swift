@@ -97,4 +97,31 @@ final class DictationSessionProcessorTests: XCTestCase {
 		let document = DictationSessionProcessor.makeDocument(from: utterances, options: .init(mode: .normal, formatNumbers: false))
 		XCTAssertEqual(document.render(.init(mode: .normal)), "Befund unauffällig")
 	}
+
+	private func pieces(_ texts: [String]) -> [AlignedUtterance] {
+		texts.enumerated().map { index, text in
+			AlignedUtterance(utterance: Utterance(id: index, range: index * 32_000 ..< index * 32_000 + 16_000,
+			                                      pauseBeforeMs: index == 0 ? Int.max : 900, pauseAfterMs: index == texts.count - 1 ? Int.max : 900), text: text)
+		}
+	}
+
+	private func literal(_ texts: [String]) -> String {
+		DictationSessionProcessor.makeDocument(from: pieces(texts), options: .init(mode: .literal, language: "de"))
+			.render(.init(language: "de", mode: .literal))
+	}
+
+	func testPhrasesSplitByAThinkingPauseAreJoined() {
+		XCTAssertEqual(literal(["er sagte Anführungszeichen auf Hallo Anführungszeichen", "zu und ging Punkt"]), "Er sagte „Hallo“ und ging.")
+		XCTAssertEqual(literal(["Temperatur 38,5 Grad", "Celsius Punkt"]), "Temperatur 38,5 °C.")
+		XCTAssertEqual(literal(["Temperatur achtunddreißig Komma fünf", "Grad Celsius Punkt"]), "Temperatur 38,5 °C.")
+		XCTAssertEqual(literal(["Alpha Doppel", "Punkt Beta"]), "Alpha: Beta")
+		// A command utterance of its own stays a command.
+		XCTAssertEqual(literal(["Satz eins Punkt", "Neuer Absatz", "Satz zwei Punkt"]), "Satz eins.\n\nSatz zwei.")
+	}
+
+	func testScratchThatRemovesSentenceSpanningUtterances() {
+		XCTAssertEqual(literal(["Erster Satz Punkt", "Dieser Satz wird gleich", "gestrichen Punkt", "streich das", "Weiter Punkt"]), "Erster Satz. Weiter.")
+		// Without a finished sentence only the last utterance goes.
+		XCTAssertEqual(literal(["Erster Satz Punkt", "noch ein Stück", "und mehr", "streich das"]), "Erster Satz. Noch ein Stück")
+	}
 }
