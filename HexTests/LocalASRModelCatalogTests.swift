@@ -45,18 +45,14 @@ final class LocalASRModelCatalogTests: XCTestCase {
     XCTAssertEqual(ultra.revision, ParakeetModel.multilingualUltra.revision)
   }
 
-  func testCanaryAndCohereExperimentalCoreMLEntriesArePinned() throws {
+  func testCanaryExperimentalCoreMLEntryIsPinned() throws {
 		let entries = try LocalASRModelCatalog.load()
 		let canary = try XCTUnwrap(entries.first { $0.internalName == "canary-1b-v2-int4-coreml" })
-		let cohere = try XCTUnwrap(entries.first { $0.internalName == "cohere-transcribe-q8-coreml" })
 		XCTAssertEqual(canary.backend, .canaryFluidAudioCoreML)
 		XCTAssertEqual(canary.revision?.count, 40)
 		XCTAssertTrue(canary.experimental)
 		XCTAssertTrue(canary.languages.contains("de"))
-		XCTAssertEqual(cohere.backend, .cohereFluidAudioCoreML)
-		XCTAssertEqual(cohere.revision?.count, 40)
-		XCTAssertTrue(cohere.experimental)
-		XCTAssertTrue(cohere.license.contains("conflicting"))
+		XCTAssertFalse(entries.contains { $0.internalName.contains("cohere") || $0.internalName.contains("mediform") })
   }
 
   func testCanaryPromptUsesExplicitGermanAndEnglishLanguageTokens() throws {
@@ -73,57 +69,6 @@ final class LocalASRModelCatalogTests: XCTestCase {
 		let vocabulary = [16053: "▁"]
 		XCTAssertThrowsError(try CanaryPromptFactory.prompt(language: nil, vocabulary: vocabulary))
 		XCTAssertThrowsError(try CanaryPromptFactory.prompt(language: "it", vocabulary: vocabulary))
-	}
-
-	func testMediformMedicalGermanCheckpointIsExplicitlyPinnedAndExperimental() throws {
-		let mediform = try XCTUnwrap(LocalASRModelCatalog.load().first {
-			$0.internalName == MediformInstallationValidator.modelName
-		})
-		XCTAssertEqual(mediform.backend, .mediformParakeetCoreML)
-		XCTAssertEqual(mediform.repository, MediformInstallationValidator.repository)
-		XCTAssertEqual(mediform.revision, MediformInstallationValidator.revision)
-		XCTAssertEqual(mediform.precision, "FP16 encoder · FluidAudio-compatible Core ML")
-		XCTAssertEqual(MediformInstallationValidator.archiveSize, 1_128_173_433)
-		XCTAssertEqual(MediformInstallationValidator.archiveSHA256.count, 64)
-		XCTAssertTrue(mediform.experimental)
-		XCTAssertEqual(mediform.languages.first, "de")
-	}
-
-	func testMediformInstallManifestRequiresAllCoreMLComponents() throws {
-		let root = FileManager.default.temporaryDirectory
-			.appendingPathComponent("LocalASR-MediformTest-\(UUID().uuidString)", isDirectory: true)
-		defer { try? FileManager.default.removeItem(at: root) }
-		try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-
-		for name in MediformInstallationValidator.requiredComponents {
-			let url = root.appendingPathComponent(name)
-			if name.hasSuffix(".mlmodelc") {
-				try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-				try Data([0x01]).write(to: url.appendingPathComponent("model.bin"))
-			} else {
-				try Data("vocabulary".utf8).write(to: url)
-			}
-		}
-
-		try MediformInstallationValidator.createManifest(at: root)
-		XCTAssertTrue(MediformInstallationValidator.isInstalled(at: root))
-
-		try FileManager.default.removeItem(at: root.appendingPathComponent("JointDecisionv3.mlmodelc"))
-		XCTAssertFalse(MediformInstallationValidator.isInstalled(at: root))
-	}
-
-	func testMediformRejectsEnglishBeforeLoadingGermanOnlyWeights() async throws {
-		let mediform = try XCTUnwrap(LocalASRModelCatalog.load().first {
-			$0.internalName == MediformInstallationValidator.modelName
-		})
-		let adapter = AdditionalFluidAudioASRClient()
-		do {
-			try await adapter.validateLanguage(mediform, language: "en")
-			XCTFail("The German-only medical model must reject English before model loading.")
-		} catch {
-			XCTAssertTrue(error.localizedDescription.contains("de"))
-		}
-		try await adapter.validateLanguage(mediform, language: "de")
 	}
 
 	func testOmiMedicalEnglishCheckpointHasPinnedFP16CoreMLArtifacts() throws {

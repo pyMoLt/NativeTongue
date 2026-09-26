@@ -17,3 +17,11 @@ purpose-built to pin only the dependencies required by this app. When updating
 the upstream snapshot, compare every source file and re-run the package build,
 offline-manifest tests, app tests, and app Release build before changing the
 commit recorded above.
+
+## Local changes
+
+- 2026-09-26 (Local ASR V2, phase 0): removed unused `AudioCommon` files that
+  belong to TTS/playback/system-audio features (`AudioIO.swift`,
+  `StreamingAudioPlayer.swift`, `SystemAudioTap.swift`,
+  `HindiEmotionTTSCatalog.swift`, `PipelineLLM.swift`). Platform raised to
+  macOS 26 to match the app.

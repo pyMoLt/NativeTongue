@@ -128,7 +128,7 @@ actor TranscriptionClientLive {
       try await qwen.ensureLoaded(descriptor, progress: progressCallback)
       currentModelName = variant
       return
-    case .canaryFluidAudioCoreML, .cohereFluidAudioCoreML, .mediformParakeetCoreML, .omiMedicalParakeetCoreML:
+    case .canaryFluidAudioCoreML, .omiMedicalParakeetCoreML:
       if currentModelName != variant { await unloadCurrentModel() }
       try await additionalFluidAudio.ensureLoaded(descriptor, progress: progressCallback)
       currentModelName = variant
@@ -199,8 +199,7 @@ actor TranscriptionClientLive {
       if currentModelName == variant { currentModelName = nil }
       return
     }
-    if descriptor.backend == .canaryFluidAudioCoreML || descriptor.backend == .cohereFluidAudioCoreML
-      || descriptor.backend == .mediformParakeetCoreML || descriptor.backend == .omiMedicalParakeetCoreML {
+    if descriptor.backend == .canaryFluidAudioCoreML || descriptor.backend == .omiMedicalParakeetCoreML {
       try await additionalFluidAudio.deleteModel(descriptor)
       if currentModelName == variant { currentModelName = nil }
       return
@@ -236,8 +235,7 @@ actor TranscriptionClientLive {
     if descriptor.backend == .qwen3MLX {
       return await qwen.isModelAvailable(descriptor)
     }
-    if descriptor.backend == .canaryFluidAudioCoreML || descriptor.backend == .cohereFluidAudioCoreML
-      || descriptor.backend == .mediformParakeetCoreML || descriptor.backend == .omiMedicalParakeetCoreML {
+    if descriptor.backend == .canaryFluidAudioCoreML || descriptor.backend == .omiMedicalParakeetCoreML {
       return await additionalFluidAudio.isModelAvailable(descriptor)
     }
     let modelFolderPath = modelPath(for: modelName).path
@@ -309,7 +307,7 @@ actor TranscriptionClientLive {
       return output
     }
 
-    if descriptor.backend == .mediformParakeetCoreML || descriptor.backend == .omiMedicalParakeetCoreML {
+    if descriptor.backend == .omiMedicalParakeetCoreML {
       transcriptionLogger.notice("Transcribing with \(descriptor.displayName) model=\(model) file=\(url.lastPathComponent)")
       try await additionalFluidAudio.validateLanguage(descriptor, language: options.decoding.language)
       let startLoad = Date()
@@ -321,7 +319,7 @@ actor TranscriptionClientLive {
       return output
     }
 
-    if descriptor.backend == .canaryFluidAudioCoreML || descriptor.backend == .cohereFluidAudioCoreML {
+    if descriptor.backend == .canaryFluidAudioCoreML {
       try await additionalFluidAudio.validateLanguage(descriptor, language: options.decoding.language)
       transcriptionLogger.notice("Transcribing with \(descriptor.displayName) model=\(model) file=\(url.lastPathComponent)")
       let startLoad = Date()
@@ -423,8 +421,7 @@ actor TranscriptionClientLive {
       return
     }
 
-    if descriptor.backend == .canaryFluidAudioCoreML || descriptor.backend == .cohereFluidAudioCoreML
-      || descriptor.backend == .mediformParakeetCoreML || descriptor.backend == .omiMedicalParakeetCoreML {
+    if descriptor.backend == .canaryFluidAudioCoreML || descriptor.backend == .omiMedicalParakeetCoreML {
       if currentModelName != variant { await unloadCurrentModel() }
       try await additionalFluidAudio.loadInstalled(descriptor, progress: progressCallback)
       currentModelName = variant

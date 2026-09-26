@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
   name: "LocalASRSpeech",
   platforms: [
-    .macOS("15.0"),
+    .macOS("26.0"),
   ],
   products: [
     .library(name: "Qwen3ASR", targets: ["Qwen3ASR"]),

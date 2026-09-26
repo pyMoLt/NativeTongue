@@ -5,8 +5,6 @@ public enum LocalASRBackend: String, Codable, Equatable, Sendable {
 	case parakeetFluidAudioCoreML
 	case qwen3MLX
 	case canaryFluidAudioCoreML
-	case cohereFluidAudioCoreML
-	case mediformParakeetCoreML
 	case omiMedicalParakeetCoreML
 
 	public var displayName: String {
@@ -15,8 +13,6 @@ public enum LocalASRBackend: String, Codable, Equatable, Sendable {
 		case .parakeetFluidAudioCoreML: "FluidAudio / Core ML"
 		case .qwen3MLX: "Qwen3-ASR / MLX"
 		case .canaryFluidAudioCoreML: "Canary / Core ML"
-		case .cohereFluidAudioCoreML: "Cohere Transcribe / Core ML"
-		case .mediformParakeetCoreML: "Mediform Parakeet / Core ML"
 		case .omiMedicalParakeetCoreML: "Omi Med STT / Core ML"
 		}
 	}
