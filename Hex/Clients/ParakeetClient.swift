@@ -196,6 +196,23 @@ actor ParakeetClient {
     return TranscriptionOutput(text: result.text, wordTimings: wordTimings)
   }
 
+  /// Samples-based transcription for pause-segmented utterances (16 kHz mono).
+  /// Clips shorter than one second are padded with silence (TDT needs ≥ 1 s).
+  func transcribe(samples: [Float], language: String?) async throws -> EngineResult {
+    guard let asr, let currentVariant else {
+      throw NSError(domain: "Parakeet", code: -1, userInfo: [NSLocalizedDescriptionKey: "Parakeet not initialized"])
+    }
+    var padded = samples
+    if padded.count < 16_000 { padded += [Float](repeating: 0, count: 16_000 - padded.count) }
+    var decoderState = TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
+    let hint: Language? = currentVariant.isEnglishOnly ? nil : (language == "en" ? .english : language == "de" ? .german : nil)
+    let result = try await asr.transcribe(padded, decoderState: &decoderState, language: hint)
+    let words = buildWordTimings(from: result.tokenTimings ?? []).map {
+      EngineWord(text: $0.word, start: $0.startTime, end: $0.endTime)
+    }
+    return EngineResult(text: result.text, words: words, detectedLanguage: language)
+  }
+
   // Delete cached Parakeet models from known locations and reset state
   func deleteCaches(modelName: String) async throws {
     guard let variant = ParakeetModel(rawValue: modelName) else { return }

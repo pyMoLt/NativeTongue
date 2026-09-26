@@ -53,6 +53,9 @@ public struct Qwen3DecodingOptions: Sendable {
     /// default in `E2EQwen3DecodingOptionsTests`.
     public var longInputNoRepeatNgramSize: Int = 3
 
+    /// Token IDs forced to -inf before picking the next token (Local ASR: literal-mode punctuation mask).
+    public var suppressedTokenIDs: Set<Int32> = []
+
     public init(
         maxTokens: Int = 448,
         language: String? = nil,
@@ -156,6 +159,11 @@ public class Qwen3ASRModel {
         self.textConfig = textConfig
         // Text decoder will be initialized when loading weights
         self.textDecoder = nil
+    }
+
+    /// Local ASR: punctuation token IDs of the loaded tokenizer (empty if not loaded).
+    public func punctuationTokenIDs() -> Set<Int32> {
+        tokenizer?.punctuationTokenIDs() ?? []
     }
 
     /// Set tokenizer for text decoding
@@ -479,6 +487,7 @@ public class Qwen3ASRModel {
         return options.repetitionPenalty == 1.0
             && options.noRepeatNgramSize == 0
             && options.temperature == 0.0
+            && options.suppressedTokenIDs.isEmpty
     }
 
     static func resolveBatchDecodingOptions(
@@ -996,7 +1005,8 @@ public class Qwen3ASRModel {
         // Fast path — pure greedy, no modifications.
         if options.repetitionPenalty == 1.0,
            options.noRepeatNgramSize == 0,
-           options.temperature == 0 {
+           options.temperature == 0,
+           options.suppressedTokenIDs.isEmpty {
             return argMax(logits, axis: -1).squeezed().item(Int32.self)
         }
 
@@ -1006,6 +1016,10 @@ public class Qwen3ASRModel {
         let vocabSize = flat.size
         var scores: [Float] = flat.asArray(Float.self)
         precondition(scores.count == vocabSize, "pickNextToken: vocab size mismatch")
+
+        for token in options.suppressedTokenIDs where Int(token) >= 0 && Int(token) < vocabSize {
+            scores[Int(token)] = -.infinity
+        }
 
         // Repetition penalty: divide logits for already-generated tokens.
         if options.repetitionPenalty > 1.0 && !generatedSoFar.isEmpty {

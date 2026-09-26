@@ -25,3 +25,7 @@ commit recorded above.
   `StreamingAudioPlayer.swift`, `SystemAudioTap.swift`,
   `HindiEmotionTTSCatalog.swift`, `PipelineLLM.swift`). Platform raised to
   macOS 26 to match the app.
+- 2026-09-26 (Local ASR V2, phase 2): `Qwen3DecodingOptions.suppressedTokenIDs`
+  (masked to -inf in `pickNextToken`; disables the greedy fast path when
+  non-empty), `Qwen3Tokenizer.punctuationTokenIDs()` and
+  `Qwen3ASRModel.punctuationTokenIDs()` for literal-mode punctuation masking.

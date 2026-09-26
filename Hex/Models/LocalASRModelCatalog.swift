@@ -6,6 +6,8 @@ public enum LocalASRBackend: String, Codable, Equatable, Sendable {
 	case qwen3MLX
 	case canaryFluidAudioCoreML
 	case omiMedicalParakeetCoreML
+	case cohereMLX
+	case appleSpeechAnalyzer
 
 	public var displayName: String {
 		switch self {
@@ -14,6 +16,8 @@ public enum LocalASRBackend: String, Codable, Equatable, Sendable {
 		case .qwen3MLX: "Qwen3-ASR / MLX"
 		case .canaryFluidAudioCoreML: "Canary / Core ML"
 		case .omiMedicalParakeetCoreML: "Omi Med STT / Core ML"
+		case .cohereMLX: "Cohere Transcribe / MLX"
+		case .appleSpeechAnalyzer: "Apple SpeechAnalyzer (on-device)"
 		}
 	}
 }

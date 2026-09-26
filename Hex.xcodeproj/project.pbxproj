@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C0DE00112F2B000000000011 /* CohereTranscribeASR in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE00122F2B000000000012 /* CohereTranscribeASR */; };
 		4F0D6A012F1A000100000001 /* HexCore in Frameworks */ = {isa = PBXBuildFile; productRef = 476316262E5FB31400913CDE /* HexCore */; };
 		4F0D6A022F1A000100000001 /* ComposableArchitecture in Frameworks */ = {isa = PBXBuildFile; productRef = 47E05E012D444EE900D26DA6 /* ComposableArchitecture */; };
 		4F0D6A042F1A000100000001 /* Sharing in Frameworks */ = {isa = PBXBuildFile; productRef = 4F0D6A072F1A000100000001 /* Sharing */; };
@@ -115,6 +116,7 @@
 				A17B00022F25092500000002 /* Tokenizers in Frameworks */,
 				A17B00212F25092500000021 /* Qwen3ASR in Frameworks */,
 				A17B00222F25092500000022 /* AudioCommon in Frameworks */,
+				C0DE00112F2B000000000011 /* CohereTranscribeASR in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -203,6 +205,7 @@
 			);
 			name = Hex;
 			packageProductDependencies = (
+				C0DE00122F2B000000000012 /* CohereTranscribeASR */,
 				47E05E012D444EE900D26DA6 /* ComposableArchitecture */,
 				47E05E042D444EF800D26DA6 /* Sauce */,
 				47E05E092D44525B00D26DA6 /* Dependencies */,
@@ -819,6 +822,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = B5045C952D78DED500D0A119 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
 			productName = MarkdownUI;
+		};
+		C0DE00122F2B000000000012 /* CohereTranscribeASR */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A17B00232F25092500000023 /* XCLocalSwiftPackageReference "LocalASRSpeech" */;
+			productName = CohereTranscribeASR;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

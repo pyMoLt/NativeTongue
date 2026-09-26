@@ -252,6 +252,36 @@ actor AdditionalFluidAudioASRClient {
 		}
 	}
 
+	/// Samples-based transcription (Canary with optional `<|nopnc|>`, Omi English medical).
+	func transcribe(_ descriptor: LocalASRModelDescriptor, samples: [Float], options: RequestOptions) async throws -> EngineResult {
+		try validateLanguage(descriptor, language: options.language)
+		guard loadedModelName == descriptor.internalName else { throw modelNotLoaded(descriptor.displayName) }
+		guard !samples.isEmpty else { return EngineResult(text: "") }
+		switch descriptor.internalName {
+		case OmiMedicalInstallationValidator.modelName:
+			guard let medicalParakeetManager else { throw modelNotLoaded(descriptor.displayName) }
+			var padded = samples
+			if padded.count < 16_000 { padded += [Float](repeating: 0, count: 16_000 - padded.count) }
+			var decoderState = TdtDecoderState.make(decoderLayers: await medicalParakeetManager.decoderLayerCount)
+			let result = try await medicalParakeetManager.transcribe(padded, decoderState: &decoderState, language: .english)
+			let words = buildWordTimings(from: result.tokenTimings ?? []).map {
+				EngineWord(text: $0.word, start: $0.startTime, end: $0.endTime)
+			}
+			return EngineResult(text: result.text, words: words, detectedLanguage: "en")
+		case canaryName:
+			guard let canaryModels else { throw modelNotLoaded(descriptor.displayName) }
+			let prompt = try CanaryPromptFactory.prompt(
+				language: options.language,
+				vocabulary: canaryModels.tokenizer.vocabulary,
+				punctuation: options.punctuation == .natural
+			)
+			let text = try await CanaryManager(models: canaryModels, prompt: prompt).transcribe(audio: samples)
+			return EngineResult(text: text, detectedLanguage: options.language, punctuationWasSuppressed: options.punctuation == .suppressed)
+		default:
+			throw unsupportedModel(descriptor.internalName)
+		}
+	}
+
 	func deleteModel(_ descriptor: LocalASRModelDescriptor) throws {
 		guard isSupported(descriptor) else { throw unsupportedModel(descriptor.internalName) }
 		if loadedModelName == descriptor.internalName { unload() }
@@ -439,13 +469,14 @@ actor AdditionalFluidAudioASRClient {
 }
 
 enum CanaryPromptFactory {
-	static func prompt(language: String?, vocabulary: [Int: String]) throws -> [Int32] {
+	static func prompt(language: String?, vocabulary: [Int: String], punctuation: Bool = true) throws -> [Int32] {
 		guard let code = language?.lowercased(), ["en", "de", "fr", "es"].contains(code) else {
 			throw NSError(domain: "Canary", code: -1, userInfo: [
 				NSLocalizedDescriptionKey: "Canary requires an explicit English, German, French, or Spanish language selection.",
 			])
 		}
-		let required = ["▁", "<|startofcontext|>", "<|startoftranscript|>", "<|emo:undefined|>", "<|\(code)|>", "<|pnc|>", "<|noitn|>", "<|notimestamp|>", "<|nodiarize|>"]
+		let pnc = punctuation ? "<|pnc|>" : "<|nopnc|>"
+		let required = ["▁", "<|startofcontext|>", "<|startoftranscript|>", "<|emo:undefined|>", "<|\(code)|>", pnc, "<|noitn|>", "<|notimestamp|>", "<|nodiarize|>"]
 		var ids: [String: Int32] = [:]
 		for token in required {
 			guard let id = vocabulary.first(where: { $0.value == token })?.key,
@@ -459,7 +490,7 @@ enum CanaryPromptFactory {
 		let languageToken = "<|\(code)|>"
 		return [
 			ids["▁"]!, ids["<|startofcontext|>"]!, ids["<|startoftranscript|>"]!, ids["<|emo:undefined|>"]!,
-			ids[languageToken]!, ids[languageToken]!, ids["<|pnc|>"]!, ids["<|noitn|>"]!,
+			ids[languageToken]!, ids[languageToken]!, ids[pnc]!, ids["<|noitn|>"]!,
 			ids["<|notimestamp|>"]!, ids["<|nodiarize|>"]!,
 		]
 	}
