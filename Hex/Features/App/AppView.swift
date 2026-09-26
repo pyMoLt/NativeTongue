@@ -22,7 +22,7 @@ struct AppView: View {
     Item(tab: .dictationBox, title: "Dictation Box", symbol: "text.below.photo"),
   ]
   private let secondary: [Item] = [
-    Item(tab: .audioImport, title: "Files", symbol: "doc.badge.waveform"),
+    Item(tab: .files, title: "Files", symbol: "doc.badge.waveform"),
     Item(tab: .history, title: "History", symbol: "clock"),
   ]
   private let footer: [Item] = [
@@ -93,8 +93,8 @@ struct AppView: View {
       CommandsPageView(store: store.scope(state: \.settings, action: \.settings))
     case .dictationBox:
       BoxSettingsPageView(store: store.scope(state: \.settings, action: \.settings))
-    case .audioImport:
-      AudioImportView(store: store.scope(state: \.audioImport, action: \.audioImport))
+    case .files:
+      FileTranscriptionView(store: store.scope(state: \.files, action: \.files))
     case .history:
       HistoryView(store: store.scope(state: \.history, action: \.history))
     case .settings:

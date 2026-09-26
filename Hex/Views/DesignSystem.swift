@@ -160,6 +160,6 @@ extension Text {
 enum AppBrand {
   static var name: String {
     (Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
-      .map { $0.replacingOccurrences(of: " Debug", with: "") } ?? "Local ASR"
+      .map { $0.replacingOccurrences(of: " Debug", with: "") } ?? "NativeTongue"
   }
 }

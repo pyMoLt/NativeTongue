@@ -28,7 +28,7 @@ struct AboutView: View {
                         ChangelogView()
                     }
                 }
-                Label("Local ASR — on-device transcription", systemImage: "lock.shield")
+                Label("\(AppBrand.name) — on-device transcription", systemImage: "lock.shield")
                 Text("Audio is processed on this Mac. Model downloads happen only when you start them.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)

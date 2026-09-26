@@ -137,7 +137,7 @@ final class EngineSmokeTests: XCTestCase {
 		let forbidden = ["anatomy", "enolic", "locale", " MIT ", " THE "]
 		for word in forbidden { XCTAssertFalse(output.text.contains(word), word) }
 		for term in ["Mycophenolatmofetil", "PostgreSQL", "AVFoundation"] {
-			XCTAssertTrue(output.text.contains(term), "missing \(term)")
+			XCTAssertTrue(output.text.contains(term), "missing \(term); variants \(variants); corrections \(corrections.map { "\($0.original)→\($0.replacement)" })")
 		}
 	}
 
@@ -166,6 +166,30 @@ final class EngineSmokeTests: XCTestCase {
 			}
 		}
 		await client.unloadModel()
+	}
+
+	/// Plan acceptance F1: terminology recording as a file, speaker separation on,
+	/// SRT export valid, one speaker.
+	func testFileTranscriptionWithSpeakersToSRT() async throws {
+		let samples = try loadFixture("Terminology-de-en.m4a")
+		let client = TranscriptionClient.liveValue
+		guard await client.isModelDownloaded(turbo) else { throw XCTSkip("Whisper Turbo not installed") }
+		let runner = FileTranscriptionRunner(transcribeSamples: client.transcribeSamples)
+		let start = Date()
+		var segments = try await runner.run(samples: samples, request: .init(model: turbo, mode: .normal, language: "de"))
+		await client.unloadModel()
+		let diarization = DiarizationClient.liveValue
+		if !(await diarization.isInstalled()) { try await diarization.install { _ in } }
+		let turns = try await diarization.diarize(samples)
+		segments = SpeakerAssigner.normalizeOrder(SpeakerAssigner.assign(segments, turns: turns))
+		let speakers = Set(segments.compactMap(\.speaker))
+		let srt = TranscriptExporter.subtitles(segments, vtt: false)
+		print("FILE_F1 segments=\(segments.count) speakers=\(speakers.count) turns=\(turns.count) seconds=\(Int(Date().timeIntervalSince(start)))")
+		XCTAssertGreaterThan(segments.count, 5)
+		XCTAssertEqual(speakers.count, 1)
+		XCTAssertTrue(srt.hasPrefix("1\n00:00:"))
+		XCTAssertTrue(zip(segments, segments.dropFirst()).allSatisfy { $0.start <= $1.start })
+		XCTAssertLessThanOrEqual(segments.last?.end ?? 0, Double(samples.count) / 16_000 + 0.5)
 	}
 
 	func testIdleUnloadFiresAndInvalidatesPreviousTimer() async throws {

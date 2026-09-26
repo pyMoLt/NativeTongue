@@ -84,7 +84,7 @@ struct MenuPanelView: View {
         }
         .buttonStyle(.glass)
         Button {
-          store.send(.setActiveTab(.audioImport))
+          store.send(.setActiveTab(.files))
           openSettings()
         } label: {
           Label("File…", systemImage: "doc.badge.waveform").frame(maxWidth: .infinity)

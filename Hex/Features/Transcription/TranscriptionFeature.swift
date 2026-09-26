@@ -410,7 +410,7 @@ private extension TranscriptionFeature {
         soundEffect.play(.startRecording)
 
         if preventSleep {
-          await sleepManagement.preventSleep(reason: "Local ASR Voice Recording")
+          await sleepManagement.preventSleep(reason: "NativeTongue voice recording")
         }
         guard !Task.isCancelled else {
           if preventSleep {
@@ -576,7 +576,7 @@ private extension TranscriptionFeature {
 
     // Check for force quit command (emergency escape hatch)
     if ForceQuitCommandDetector.matches(result.text) {
-      transcriptionFeatureLogger.fault("Force quit voice command recognized; terminating Local ASR.")
+      transcriptionFeatureLogger.fault("Force quit voice command recognized; terminating NativeTongue.")
       return .run { _ in
         FileManager.default.removeItemIfExists(at: audioURL)
         await MainActor.run {
@@ -675,7 +675,7 @@ private extension TranscriptionFeature {
     state.isPrewarming = false
 
     if ForceQuitCommandDetector.matches(text) {
-      transcriptionFeatureLogger.fault("Force quit voice command recognized; terminating Local ASR.")
+      transcriptionFeatureLogger.fault("Force quit voice command recognized; terminating NativeTongue.")
       return .run { _ in
         FileManager.default.removeItemIfExists(at: audioURL)
         await MainActor.run { NSApp.terminate(nil) }
@@ -892,7 +892,7 @@ struct TranscriptionView: View {
 enum ForceQuitCommandDetector {
   static func matches(_ text: String) -> Bool {
     let normalized = normalize(text)
-    return normalized == "force quit local asr now" || normalized == "force quit local asr"
+    return ["force quit local asr now", "force quit local asr", "force quit nativetongue", "force quit native tongue"].contains(normalized)
   }
 
   private static func normalize(_ text: String) -> String {

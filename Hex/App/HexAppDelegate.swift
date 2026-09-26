@@ -100,6 +100,14 @@ class HexAppDelegate: NSObject, NSApplicationDelegate {
 		_ = (recording, pasteboard, keyEventMonitor, soundEffects, transcription, lexicon)
 	}
 
+	/// Audio/video files dropped on the Dock icon or opened with the app.
+	func application(_ application: NSApplication, open urls: [URL]) {
+		let files = urls.filter { AudioImportFileValidator.isSupportedAudioFile($0) }
+		guard !files.isEmpty else { return }
+		HexApp.appStore.send(.openFiles(files))
+		presentSettingsView()
+	}
+
 	private func startLifecycleTasksIfNeeded() {
 		Task { @MainActor in
 			await HexApp.appStore.send(.task).finish()

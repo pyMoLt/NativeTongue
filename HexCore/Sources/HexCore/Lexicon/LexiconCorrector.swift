@@ -7,7 +7,8 @@ import Foundation
 /// 2. **Casing**: exact term match that differs only in casing, for
 ///    case-sensitive entries (brands) or multi-word terms ("Nervus Vagus").
 /// 3. **Fuzzy**: entry may auto-replace (user entry, or pack entry in literal
-///    mode with the setting on), score ≥ 0.90 with a gap ≥ 0.06 to the runner-up,
+///    mode with the setting on), score ≥ 0.90 with a gap ≥ 0.06 to the runner-up
+///    (long words ≥ 12 letters: ≥ 0.85 with a gap ≥ 0.15),
 ///    no word of the sequence is a valid general word (de + en), no stop word,
 ///    language fits, not a known confusable, at least 5 letters.
 public struct LexiconCorrector: Sendable {
@@ -106,9 +107,16 @@ public struct LexiconCorrector: Sendable {
 			}
 		}
 		scored.sort { $0.score > $1.score }
-		guard let best = scored.first, best.score >= 0.90 else { return nil }
+		guard let best = scored.first else { return nil }
 		let runnerUp = scored.first(where: { $0.item.entry.term.lowercased() != best.item.entry.term.lowercased() })?.score ?? 0
-		guard best.score - runnerUp >= 0.06 else { return nil }
+		let gap = best.score - runnerUp
+		// Standard: score ≥ 0.90 and gap ≥ 0.06. Long words (≥ 12 letters) with a
+		// clear single winner may pass at 0.85 (e.g. "Mykopenolatmophetil": the
+		// p/ph spelling changes the Kölner key; best 0.87, runner-up 0.69).
+		let letters = span.filter(\.isLetter).count
+		let clear = best.score >= 0.90 && gap >= 0.06
+		let clearLong = letters >= 12 && best.score >= 0.85 && gap >= 0.15
+		guard clear || clearLong else { return nil }
 		let entry = best.item.entry
 		guard mayAutoReplace(best.item), best.item.isUser || languageFits(entry) else { return nil }
 		guard !entry.confusableWith.contains(where: { $0.lowercased() == lower }) else { return nil }

@@ -336,7 +336,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Local ASR Debug.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Local ASR Debug";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/NativeTongue Debug.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/NativeTongue Debug";
 			};
 			name = Debug;
 		};
@@ -353,7 +353,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Local ASR.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Local ASR";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/NativeTongue.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/NativeTongue";
 			};
 			name = Release;
 		};
@@ -510,10 +510,10 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Hex/Info.plist;
-				INFOPLIST_KEY_CFBundleName = "Local ASR";
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Local ASR needs to simulate paste so dictated text can be inserted into the active app.";
+				INFOPLIST_KEY_CFBundleName = NativeTongue;
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "NativeTongue needs to simulate paste so dictated text can be inserted into the active app.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Local ASR needs microphone access to transcribe your voice on this Mac.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "NativeTongue needs microphone access to transcribe your voice on this Mac.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -530,7 +530,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.localasr.LocalASR.debug;
 				PRODUCT_MODULE_NAME = Hex;
-				PRODUCT_NAME = "Local ASR Debug";
+				PRODUCT_NAME = "NativeTongue Debug";
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
 				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
@@ -570,10 +570,10 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Hex/Info.plist;
-				INFOPLIST_KEY_CFBundleName = "Local ASR";
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Local ASR needs to simulate paste so dictated text can be inserted into the active app.";
+				INFOPLIST_KEY_CFBundleName = NativeTongue;
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "NativeTongue needs to simulate paste so dictated text can be inserted into the active app.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Local ASR needs microphone access to transcribe your voice on this Mac.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "NativeTongue needs microphone access to transcribe your voice on this Mac.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -582,7 +582,7 @@
 				MARKETING_VERSION = 0.8.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.localasr.LocalASR;
 				PRODUCT_MODULE_NAME = Hex;
-				PRODUCT_NAME = "Local ASR";
+				PRODUCT_NAME = NativeTongue;
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
 				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;

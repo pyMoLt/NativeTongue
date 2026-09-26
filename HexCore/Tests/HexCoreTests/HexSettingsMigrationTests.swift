@@ -101,7 +101,7 @@ final class HexSettingsMigrationTests: XCTestCase {
 		let high = try JSONDecoder().decode(HexSettings.self, from: Data("{\"spokenCommandPauseSeconds\":4}".utf8))
 
 		XCTAssertEqual(low.spokenCommandPauseSeconds, 0.25)
-		XCTAssertEqual(high.spokenCommandPauseSeconds, 1.0)
+		XCTAssertEqual(high.spokenCommandPauseSeconds, 1.2)
 	}
 
 	func testTerminologyContextIsDeduplicatedAndBounded() {

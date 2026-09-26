@@ -76,6 +76,7 @@ final class LexiconCorrectorTests: XCTestCase {
 	func testFuzzyReplacesOnlyUnknownWordsInLiteral() {
 		let corrector = corrector()
 		XCTAssertEqual(run("Mycophenolatmophetil und Glomerulonefritis", corrector), "Mycophenolatmofetil und Glomerulonephritis")
+		XCTAssertEqual(run("Mykopenolatmophetil", corrector), "Mycophenolatmofetil")
 		XCTAssertEqual(run("Anatomie ähnlich lokale deutscher", corrector), "Anatomie ähnlich lokale deutscher")
 		// Normal mode never fuzzy-replaces pack terms.
 		XCTAssertEqual(run("Mycophenolatmophetil", self.corrector(mode: .normal)), "Mycophenolatmophetil")

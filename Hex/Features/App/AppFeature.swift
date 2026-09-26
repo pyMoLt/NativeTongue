@@ -23,7 +23,7 @@ struct AppFeature {
     case vocabulary
     case commands
     case dictationBox
-    case audioImport
+    case files
     case history
     case settings
     case remappings
@@ -38,7 +38,7 @@ struct AppFeature {
 	@ObservableState
 	struct State {
 		var transcription: TranscriptionFeature.State = .init()
-		var audioImport: AudioImportFeature.State = .init()
+		var files: FileTranscriptionFeature.State = .init()
 		var settings: SettingsFeature.State = .init()
 		var history: HistoryFeature.State = .init()
 		var lexicon: LexiconFeature.State = .init()
@@ -58,7 +58,7 @@ struct AppFeature {
   enum Action: BindableAction {
     case binding(BindingAction<State>)
     case transcription(TranscriptionFeature.Action)
-    case audioImport(AudioImportFeature.Action)
+    case files(FileTranscriptionFeature.Action)
     case settings(SettingsFeature.Action)
     case history(HistoryFeature.Action)
     case lexicon(LexiconFeature.Action)
@@ -70,6 +70,7 @@ struct AppFeature {
     case presentOnboarding(Bool)
     case finishOnboarding
     case lexiconMigrated
+    case openFiles([URL])
     case task
     case pasteLastTranscript
 
@@ -93,8 +94,8 @@ struct AppFeature {
       TranscriptionFeature()
     }
 
-    Scope(state: \.audioImport, action: \.audioImport) {
-      AudioImportFeature()
+    Scope(state: \.files, action: \.files) {
+      FileTranscriptionFeature()
     }
 
     Scope(state: \.settings, action: \.settings) {
@@ -178,10 +179,7 @@ struct AppFeature {
       case .dictationBox:
         return .none
 
-      case .audioImport(.openModelSettings):
-        state.activeTab = .models
-        return .none
-      case .audioImport:
+      case .files:
         return .none
 
       case .settings(.requestMicrophone):
@@ -243,6 +241,10 @@ struct AppFeature {
       case let .presentOnboarding(presented):
         state.isOnboardingPresented = presented
         return .none
+
+      case let .openFiles(urls):
+        state.activeTab = .files
+        return .send(.files(.addFiles(urls)))
 
       case .lexiconMigrated:
         state.$hexSettings.withLock { $0.hasMigratedLexicon = true }
