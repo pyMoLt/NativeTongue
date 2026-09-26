@@ -205,8 +205,11 @@ actor ParakeetClient {
     var padded = samples
     if padded.count < 16_000 { padded += [Float](repeating: 0, count: 16_000 - padded.count) }
     var decoderState = TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
-    let hint: Language? = currentVariant.isEnglishOnly ? nil : (language == "en" ? .english : language == "de" ? .german : nil)
-    let result = try await asr.transcribe(padded, decoderState: &decoderState, language: hint)
+    let result = try await asr.transcribe(
+      padded,
+      decoderState: &decoderState,
+      language: currentVariant.isEnglishOnly ? nil : language == "en" ? .english : language == "de" ? .german : nil
+    )
     let words = buildWordTimings(from: result.tokenTimings ?? []).map {
       EngineWord(text: $0.word, start: $0.startTime, end: $0.endTime)
     }

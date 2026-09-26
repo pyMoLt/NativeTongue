@@ -29,6 +29,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var openOnLogin: Bool
 	public var showDockIcon: Bool
 	public var selectedModel: String
+	public var idleUnloadMinutes: Int
 	public var dictationMode: DictationMode
 	public var asrProfile: ASRProfile
 	public var profileModelSelections: [ASRProfile: String]
@@ -62,6 +63,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 			useDoubleTapOnly = false
 		}
 		spokenCommandPauseSeconds = min(max(spokenCommandPauseSeconds, 0.25), 1.0)
+		if ![0, 2, 5, 10, 30].contains(idleUnloadMinutes) { idleUnloadMinutes = 10 }
 		if !selectedModel.isEmpty, profileModelSelections[asrProfile] == nil {
 			profileModelSelections[asrProfile] = selectedModel
 		}
@@ -74,6 +76,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		openOnLogin: Bool = false,
 		showDockIcon: Bool = true,
 		selectedModel: String = "",
+		idleUnloadMinutes: Int = 10,
 		dictationMode: DictationMode = .normal,
 		asrProfile: ASRProfile = .general,
 		profileModelSelections: [ASRProfile: String] = [:],
@@ -108,6 +111,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.openOnLogin = openOnLogin
 		self.showDockIcon = showDockIcon
 		self.selectedModel = selectedModel
+		self.idleUnloadMinutes = idleUnloadMinutes
 		self.dictationMode = dictationMode
 		self.asrProfile = asrProfile
 		self.profileModelSelections = profileModelSelections
@@ -178,6 +182,7 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case openOnLogin
 	case showDockIcon
 	case selectedModel
+	case idleUnloadMinutes
 	case dictationMode
 	case asrProfile
 	case profileModelSelections
@@ -272,6 +277,7 @@ private enum HexSettingsSchema {
 		SettingsField(.openOnLogin, keyPath: \.openOnLogin, default: defaults.openOnLogin).eraseToAny(),
 		SettingsField(.showDockIcon, keyPath: \.showDockIcon, default: defaults.showDockIcon).eraseToAny(),
 		SettingsField(.selectedModel, keyPath: \.selectedModel, default: defaults.selectedModel).eraseToAny(),
+		SettingsField(.idleUnloadMinutes, keyPath: \.idleUnloadMinutes, default: defaults.idleUnloadMinutes).eraseToAny(),
 		SettingsField(.dictationMode, keyPath: \.dictationMode, default: defaults.dictationMode).eraseToAny(),
 		SettingsField(.asrProfile, keyPath: \.asrProfile, default: defaults.asrProfile).eraseToAny(),
 		SettingsField(.profileModelSelections, keyPath: \.profileModelSelections, default: defaults.profileModelSelections).eraseToAny(),

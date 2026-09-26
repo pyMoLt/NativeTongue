@@ -1,0 +1,119 @@
+{
+  "measuredAt": "2026-09-26",
+  "source": "local-asr-docs/04-tests/ergebnisse/2026-09-26_BENCHMARK_ERGEBNISSE.md",
+  "speakerCount": 1,
+  "terminologyReferenceCount": 47,
+  "literalCommandReferenceCount": 14,
+  "terminologyAudioSeconds": 188,
+  "memoryMetric": "peak process RSS; Core ML and Neural Engine memory may not be fully included",
+  "measurements": [
+    {
+      "internalName": "openai_whisper-large-v3",
+      "configuration": "natural",
+      "literalCommandsRecognized": 10,
+      "automaticPunctuationCount": 20,
+      "terminologyCorrect": 30,
+      "medicalTermsCorrect": 4,
+      "technicalTermsCorrect": 26,
+      "wordErrorRatePercent": 12.7,
+      "peakProcessRSSGB": 0.9,
+      "transcriptionSeconds": 28.3
+    },
+    {
+      "internalName": "openai_whisper-large-v3",
+      "configuration": "punctuationSuppressed",
+      "literalCommandsRecognized": 13,
+      "automaticPunctuationCount": 0,
+      "terminologyCorrect": 31,
+      "medicalTermsCorrect": 7,
+      "technicalTermsCorrect": 24,
+      "wordErrorRatePercent": 12.3,
+      "peakProcessRSSGB": 0.9,
+      "transcriptionSeconds": 27.2
+    },
+    {
+      "internalName": "openai_whisper-large-v3-v20240930_turbo",
+      "configuration": "natural",
+      "literalCommandsRecognized": 12,
+      "automaticPunctuationCount": 23,
+      "terminologyCorrect": 31,
+      "medicalTermsCorrect": 8,
+      "technicalTermsCorrect": 23,
+      "wordErrorRatePercent": 13.2,
+      "peakProcessRSSGB": 0.38,
+      "transcriptionSeconds": 8.2
+    },
+    {
+      "internalName": "openai_whisper-large-v3-v20240930_turbo",
+      "configuration": "punctuationSuppressed",
+      "literalCommandsRecognized": 14,
+      "automaticPunctuationCount": 0,
+      "terminologyCorrect": 28,
+      "medicalTermsCorrect": 6,
+      "technicalTermsCorrect": 22,
+      "wordErrorRatePercent": 15.6,
+      "peakProcessRSSGB": 0.38,
+      "transcriptionSeconds": 8.1
+    },
+    {
+      "internalName": "qwen3-asr-1.7b-8bit-mlx",
+      "configuration": "natural",
+      "literalCommandsRecognized": 9,
+      "automaticPunctuationCount": 24,
+      "terminologyCorrect": 32,
+      "medicalTermsCorrect": 10,
+      "technicalTermsCorrect": 22,
+      "wordErrorRatePercent": 13.2,
+      "peakProcessRSSGB": 2.6,
+      "transcriptionSeconds": 6.6
+    },
+    {
+      "internalName": "parakeet-tdt-0.6b-v3-coreml",
+      "configuration": "natural",
+      "literalCommandsRecognized": 9,
+      "automaticPunctuationCount": 17,
+      "terminologyCorrect": 30,
+      "medicalTermsCorrect": 7,
+      "technicalTermsCorrect": 23,
+      "wordErrorRatePercent": 14.6,
+      "peakProcessRSSGB": 0.14,
+      "transcriptionSeconds": 0.4
+    },
+    {
+      "internalName": "parakeet-ultra-coreml",
+      "configuration": "natural",
+      "literalCommandsRecognized": 13,
+      "automaticPunctuationCount": 19,
+      "terminologyCorrect": 31,
+      "medicalTermsCorrect": 6,
+      "technicalTermsCorrect": 25,
+      "wordErrorRatePercent": 11.8,
+      "peakProcessRSSGB": 0.14,
+      "transcriptionSeconds": 0.5
+    },
+    {
+      "internalName": "canary-1b-v2-int4-coreml",
+      "configuration": "natural",
+      "literalCommandsRecognized": 10,
+      "automaticPunctuationCount": 6,
+      "terminologyCorrect": 25,
+      "medicalTermsCorrect": 8,
+      "technicalTermsCorrect": 17,
+      "wordErrorRatePercent": 28.8,
+      "peakProcessRSSGB": 2.5,
+      "transcriptionSeconds": 35.6
+    },
+    {
+      "internalName": "cohere-transcribe-2b-8bit-mlx",
+      "configuration": "natural",
+      "literalCommandsRecognized": 11,
+      "automaticPunctuationCount": 8,
+      "terminologyCorrect": 25,
+      "medicalTermsCorrect": 6,
+      "technicalTermsCorrect": 19,
+      "wordErrorRatePercent": 14.6,
+      "peakProcessRSSGB": 2.5,
+      "transcriptionSeconds": 4.0
+    }
+  ]
+}

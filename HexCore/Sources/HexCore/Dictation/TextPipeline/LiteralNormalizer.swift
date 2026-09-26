@@ -5,6 +5,13 @@ import Foundation
 /// abbreviations, hyphenated compounds and URLs survive because the tokenizer
 /// keeps them inside word tokens.
 public enum LiteralNormalizer {
+	/// Engine-independent safety net for backends that cannot mask punctuation
+	/// tokens in their decoder. Spoken command words remain plain words for the
+	/// later command grammar; protected forms such as 2,5 and z.B. remain intact.
+	public static func stripAutomaticMarks(from text: String) -> String {
+		normalize(ModelTextTokenizer.tokenize(text)).compactMap(\.wordText).joined(separator: " ")
+	}
+
 	public static func normalize(_ tokens: [TextToken]) -> [TextToken] {
 		tokens.compactMap { token in
 			switch token {

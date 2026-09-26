@@ -93,6 +93,20 @@ private struct DictationModeSectionView: View {
 					.frame(width: 62, alignment: .trailing)
 			}
 
+			Picker(
+				"Unload idle model",
+				selection: Binding(
+					get: { store.hexSettings.idleUnloadMinutes },
+					set: { store.send(.setIdleUnloadMinutes($0)) }
+				)
+			) {
+				Text("Off").tag(0)
+				Text("2 minutes").tag(2)
+				Text("5 minutes").tag(5)
+				Text("10 minutes").tag(10)
+				Text("30 minutes").tag(30)
+			}
+
 			VStack(alignment: .leading, spacing: 5) {
 				Text("Additional terminology for \(store.hexSettings.asrProfile.displayName)")
 					.font(.callout)

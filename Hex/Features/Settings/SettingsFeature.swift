@@ -83,6 +83,7 @@ struct SettingsFeature {
     case setDictationMode(DictationMode)
 	case setASRProfile(ASRProfile)
 	case setSpokenCommandPause(Double)
+	case setIdleUnloadMinutes(Int)
 	case setProfileVocabulary(ASRProfile, String)
     case setOutputLanguage(String?)
     case setSelectedMicrophoneID(String?)
@@ -247,7 +248,9 @@ struct SettingsFeature {
         }
 
         // Listen for key events and load microphones (existing + new)
+        let idleUnloadMinutes = state.hexSettings.idleUnloadMinutes
         return .run { send in
+          await transcription.configureIdleUnload(idleUnloadMinutes)
           func audioPropertyAddress(
             _ selector: AudioObjectPropertySelector,
             scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal,
@@ -514,6 +517,11 @@ struct SettingsFeature {
 			$0.spokenCommandPauseSeconds = min(max(seconds, 0.25), 1.0)
 		}
 		return .none
+
+	  case let .setIdleUnloadMinutes(minutes):
+		let normalized = [0, 2, 5, 10, 30].contains(minutes) ? minutes : 10
+		state.$hexSettings.withLock { $0.idleUnloadMinutes = normalized }
+		return .run { _ in await transcription.configureIdleUnload(normalized) }
 
 	  case let .setProfileVocabulary(profile, vocabulary):
 		state.$hexSettings.withLock { settings in

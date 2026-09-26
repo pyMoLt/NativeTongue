@@ -61,9 +61,33 @@ struct TranscriptionClient {
 
   /// Name of the resident model, if any.
   var loadedModel: @Sendable () async -> String? = { nil }
+
+  /// Configures automatic unloading after 0, 2, 5, 10, or 30 idle minutes.
+  var configureIdleUnload: @Sendable (Int) async -> Void = { _ in }
+
+  /// Current process footprint. Core ML/ANE allocations may not all be included.
+  var processFootprintBytes: @Sendable () async -> UInt64? = { nil }
 }
 
 extension TranscriptionClient: DependencyKey {
+  /// Keep the XCTest app host side-effect free. Engine integration tests opt in
+  /// to `liveValue` explicitly, while feature tests override only what they use.
+  static var testValue: Self {
+    Self(
+      transcribe: { _, _, _, _ in throw NSError(domain: "TranscriptionClient.testValue", code: 1) },
+      downloadModel: { _, _ in throw NSError(domain: "TranscriptionClient.testValue", code: 1) },
+      deleteModel: { _ in throw NSError(domain: "TranscriptionClient.testValue", code: 1) },
+      isModelDownloaded: { _ in false },
+      getAvailableModels: { [] },
+      transcribeSamples: { _, _, _ in throw NSError(domain: "TranscriptionClient.testValue", code: 1) },
+      prewarm: { _ in throw NSError(domain: "TranscriptionClient.testValue", code: 1) },
+      unloadModel: {},
+      loadedModel: { nil },
+      configureIdleUnload: { _ in },
+      processFootprintBytes: { nil }
+    )
+  }
+
   static var liveValue: Self {
     let live = TranscriptionClientLive()
     return Self(
@@ -75,7 +99,9 @@ extension TranscriptionClient: DependencyKey {
       transcribeSamples: { try await live.transcribe(samples: $0, model: $1, options: $2) },
       prewarm: { try await live.prewarm(model: $0) },
       unloadModel: { await live.unloadModel() },
-      loadedModel: { await live.loadedModelName() }
+      loadedModel: { await live.loadedModelName() },
+      configureIdleUnload: { await live.configureIdleUnload(minutes: $0) },
+      processFootprintBytes: { await live.processFootprintBytes() }
     )
   }
 }
@@ -104,6 +130,15 @@ actor TranscriptionClientLive {
   private var whisperPunctuationTokens: [String: [Int]] = [:]
   private var isInstallingModel = false
   private var activeTranscriptions = 0
+  private var prewarmTask: Task<Void, Error>?
+  private var idleUnloadMinutes = 10
+  private var idleUnloadTask: Task<Void, Never>?
+  private var idleUnloadGeneration: UInt64 = 0
+  private let idleUnloadDelayForTesting: Duration?
+
+  init(idleUnloadDelayForTesting: Duration? = nil) {
+    self.idleUnloadDelayForTesting = idleUnloadDelayForTesting
+  }
 
   /// The base folder under which we store model data (e.g., ~/Library/Application Support/...).
   private lazy var modelsBaseFolder: URL = {
@@ -119,11 +154,15 @@ actor TranscriptionClientLive {
   /// Installs (only when explicitly requested by the model UI) and loads a model.
   /// Inference uses `loadInstalledModel` instead and never downloads.
   func downloadAndLoadModel(variant: String, progressCallback: @escaping (Progress) -> Void) async throws {
-    guard !isInstallingModel, activeTranscriptions == 0 else {
+    guard !isInstallingModel, activeTranscriptions == 0, prewarmTask == nil else {
       throw operationBusyError()
     }
     isInstallingModel = true
-    defer { isInstallingModel = false }
+    cancelIdleUnload()
+    defer {
+      isInstallingModel = false
+      scheduleIdleUnload()
+    }
 
     // Resolve wildcard patterns (e.g., "distil*large-v3") to a concrete variant
     let variant = await resolveVariant(variant)
@@ -218,7 +257,7 @@ actor TranscriptionClientLive {
 
   /// Deletes a model from disk if it exists
   func deleteModel(variant: String) async throws {
-    guard !isInstallingModel, activeTranscriptions == 0 else {
+    guard !isInstallingModel, activeTranscriptions == 0, prewarmTask == nil else {
       throw operationBusyError()
     }
     let descriptor = try LocalASRModelCatalog.descriptor(named: variant)
@@ -316,18 +355,35 @@ actor TranscriptionClientLive {
     options: ASRTranscriptionOptions,
     progressCallback: @escaping (Progress) -> Void
   ) async throws -> TranscriptionOutput {
+    if let prewarmTask { try await prewarmTask.value }
+    let model = await resolveVariant(model)
+    let descriptor = try LocalASRModelCatalog.descriptor(named: model)
+    if descriptor.backend == .cohereMLX || descriptor.backend == .appleSpeechAnalyzer {
+      let samples = try AudioFileLoader.load(url: url, targetSampleRate: 16_000)
+      let result = try await transcribe(
+        samples: samples,
+        model: model,
+        options: RequestOptions(language: options.decoding.language, punctuation: .natural)
+      )
+      return TranscriptionOutput(
+        text: result.text,
+        wordTimings: result.words.map { TranscriptWordTiming(word: $0.text, startTime: $0.start, endTime: $0.end) }
+      )
+    }
+
     guard !isInstallingModel, activeTranscriptions == 0 else {
       throw operationBusyError()
     }
     activeTranscriptions += 1
-    defer { activeTranscriptions -= 1 }
+    cancelIdleUnload()
+    defer {
+      activeTranscriptions -= 1
+      scheduleIdleUnload()
+    }
 
     let startAll = Date()
-    let model = await resolveVariant(model)
-    let descriptor = try LocalASRModelCatalog.descriptor(named: model)
-
     if descriptor.backend == .parakeetFluidAudioCoreML {
-      transcriptionLogger.notice("Transcribing with Parakeet model=\(model) file=\(url.lastPathComponent)")
+      transcriptionLogger.notice("Transcribing with Parakeet model=\(model)")
       let startLoad = Date()
       try await loadInstalledModel(variant: model, progressCallback: progressCallback)
       transcriptionLogger.info("Parakeet ensureLoaded took \(String(format: "%.2f", Date().timeIntervalSince(startLoad)))s")
@@ -341,7 +397,7 @@ actor TranscriptionClientLive {
     }
 
     if descriptor.backend == .qwen3MLX {
-      transcriptionLogger.notice("Transcribing with Qwen3-ASR model=\(model) file=\(url.lastPathComponent)")
+      transcriptionLogger.notice("Transcribing with Qwen3-ASR model=\(model)")
       let startLoad = Date()
       try await loadInstalledModel(variant: model, progressCallback: progressCallback)
       transcriptionLogger.info("Qwen3-ASR ensureLoaded took \(String(format: "%.2f", Date().timeIntervalSince(startLoad)))s")
@@ -357,7 +413,7 @@ actor TranscriptionClientLive {
     }
 
     if descriptor.backend == .omiMedicalParakeetCoreML {
-      transcriptionLogger.notice("Transcribing with \(descriptor.displayName) model=\(model) file=\(url.lastPathComponent)")
+      transcriptionLogger.notice("Transcribing with \(descriptor.displayName) model=\(model)")
       try await additionalFluidAudio.validateLanguage(descriptor, language: options.decoding.language)
       let startLoad = Date()
       try await loadInstalledModel(variant: model, progressCallback: progressCallback)
@@ -368,24 +424,9 @@ actor TranscriptionClientLive {
       return output
     }
 
-    if descriptor.backend == .cohereMLX || descriptor.backend == .appleSpeechAnalyzer {
-      let samples = try AudioFileLoader.load(url: url, targetSampleRate: 16_000)
-      activeTranscriptions -= 1
-      defer { activeTranscriptions += 1 }
-      let result = try await transcribe(
-        samples: samples,
-        model: model,
-        options: RequestOptions(language: options.decoding.language, punctuation: .natural)
-      )
-      return TranscriptionOutput(
-        text: result.text,
-        wordTimings: result.words.map { TranscriptWordTiming(word: $0.text, startTime: $0.start, endTime: $0.end) }
-      )
-    }
-
     if descriptor.backend == .canaryFluidAudioCoreML {
       try await additionalFluidAudio.validateLanguage(descriptor, language: options.decoding.language)
-      transcriptionLogger.notice("Transcribing with \(descriptor.displayName) model=\(model) file=\(url.lastPathComponent)")
+      transcriptionLogger.notice("Transcribing with \(descriptor.displayName) model=\(model)")
       let startLoad = Date()
       try await loadInstalledModel(variant: model, progressCallback: progressCallback)
       transcriptionLogger.info("\(descriptor.displayName) local load took \(String(format: "%.2f", Date().timeIntervalSince(startLoad)))s")
@@ -419,7 +460,7 @@ actor TranscriptionClientLive {
     }
 
     // Perform the transcription.
-    transcriptionLogger.notice("Transcribing with WhisperKit model=\(model) file=\(url.lastPathComponent)")
+    transcriptionLogger.notice("Transcribing with WhisperKit model=\(model)")
     let startTx = Date()
     var decodeOptions = options.decoding
     if let terminologyContext = options.terminologyContext,
@@ -444,42 +485,66 @@ actor TranscriptionClientLive {
   // MARK: - V2 samples API
 
   func prewarm(model: String) async throws {
-    guard !isInstallingModel else { return }
     let model = await resolveVariant(model)
     guard !model.isEmpty else { return }
-    try await loadInstalledModel(variant: model) { _ in }
+    if let prewarmTask { try await prewarmTask.value }
+    guard !isInstallingModel, activeTranscriptions == 0 else { throw operationBusyError() }
+    cancelIdleUnload()
+    let task = Task { [self] in
+      defer {
+        prewarmTask = nil
+        scheduleIdleUnload()
+      }
+      try await loadInstalledModel(variant: model) { _ in }
+    }
+    prewarmTask = task
+    try await task.value
   }
 
   func unloadModel() async {
-    guard !isInstallingModel, activeTranscriptions == 0 else { return }
+    guard !isInstallingModel, activeTranscriptions == 0, prewarmTask == nil else { return }
     await unloadCurrentModel()
   }
 
   func loadedModelName() -> String? { currentModelName }
 
+  func configureIdleUnload(minutes: Int) {
+    idleUnloadMinutes = [0, 2, 5, 10, 30].contains(minutes) ? minutes : 10
+    scheduleIdleUnload()
+  }
+
+  func processFootprintBytes() -> UInt64? { ProcessMemoryMeter.currentFootprintBytes() }
+
   func transcribe(samples: [Float], model: String, options: RequestOptions) async throws -> EngineResult {
-    guard !isInstallingModel else { throw operationBusyError() }
+    if let prewarmTask { try await prewarmTask.value }
+    guard !isInstallingModel, activeTranscriptions == 0 else { throw operationBusyError() }
     activeTranscriptions += 1
-    defer { activeTranscriptions -= 1 }
+    cancelIdleUnload()
+    defer {
+      activeTranscriptions -= 1
+      scheduleIdleUnload()
+    }
 
     let model = await resolveVariant(model)
     let descriptor = try LocalASRModelCatalog.descriptor(named: model)
     try await loadInstalledModel(variant: model) { _ in }
 
+    let result: EngineResult
     switch descriptor.backend {
     case .parakeetFluidAudioCoreML:
-      return try await parakeet.transcribe(samples: samples, language: options.language)
+      result = try await parakeet.transcribe(samples: samples, language: options.language)
     case .qwen3MLX:
-      return try await qwen.transcribe(samples: samples, options: options)
+      result = try await qwen.transcribe(samples: samples, options: options)
     case .canaryFluidAudioCoreML, .omiMedicalParakeetCoreML:
-      return try await additionalFluidAudio.transcribe(descriptor, samples: samples, options: options)
+      result = try await additionalFluidAudio.transcribe(descriptor, samples: samples, options: options)
     case .cohereMLX:
-      return try await cohere.transcribe(samples: samples, options: options)
+      result = try await cohere.transcribe(samples: samples, options: options)
     case .appleSpeechAnalyzer:
-      return try await appleSpeech.transcribe(samples: samples, options: options)
+      result = try await appleSpeech.transcribe(samples: samples, options: options)
     case .whisperKitCoreML:
-      return try await transcribeWhisper(samples: samples, model: model, options: options)
+      result = try await transcribeWhisper(samples: samples, model: model, options: options)
     }
+    return EngineResultNormalizer.apply(result, punctuation: options.punctuation)
   }
 
   private func transcribeWhisper(samples: [Float], model: String, options: RequestOptions) async throws -> EngineResult {
@@ -677,7 +742,7 @@ actor TranscriptionClientLive {
         progressCallback(completed)
         return
       } catch {
-        modelsLogger.notice("Local Whisper tokenizer validation failed; refreshing tokenizer assets during explicit installation: \(error.localizedDescription)")
+        modelsLogger.notice("Local Whisper tokenizer validation failed; refreshing tokenizer assets during explicit installation: \(error.localizedDescription, privacy: .private)")
       }
     }
 
@@ -730,6 +795,7 @@ actor TranscriptionClientLive {
 
   // Releases both backend objects before another model is loaded.
   private func unloadCurrentModel() async {
+    cancelIdleUnload()
     if let whisperKit {
       await whisperKit.unloadModels()
     }
@@ -739,6 +805,43 @@ actor TranscriptionClientLive {
     await qwen.unload()
     await additionalFluidAudio.unload()
     await cohere.unload()
+  }
+
+  private func cancelIdleUnload() {
+    // A canceled timer may already have resumed and queued an actor call.
+    // Invalidate that call as well, not only the sleeping task.
+    idleUnloadGeneration &+= 1
+    idleUnloadTask?.cancel()
+    idleUnloadTask = nil
+  }
+
+  private func scheduleIdleUnload() {
+    cancelIdleUnload()
+    guard let modelName = currentModelName,
+          idleUnloadMinutes > 0,
+          !isInstallingModel,
+          prewarmTask == nil,
+          activeTranscriptions == 0 else { return }
+    let minutes = idleUnloadMinutes
+    let generation = idleUnloadGeneration
+    let delay = idleUnloadDelayForTesting ?? .seconds(minutes * 60)
+    idleUnloadTask = Task { [weak self] in
+      do { try await Task.sleep(for: delay) }
+      catch { return }
+      await self?.unloadIfStillIdle(modelName: modelName, generation: generation)
+    }
+  }
+
+  private func unloadIfStillIdle(modelName: String, generation: UInt64) async {
+    guard generation == idleUnloadGeneration,
+          currentModelName == modelName,
+          !isInstallingModel,
+          prewarmTask == nil,
+          activeTranscriptions == 0 else { return }
+    // Avoid canceling the timer task while it awaits the model unload.
+    idleUnloadTask = nil
+    await unloadCurrentModel()
+    modelsLogger.info("Unloaded idle ASR model")
   }
 
   /// Downloads the model to a temporary folder (if it isn't already on disk),
@@ -788,13 +891,13 @@ actor TranscriptionClientLive {
       // Move the downloaded snapshot to the final location
       try moveContents(of: tempFolder, to: modelFolder)
 
-      modelsLogger.info("Downloaded model to \(modelFolder.path)")
+      modelsLogger.info("Downloaded model assets")
     } catch {
       // Clean up any partial download if an error occurred
       FileManager.default.removeItemIfExists(at: modelFolder)
 
       // Rethrow the original error
-      modelsLogger.error("Error downloading model \(variant): \(error.localizedDescription)")
+      modelsLogger.error("Error downloading model \(variant): \(error.localizedDescription, privacy: .private)")
       throw error
     }
   }

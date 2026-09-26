@@ -52,8 +52,68 @@ final class LocalASRModelCatalogTests: XCTestCase {
 		XCTAssertEqual(canary.revision?.count, 40)
 		XCTAssertTrue(canary.experimental)
 		XCTAssertTrue(canary.languages.contains("de"))
-		XCTAssertFalse(entries.contains { $0.internalName.contains("cohere") || $0.internalName.contains("mediform") })
-  }
+		XCTAssertFalse(entries.contains { $0.internalName.contains("mediform") || $0.backend.rawValue == "cohereFluidAudioCoreML" })
+	}
+
+	func testCohereMLXAndAppleSpeechAreSelectableWithHonestCapabilities() throws {
+		let entries = try LocalASRModelCatalog.load()
+		let cohere = try XCTUnwrap(entries.first { $0.internalName == CohereMLXASRClient.modelName })
+		XCTAssertEqual(cohere.backend, .cohereMLX)
+		XCTAssertEqual(cohere.revision, CohereMLXASRClient.revision)
+		XCTAssertEqual(cohere.group, .experimental)
+		XCTAssertEqual(cohere.literalRating, .limited)
+		XCTAssertFalse(cohere.engineCapabilities.wordTimings)
+		XCTAssertEqual(cohere.engineCapabilities.punctuationControl, .stripOnly)
+		XCTAssertFalse(cohere.engineCapabilities.supportsAutoLanguage)
+
+		let apple = try XCTUnwrap(entries.first { $0.internalName == AppleSpeechASRClient.modelName })
+		XCTAssertEqual(apple.backend, .appleSpeechAnalyzer)
+		XCTAssertEqual(apple.literalRating, .unverified)
+		XCTAssertTrue(apple.engineCapabilities.wordTimings)
+		XCTAssertTrue(apple.engineCapabilities.biasing.contains(.contextualStrings))
+	}
+
+	func testV2CatalogMetadataDistinguishesMeasuredAndUnmeasuredWhisperVariants() throws {
+		let entries = try LocalASRModelCatalog.load()
+		let turbo = try XCTUnwrap(entries.first { $0.internalName == "openai_whisper-large-v3-v20240930_turbo" })
+		let compressed = try XCTUnwrap(entries.first { $0.internalName == "openai_whisper-large-v3-v20240930_turbo_632MB" })
+		XCTAssertEqual(turbo.group, .recommended)
+		XCTAssertEqual(turbo.literalRating, .reliable)
+		XCTAssertEqual(turbo.recommendedFor, [.literal, .normal])
+		XCTAssertEqual(turbo.engineCapabilities.punctuationControl, .decoderSuppression)
+		XCTAssertEqual(compressed.literalRating, .unverified)
+		XCTAssertTrue(entries.allSatisfy { !$0.languages.isEmpty })
+	}
+
+	func testCatalogStillDecodesOlderEntriesWithoutV2Fields() throws {
+		let data = Data("""
+		[{"displayName":"Legacy","internalName":"legacy","backend":"whisperKitCoreML","repository":"local","precision":"unknown","license":"unknown","languages":["de"],"size":"small","storageSize":"unknown","capabilities":{"wordTimings":true,"contextPrompt":false,"languageHint":true},"experimental":false}]
+		""".utf8)
+		let entry = try XCTUnwrap(LocalASRModelCatalog.decode(data).first)
+		XCTAssertEqual(entry.group, .general)
+		XCTAssertEqual(entry.literalRating, .unverified)
+		XCTAssertEqual(entry.capabilities.punctuationControl, .stripOnly)
+		XCTAssertTrue(entry.recommendedFor.isEmpty)
+	}
+
+	func testBundledBenchmarksMatchCatalogAndDistinguishDecoderModes() throws {
+		let catalog = try LocalASRModelCatalog.load()
+		let benchmarks = try ModelBenchmarkCatalog.load()
+		XCTAssertEqual(benchmarks.speakerCount, 1)
+		XCTAssertEqual(benchmarks.literalCommandReferenceCount, 14)
+		XCTAssertEqual(benchmarks.terminologyReferenceCount, 47)
+		XCTAssertTrue(benchmarks.measurements.allSatisfy { item in
+			catalog.contains { $0.internalName == item.internalName }
+				&& item.terminologyCorrect == item.medicalTermsCorrect + item.technicalTermsCorrect
+		})
+		let turbo = try XCTUnwrap(benchmarks.measurement(
+			for: "openai_whisper-large-v3-v20240930_turbo",
+			configuration: .punctuationSuppressed
+		))
+		XCTAssertEqual(turbo.literalCommandsRecognized, 14)
+		XCTAssertEqual(turbo.automaticPunctuationCount, 0)
+		XCTAssertNil(benchmarks.measurement(for: "apple-speechanalyzer-dictation", configuration: .natural))
+	}
 
   func testCanaryPromptUsesExplicitGermanAndEnglishLanguageTokens() throws {
 		let vocabulary: [Int: String] = [

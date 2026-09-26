@@ -3,6 +3,9 @@
     "displayName": "Canary-1B-v2 · int4 · Core ML",
     "internalName": "canary-1b-v2-int4-coreml",
     "backend": "canaryFluidAudioCoreML",
+    "group": "experimental",
+    "literalRating": "limited",
+    "recommendedFor": [],
     "repository": "FluidInference/canary-1b-v2-coreml",
     "revision": "a5567919114916212fadc1c9b80c168095b14ae2",
     "precision": "int4 encoder/decoder · FP16 projection · ANE",
@@ -18,7 +21,13 @@
     "capabilities": {
       "wordTimings": false,
       "contextPrompt": false,
-      "languageHint": true
+      "languageHint": true,
+      "supportsAutoLanguage": false,
+      "tokenConfidences": false,
+      "punctuationControl": "promptFlag",
+      "biasing": [],
+      "maxWindowSeconds": null,
+      "diarization": false
     },
     "experimental": true
   },
@@ -26,6 +35,9 @@
     "displayName": "Omi Med STT · English clinical · FP16 · Core ML",
     "internalName": "omi-med-stt-v1-en-fp16-coreml",
     "backend": "omiMedicalParakeetCoreML",
+    "group": "medical",
+    "literalRating": "limited",
+    "recommendedFor": [],
     "repository": "cmsha/omi-med-stt-v1-coreml",
     "revision": "81533058ad87d18d3461e21595963edd2d517741",
     "precision": "FP16 MLProgram · FluidAudio Parakeet-v2 compatible",
@@ -39,7 +51,13 @@
     "capabilities": {
       "wordTimings": true,
       "contextPrompt": false,
-      "languageHint": true
+      "languageHint": true,
+      "supportsAutoLanguage": false,
+      "tokenConfidences": false,
+      "punctuationControl": "stripOnly",
+      "biasing": [],
+      "maxWindowSeconds": null,
+      "diarization": false
     },
     "experimental": true
   },
@@ -47,6 +65,9 @@
     "displayName": "Parakeet TDT v2",
     "internalName": "parakeet-tdt-0.6b-v2-coreml",
     "backend": "parakeetFluidAudioCoreML",
+    "group": "general",
+    "literalRating": "limited",
+    "recommendedFor": [],
     "repository": "FluidInference/parakeet-tdt-0.6b-v2-coreml",
     "revision": "ee09c569f73759e6d44c9bd16766f477b2b36d39",
     "precision": "export precision not yet verified",
@@ -59,7 +80,13 @@
     "capabilities": {
       "wordTimings": true,
       "contextPrompt": false,
-      "languageHint": false
+      "languageHint": false,
+      "supportsAutoLanguage": false,
+      "tokenConfidences": false,
+      "punctuationControl": "stripOnly",
+      "biasing": [],
+      "maxWindowSeconds": null,
+      "diarization": false
     },
     "experimental": false
   },
@@ -67,6 +94,9 @@
     "displayName": "Parakeet TDT v3",
     "internalName": "parakeet-tdt-0.6b-v3-coreml",
     "backend": "parakeetFluidAudioCoreML",
+    "group": "general",
+    "literalRating": "limited",
+    "recommendedFor": [],
     "repository": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
     "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
     "precision": "INT8 encoder in the pinned FluidAudio load path",
@@ -81,7 +111,13 @@
     "capabilities": {
       "wordTimings": true,
       "contextPrompt": false,
-      "languageHint": false
+      "languageHint": true,
+      "supportsAutoLanguage": true,
+      "tokenConfidences": false,
+      "punctuationControl": "stripOnly",
+      "biasing": [],
+      "maxWindowSeconds": null,
+      "diarization": false
     },
     "experimental": false
   },
@@ -89,6 +125,9 @@
     "displayName": "Parakeet Ultra · INT8-linear encoder",
     "internalName": "parakeet-ultra-coreml",
     "backend": "parakeetFluidAudioCoreML",
+    "group": "recommended",
+    "literalRating": "limited",
+    "recommendedFor": ["normal"],
     "repository": "FluidInference/parakeet-ultra-coreml",
     "revision": "95eaa59a39d4394f047a4dc5cce480388a60d1b6",
     "precision": "INT8-linear encoder; remaining Core ML components as published",
@@ -103,7 +142,13 @@
     "capabilities": {
       "wordTimings": true,
       "contextPrompt": false,
-      "languageHint": false
+      "languageHint": true,
+      "supportsAutoLanguage": true,
+      "tokenConfidences": false,
+      "punctuationControl": "stripOnly",
+      "biasing": [],
+      "maxWindowSeconds": null,
+      "diarization": false
     },
     "experimental": true
   },
@@ -111,6 +156,9 @@
     "displayName": "Qwen3-ASR 0.6B · 8-bit",
     "internalName": "qwen3-asr-0.6b-8bit-mlx",
     "backend": "qwen3MLX",
+    "group": "experimental",
+    "literalRating": "limited",
+    "recommendedFor": [],
     "repository": "mlx-community/Qwen3-ASR-0.6B-8bit",
     "revision": "89e96d92ba34aca20b3e29fb10cc284097d1219f",
     "precision": "8-bit MLX",
@@ -125,7 +173,13 @@
     "capabilities": {
       "wordTimings": false,
       "contextPrompt": true,
-      "languageHint": true
+      "languageHint": true,
+      "supportsAutoLanguage": true,
+      "tokenConfidences": false,
+      "punctuationControl": "decoderSuppression",
+      "biasing": ["contextText"],
+      "maxWindowSeconds": null,
+      "diarization": false
     },
     "experimental": true
   },
@@ -133,6 +187,9 @@
     "displayName": "Qwen3-ASR 1.7B · 8-bit",
     "internalName": "qwen3-asr-1.7b-8bit-mlx",
     "backend": "qwen3MLX",
+    "group": "experimental",
+    "literalRating": "limited",
+    "recommendedFor": [],
     "repository": "mlx-community/Qwen3-ASR-1.7B-8bit",
     "revision": "a8379a2e2f9e313c9292cdf1af4055ab56d50d55",
     "precision": "8-bit MLX",
@@ -147,7 +204,13 @@
     "capabilities": {
       "wordTimings": false,
       "contextPrompt": true,
-      "languageHint": true
+      "languageHint": true,
+      "supportsAutoLanguage": true,
+      "tokenConfidences": false,
+      "punctuationControl": "decoderSuppression",
+      "biasing": ["contextText"],
+      "maxWindowSeconds": null,
+      "diarization": false
     },
     "experimental": true
   },
@@ -155,6 +218,9 @@
     "displayName": "Whisper Tiny",
     "internalName": "openai_whisper-tiny",
     "backend": "whisperKitCoreML",
+    "group": "general",
+    "literalRating": "unverified",
+    "recommendedFor": [],
     "repository": "argmaxinc/whisperkit-coreml",
     "precision": "artifact precision varies",
     "license": "MIT runtime; model artifact metadata pending",
@@ -168,7 +234,13 @@
     "capabilities": {
       "wordTimings": true,
       "contextPrompt": true,
-      "languageHint": true
+      "languageHint": true,
+      "supportsAutoLanguage": true,
+      "tokenConfidences": true,
+      "punctuationControl": "decoderSuppression",
+      "biasing": ["promptTokens"],
+      "maxWindowSeconds": 30,
+      "diarization": false
     },
     "experimental": false
   },
@@ -176,6 +248,9 @@
     "displayName": "Whisper Base",
     "internalName": "openai_whisper-base",
     "backend": "whisperKitCoreML",
+    "group": "general",
+    "literalRating": "unverified",
+    "recommendedFor": [],
     "repository": "argmaxinc/whisperkit-coreml",
     "precision": "artifact precision varies",
     "license": "MIT runtime; model artifact metadata pending",
@@ -189,7 +264,13 @@
     "capabilities": {
       "wordTimings": true,
       "contextPrompt": true,
-      "languageHint": true
+      "languageHint": true,
+      "supportsAutoLanguage": true,
+      "tokenConfidences": true,
+      "punctuationControl": "decoderSuppression",
+      "biasing": ["promptTokens"],
+      "maxWindowSeconds": 30,
+      "diarization": false
     },
     "experimental": false
   },
@@ -197,6 +278,9 @@
     "displayName": "Whisper Large v3 · FP16 · 32-layer",
     "internalName": "openai_whisper-large-v3",
     "backend": "whisperKitCoreML",
+    "group": "general",
+    "literalRating": "reliable",
+    "recommendedFor": ["literal"],
     "repository": "argmaxinc/whisperkit-coreml",
     "precision": "FP16",
     "license": "MIT runtime; model artifact metadata pending",
@@ -210,7 +294,13 @@
     "capabilities": {
       "wordTimings": true,
       "contextPrompt": true,
-      "languageHint": true
+      "languageHint": true,
+      "supportsAutoLanguage": true,
+      "tokenConfidences": true,
+      "punctuationControl": "decoderSuppression",
+      "biasing": ["promptTokens"],
+      "maxWindowSeconds": 30,
+      "diarization": false
     },
     "experimental": false
   },
@@ -218,6 +308,9 @@
     "displayName": "Whisper Large v3 Turbo · FP16 · 4-layer",
     "internalName": "openai_whisper-large-v3-v20240930_turbo",
     "backend": "whisperKitCoreML",
+    "group": "recommended",
+    "literalRating": "reliable",
+    "recommendedFor": ["literal", "normal"],
     "repository": "argmaxinc/whisperkit-coreml",
     "precision": "FP16",
     "license": "MIT runtime; model artifact metadata pending",
@@ -231,7 +324,13 @@
     "capabilities": {
       "wordTimings": true,
       "contextPrompt": true,
-      "languageHint": true
+      "languageHint": true,
+      "supportsAutoLanguage": true,
+      "tokenConfidences": true,
+      "punctuationControl": "decoderSuppression",
+      "biasing": ["promptTokens"],
+      "maxWindowSeconds": 30,
+      "diarization": false
     },
     "experimental": false
   },
@@ -239,6 +338,9 @@
     "displayName": "Whisper Large v3 Turbo · 4-bit compressed",
     "internalName": "openai_whisper-large-v3-v20240930_turbo_632MB",
     "backend": "whisperKitCoreML",
+    "group": "general",
+    "literalRating": "unverified",
+    "recommendedFor": [],
     "repository": "argmaxinc/whisperkit-coreml",
     "precision": "4-bit compressed",
     "license": "MIT runtime; model artifact metadata pending",
@@ -252,7 +354,13 @@
     "capabilities": {
       "wordTimings": true,
       "contextPrompt": true,
-      "languageHint": true
+      "languageHint": true,
+      "supportsAutoLanguage": true,
+      "tokenConfidences": true,
+      "punctuationControl": "decoderSuppression",
+      "biasing": ["promptTokens"],
+      "maxWindowSeconds": 30,
+      "diarization": false
     },
     "experimental": false
   },
@@ -260,6 +368,9 @@
     "displayName": "Whisper Turbo · legacy Hex artifact · precision unverified",
     "internalName": "openai_whisper-large-v3-v20240930",
     "backend": "whisperKitCoreML",
+    "group": "experimental",
+    "literalRating": "unverified",
+    "recommendedFor": [],
     "repository": "argmaxinc/whisperkit-coreml",
     "precision": "unverified; 4 decoder layers",
     "license": "MIT runtime; model artifact metadata pending",
@@ -273,8 +384,68 @@
     "capabilities": {
       "wordTimings": true,
       "contextPrompt": true,
-      "languageHint": true
+      "languageHint": true,
+      "supportsAutoLanguage": true,
+      "tokenConfidences": true,
+      "punctuationControl": "decoderSuppression",
+      "biasing": ["promptTokens"],
+      "maxWindowSeconds": 30,
+      "diarization": false
     },
+    "experimental": true
+  },
+  {
+    "displayName": "Cohere Transcribe 2B · 8-bit · MLX",
+    "internalName": "cohere-transcribe-2b-8bit-mlx",
+    "backend": "cohereMLX",
+    "repository": "aufklarer/Cohere-Transcribe-2B-MLX-8bit",
+    "revision": "924ad09b5bc13619c16248d2c6b625b430e9e192",
+    "precision": "8-bit MLX",
+    "license": "Apache-2.0 model and runtime",
+    "languages": ["de", "en", "fr", "es", "it", "pt", "nl", "pl", "el", "ar", "ja", "zh", "vi", "ko"],
+    "size": "MLX / GPU · 2B · multilingual · experimental",
+    "storageSize": "~2.42 GB",
+    "capabilities": {
+      "wordTimings": false,
+      "contextPrompt": false,
+      "languageHint": true,
+      "supportsAutoLanguage": false,
+      "tokenConfidences": false,
+      "punctuationControl": "stripOnly",
+      "biasing": [],
+      "maxWindowSeconds": null,
+      "diarization": false
+    },
+    "group": "experimental",
+    "literalRating": "limited",
+    "recommendedFor": [],
+    "experimental": true
+  },
+  {
+    "displayName": "Apple SpeechAnalyzer · Dictation · On-device",
+    "internalName": "apple-speechanalyzer-dictation",
+    "backend": "appleSpeechAnalyzer",
+    "repository": "Apple on-device speech assets",
+    "revision": null,
+    "precision": "system-managed",
+    "license": "Apple (OS component)",
+    "languages": ["de", "en"],
+    "size": "SpeechAnalyzer / Neural Engine · system-managed · experimental",
+    "storageSize": "system-managed",
+    "capabilities": {
+      "wordTimings": true,
+      "contextPrompt": true,
+      "languageHint": true,
+      "supportsAutoLanguage": false,
+      "tokenConfidences": true,
+      "punctuationControl": "promptFlag",
+      "biasing": ["contextualStrings"],
+      "maxWindowSeconds": null,
+      "diarization": false
+    },
+    "group": "general",
+    "literalRating": "unverified",
+    "recommendedFor": [],
     "experimental": true
   }
 ]

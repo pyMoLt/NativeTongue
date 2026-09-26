@@ -12,6 +12,7 @@ final class HexSettingsMigrationTests: XCTestCase {
 		XCTAssertEqual(decoded.openOnLogin, true)
 		XCTAssertEqual(decoded.showDockIcon, false)
 		XCTAssertEqual(decoded.selectedModel, "whisper-large-v3")
+		XCTAssertEqual(decoded.idleUnloadMinutes, 10)
 		XCTAssertEqual(decoded.asrProfile, .general)
 		XCTAssertEqual(decoded.profileModelSelections[.general], "whisper-large-v3")
 		XCTAssertEqual(decoded.spokenCommandPauseSeconds, 0.45)
@@ -49,6 +50,15 @@ final class HexSettingsMigrationTests: XCTestCase {
 
 	func testNewSettingsDoNotChooseAnASRModelBeforeTheUserDoes() {
 		XCTAssertTrue(HexSettings().selectedModel.isEmpty)
+	}
+
+	func testIdleUnloadSettingMigratesAndRejectsUnsupportedValues() throws {
+		let legacy = try JSONDecoder().decode(HexSettings.self, from: Data("{}".utf8))
+		XCTAssertEqual(legacy.idleUnloadMinutes, 10)
+		let invalid = try JSONDecoder().decode(HexSettings.self, from: Data("{\"idleUnloadMinutes\":7}".utf8))
+		XCTAssertEqual(invalid.idleUnloadMinutes, 10)
+		let disabled = try JSONDecoder().decode(HexSettings.self, from: Data("{\"idleUnloadMinutes\":0}".utf8))
+		XCTAssertEqual(disabled.idleUnloadMinutes, 0)
 	}
 
 	func testDictationModeDefaultsToNormalAndPersists() throws {
