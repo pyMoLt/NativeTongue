@@ -7,10 +7,13 @@ public struct DictationDocument: Sendable, Equatable {
 	public struct Entry: Sendable, Equatable {
 		public let utteranceID: Int?
 		public var tokens: [TextToken]
+		/// Automatic lexicon replacements in this entry (shown in the dictation box).
+		public var corrections: [LexiconCorrection]
 
-		public init(utteranceID: Int?, tokens: [TextToken]) {
+		public init(utteranceID: Int?, tokens: [TextToken], corrections: [LexiconCorrection] = []) {
 			self.utteranceID = utteranceID
 			self.tokens = tokens
+			self.corrections = corrections
 		}
 	}
 
@@ -21,15 +24,16 @@ public struct DictationDocument: Sendable, Equatable {
 
 	public var tokens: [TextToken] { entries.flatMap(\.tokens) }
 	public var isEmpty: Bool { tokens.isEmpty }
+	public var corrections: [LexiconCorrection] { entries.flatMap(\.corrections) }
 
 	public func render(_ options: AssemblerOptions) -> String {
 		Assembler.render(tokens, options: options)
 	}
 
-	public mutating func append(utteranceID: Int?, tokens: [TextToken]) {
+	public mutating func append(utteranceID: Int?, tokens: [TextToken], corrections: [LexiconCorrection] = []) {
 		guard !tokens.isEmpty else { return }
 		snapshot()
-		entries.append(Entry(utteranceID: utteranceID, tokens: tokens))
+		entries.append(Entry(utteranceID: utteranceID, tokens: tokens, corrections: corrections))
 	}
 
 	public mutating func apply(_ command: EditCommand) {
@@ -86,7 +90,7 @@ public struct DictationDocument: Sendable, Equatable {
 		var rebuilt: [Entry] = []
 		for (index, entry) in entries.enumerated() {
 			let kept = flat.filter { $0.entry == index }.map(\.token)
-			if !kept.isEmpty { rebuilt.append(Entry(utteranceID: entry.utteranceID, tokens: kept)) }
+			if !kept.isEmpty { rebuilt.append(Entry(utteranceID: entry.utteranceID, tokens: kept, corrections: entry.corrections)) }
 		}
 		entries = rebuilt
 	}

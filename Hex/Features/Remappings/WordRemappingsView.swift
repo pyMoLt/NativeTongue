@@ -82,7 +82,11 @@ struct WordRemappingsView: View {
 			case .removals:
 				removalsSection
 			case .remappings:
-				remappingsSection
+				GroupBox {
+					Text("Ersetzungen gehören jetzt in den Wortschatz: Schreibweise + Varianten. Bestehende Ersetzungen wurden beim ersten Start dorthin übernommen.")
+						.settingsCaption()
+						.padding(.vertical, 4)
+				}
 			}
 		}
 	}

@@ -305,7 +305,7 @@ final class RecordingRaceTests: XCTestCase {
       $0.transcriptPersistence.save = { _, _, _, _, _ in throw persistenceError }
     }
 
-    await store.send(.sessionTranscriptionResult("Recovered text", audioURL, 1.0, isRecovery: true))
+    await store.send(.sessionTranscriptionResult(DictationSessionOutput(document: DictationDocument(), language: "de", text: "Recovered text"), audioURL, 1.0, isRecovery: true))
     await store.receive(\.transcriptionError) {
       $0.error = "History persistence failed"
     }
@@ -328,12 +328,7 @@ final class RecordingRaceTests: XCTestCase {
     let request = CapturedDictationRequest(
       audioURL: audioURL,
       duration: 1,
-      model: "parakeet-tdt-0.6b-v3-coreml",
-      mode: .normal,
-      commandPauseMs: 450,
-      language: "en",
-      activeVocabulary: "",
-      bypassFormatting: false
+      session: .init(model: "parakeet-tdt-0.6b-v3-coreml", mode: .normal, commandPauseMs: 450, language: "en")
     )
     let store = TestStore(initialState: state) {
       TranscriptionFeature()

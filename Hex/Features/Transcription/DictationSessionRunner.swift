@@ -21,13 +21,17 @@ struct DictationSessionOutput: Equatable {
 /// utterance so commands still depend on measured pauses.
 struct DictationSessionRunner {
   var transcribeSamples: @Sendable ([Float], String, RequestOptions) async throws -> EngineResult
+  var corrector: @Sendable (LexiconContext) async -> LexiconCorrector? = { _ in nil }
 
-  struct Request: Equatable {
+  struct Request: Equatable, Sendable {
     var model: String
     var mode: DictationMode
     var commandPauseMs: Int
     var language: String?
+    var profile: ASRProfile = .general
     var biasTerms: [String] = []
+    var activePacks: [String] = []
+    var autoReplacePackTerms = true
     var bypassFormatting = false
     var formatNumbers = true
     var agentFormatting = true
@@ -35,35 +39,10 @@ struct DictationSessionRunner {
     var boxOpen = false
   }
 
-  static func biasTerms(fromVocabulary vocabulary: String) -> [String] {
-    Array(vocabulary
-      .components(separatedBy: CharacterSet.newlines.union(CharacterSet(charactersIn: ",;")))
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-      .prefix(50))
-  }
-
-  /// Convenience used by the hotkey flow: file in, rendered text out.
-  func run(
-    _ audioURL: URL,
-    model: String,
-    mode: DictationMode,
-    commandPauseMs: Int,
-    language: String?,
-    activeVocabulary: String,
-    bypassFormatting: Bool
-  ) async throws -> String {
+  /// Rendered session plus bookkeeping for the hotkey flow.
+  func run(_ audioURL: URL, request: Request) async throws -> DictationSessionOutput {
     let samples = try AudioConverter(sampleRate: 16_000).resampleAudioFile(audioURL)
-    let request = Request(
-      model: model,
-      mode: mode,
-      commandPauseMs: commandPauseMs,
-      language: language,
-      biasTerms: Self.biasTerms(fromVocabulary: activeVocabulary),
-      bypassFormatting: bypassFormatting,
-      agentFormatting: mode == .normal
-    )
-    return try await run(samples: samples, request: request).text
+    return try await run(samples: samples, request: request)
   }
 
   func run(samples: [Float], request: Request) async throws -> DictationSessionOutput {
@@ -85,7 +64,14 @@ struct DictationSessionRunner {
     let utterances = UtteranceSegmenter.segment(samples, config: SegmenterConfig(minPauseMs: request.commandPauseMs))
     let aligned = try await transcribe(samples, utterances: utterances, wordTimings: capabilities?.wordTimings ?? false, request: request, options: options)
 
-    let language = request.language ?? aligned.first(where: { $0.language != nil })?.language ?? "de"
+    let language = Self.baseLanguage(request.language ?? aligned.first(where: { $0.language != nil })?.language ?? "de")
+    let corrector = await corrector(LexiconContext(
+      mode: request.mode,
+      language: language,
+      profile: request.profile,
+      activePacks: request.activePacks,
+      autoReplacePackTermsInLiteral: request.autoReplacePackTerms
+    ))
     let document = DictationSessionProcessor.makeDocument(
       from: aligned,
       options: DictationSessionOptions(
@@ -96,10 +82,19 @@ struct DictationSessionRunner {
         formatNumbers: request.formatNumbers,
         agentFormatting: request.agentFormatting && request.mode == .normal,
         boxOpen: request.boxOpen
-      )
+      ),
+      corrector: corrector
     )
     let text = document.render(AssemblerOptions(language: language, mode: request.mode))
     return DictationSessionOutput(document: document, language: language, text: text)
+  }
+
+  /// "de-DE" / "german" → "de".
+  static func baseLanguage(_ language: String) -> String {
+    let lower = language.lowercased()
+    if lower.hasPrefix("en") || lower == "english" { return "en" }
+    if lower.hasPrefix("de") || lower == "german" { return "de" }
+    return String(lower.prefix(2))
   }
 
   private func transcribe(

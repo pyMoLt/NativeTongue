@@ -122,7 +122,8 @@ public enum DictationSessionProcessor {
 
 	public static func makeDocument(
 		from alignedUtterances: [AlignedUtterance],
-		options: DictationSessionOptions
+		options: DictationSessionOptions,
+		corrector: LexiconCorrector? = nil
 	) -> DictationDocument {
 		var document = DictationDocument()
 		let classifierContext = ClassifierContext(
@@ -151,8 +152,12 @@ public enum DictationSessionProcessor {
 				formatNumbers: options.formatNumbers,
 				agentFormatting: options.agentFormatting
 			)
-			let tokens = DictationTextPipeline.tokens(for: classification, options: pipelineOptions)
-			document.append(utteranceID: item.utterance.id, tokens: tokens)
+			var tokens = DictationTextPipeline.tokens(for: classification, options: pipelineOptions)
+			var corrections: [LexiconCorrection] = []
+			if let corrector, case .dictation = classification {
+				(tokens, corrections) = corrector.correct(tokens)
+			}
+			document.append(utteranceID: item.utterance.id, tokens: tokens, corrections: corrections)
 		}
 		return document
 	}

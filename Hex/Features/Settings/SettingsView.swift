@@ -107,20 +107,9 @@ private struct DictationModeSectionView: View {
 				Text("30 minutes").tag(30)
 			}
 
-			VStack(alignment: .leading, spacing: 5) {
-				Text("Additional terminology for \(store.hexSettings.asrProfile.displayName)")
-					.font(.callout)
-				TextEditor(text: Binding(
-					get: { store.hexSettings.activeVocabulary },
-					set: { store.send(.setProfileVocabulary(store.hexSettings.asrProfile, $0)) }
-				))
-				.font(.system(.caption, design: .monospaced))
-				.frame(minHeight: 58, maxHeight: 90)
-				.overlay(RoundedRectangle(cornerRadius: 5).stroke(.quaternary))
-				Text("Separate terms with commas or new lines. At most 64 terms / 800 characters are sent as decoder context. This biases spelling; it is not a deterministic replacement dictionary. Parakeet v3 currently ignores context hints.")
-					.font(.caption)
-					.foregroundStyle(.secondary)
-			}
+			Text("Fachbegriffe, Varianten und Wortpakete pflegst du im Bereich „Wortschatz“.")
+				.font(.caption)
+				.foregroundStyle(.secondary)
 
 			Text(store.hexSettings.dictationMode == .normal
 				? "Normal mode preserves the model's punctuation. Line and paragraph phrases become commands only when word timings show the configured pause immediately before or after the phrase; otherwise they stay as words."

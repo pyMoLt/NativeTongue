@@ -102,6 +102,43 @@ final class EngineSmokeTests: XCTestCase {
 		XCTAssertEqual(output.text, expected)
 	}
 
+	/// Plan 5.7 on real audio: terminology recording → Whisper Turbo → session
+	/// pipeline with the real word packs (medical profile, literal mode).
+	func testWhisperTurboTerminologyWithLexicon() async throws {
+		let samples = try loadFixture("Terminology-de-en.m4a")
+		let client = TranscriptionClient.liveValue
+		guard await client.isModelDownloaded(turbo) else { throw XCTSkip("Whisper Turbo not installed") }
+		let packsDirectory = URL(fileURLWithPath: #filePath)
+			.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+			.appendingPathComponent("local-asr-docs/06-wortlisten/packs", isDirectory: true)
+		let fixturePacks = URL(fileURLWithPath: "/private/tmp/LocalASR-Phase2Fixtures/packs", isDirectory: true)
+		let source = FileManager.default.fileExists(atPath: fixturePacks.path) ? fixturePacks : packsDirectory
+		let store = LexiconStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("lexicon-\(UUID().uuidString)"))
+		defer { try? FileManager.default.removeItem(at: store.directory) }
+		var ids: [String] = []
+		for id in ["medical-de", "medical-en", "anatomy-la", "technical"] {
+			guard let info = try? store.importPack(from: source.appendingPathComponent("\(id).json")) else { throw XCTSkip("word packs missing") }
+			ids.append(info.id)
+		}
+		let service = LexiconService(store: store)
+		let runner = DictationSessionRunner(
+			transcribeSamples: client.transcribeSamples,
+			corrector: { await service.corrector($0) }
+		)
+		let output = try await runner.run(
+			samples: samples,
+			request: .init(model: turbo, mode: .literal, commandPauseMs: 450, language: "de", profile: .medical, activePacks: ids)
+		)
+		await client.unloadModel()
+		let corrections = output.document.corrections
+		print("SESSION_LEXICON corrections=\(corrections.count) \(corrections.map { "\($0.original)→\($0.replacement)" })")
+		let forbidden = ["anatomy", "enolic", "locale", " MIT ", " THE "]
+		for word in forbidden { XCTAssertFalse(output.text.contains(word), word) }
+		XCTAssertTrue(output.text.contains("Mycophenolatmofetil"))
+		XCTAssertTrue(output.text.contains("PostgreSQL"))
+		XCTAssertTrue(output.text.contains("AVFoundation"))
+	}
+
 	func testIdleUnloadFiresAndInvalidatesPreviousTimer() async throws {
 		let client = TranscriptionClientLive(idleUnloadDelayForTesting: .milliseconds(500))
 		guard await client.isModelDownloaded(turbo) else { throw XCTSkip("Whisper Turbo not installed") }

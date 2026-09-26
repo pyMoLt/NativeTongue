@@ -21,6 +21,7 @@ struct AppFeature {
     case settings
     case audioImport
     case remappings
+    case vocabulary
     case history
     case about
   }
@@ -31,6 +32,7 @@ struct AppFeature {
 		var audioImport: AudioImportFeature.State = .init()
 		var settings: SettingsFeature.State = .init()
 		var history: HistoryFeature.State = .init()
+		var lexicon: LexiconFeature.State = .init()
 		var activeTab: ActiveTab = .settings
 		@Shared(.hexSettings) var hexSettings: HexSettings
 		@Shared(.modelBootstrapState) var modelBootstrapState: ModelBootstrapState
@@ -47,6 +49,7 @@ struct AppFeature {
     case audioImport(AudioImportFeature.Action)
     case settings(SettingsFeature.Action)
     case history(HistoryFeature.Action)
+    case lexicon(LexiconFeature.Action)
     case setActiveTab(ActiveTab)
     case task
     case pasteLastTranscript
@@ -62,6 +65,7 @@ struct AppFeature {
   @Dependency(\.pasteboard) var pasteboard
   @Dependency(\.transcription) var transcription
   @Dependency(\.permissions) var permissions
+  @Dependency(\.lexicon) var lexicon
 
   var body: some ReducerOf<Self> {
     BindingReducer()
@@ -82,6 +86,10 @@ struct AppFeature {
       HistoryFeature()
     }
 
+    Scope(state: \.lexicon, action: \.lexicon) {
+      LexiconFeature()
+    }
+
     Reduce { state, action in
       switch action {
       case .binding:
@@ -92,7 +100,8 @@ struct AppFeature {
           startPasteLastTranscriptMonitoring(),
           ensureSelectedModelReadiness(),
           startPermissionMonitoring(),
-          promptForPendingRecordingRecovery()
+          promptForPendingRecordingRecovery(),
+          prepareLexicon(state: state)
         )
         
       case .pasteLastTranscript:
@@ -159,6 +168,8 @@ struct AppFeature {
         state.activeTab = .settings
         return .none
       case .history:
+        return .none
+      case .lexicon:
         return .none
 		case let .setActiveTab(tab):
 			state.activeTab = tab
@@ -254,6 +265,23 @@ struct AppFeature {
     }
   }
 
+  /// One-time migration of V1 vocabulary/remappings into the user lexicon,
+  /// then build the pack index in the background.
+  private func prepareLexicon(state: State) -> Effect<Action> {
+    let settings = state.$hexSettings
+    return .run { [lexicon] _ in
+      if !settings.wrappedValue.hasMigratedLexicon {
+        do {
+          try await lexicon.migrate(settings.wrappedValue)
+          settings.withLock { $0.hasMigratedLexicon = true }
+        } catch {
+          HexLog.app.error("Lexicon migration failed: \(error.localizedDescription, privacy: .private)")
+        }
+      }
+      await lexicon.warmUp(settings.wrappedValue.activeLexiconPacks)
+    }
+  }
+
   private func promptForPendingRecordingRecovery() -> Effect<Action> {
     .run { send in
       guard !isTesting else { return }
@@ -344,6 +372,14 @@ struct AppView: View {
         .tag(AppFeature.ActiveTab.remappings)
 
         Button {
+          store.send(.setActiveTab(.vocabulary))
+        } label: {
+          Label("Wortschatz", systemImage: "character.book.closed")
+        }
+        .buttonStyle(.plain)
+        .tag(AppFeature.ActiveTab.vocabulary)
+
+        Button {
           store.send(.setActiveTab(.history))
         } label: {
           Label("History", systemImage: "clock")
@@ -375,6 +411,9 @@ struct AppView: View {
       case .remappings:
         WordRemappingsView(store: store.scope(state: \.settings, action: \.settings))
           .navigationTitle("Transforms")
+      case .vocabulary:
+        LexiconView(store: store.scope(state: \.lexicon, action: \.lexicon))
+          .navigationTitle("Wortschatz")
       case .history:
         HistoryView(store: store.scope(state: \.history, action: \.history))
           .navigationTitle("History")

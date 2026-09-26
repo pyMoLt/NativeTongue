@@ -19,12 +19,27 @@ private let transcriptionFeatureLogger = HexLog.transcription
 struct CapturedDictationRequest: Equatable {
   let audioURL: URL
   let duration: TimeInterval
-  let model: String
-  let mode: DictationMode
-  let commandPauseMs: Int
-  let language: String?
-  let activeVocabulary: String
-  let bypassFormatting: Bool
+  let session: DictationSessionRunner.Request
+}
+
+extension DictationSessionRunner.Request {
+  /// Snapshot of the settings at recording stop (later setting changes do not
+  /// affect a dictation that is already being transcribed).
+  init(settings: HexSettings, bypassFormatting: Bool) {
+    self.init(
+      model: settings.selectedModel,
+      mode: settings.dictationMode,
+      commandPauseMs: Int((settings.spokenCommandPauseSeconds * 1_000).rounded()),
+      language: settings.outputLanguage,
+      profile: settings.asrProfile,
+      activePacks: settings.activeLexiconPacks,
+      autoReplacePackTerms: settings.autoReplaceTermsLiteral,
+      bypassFormatting: bypassFormatting,
+      formatNumbers: settings.numberFormattingEnabled,
+      agentFormatting: settings.agentFormattingEnabled,
+      englishCommands: settings.englishCommandsEnabled
+    )
+  }
 }
 
 /// A wall-clock dependency with an explicit deterministic test value. The generic
@@ -82,7 +97,7 @@ struct TranscriptionFeature {
 
     // Transcription result flow
     case transcriptionResult(TranscriptionOutput, URL, TimeInterval)
-    case sessionTranscriptionResult(String, URL, TimeInterval, isRecovery: Bool)
+    case sessionTranscriptionResult(DictationSessionOutput, URL, TimeInterval, isRecovery: Bool)
     case recoverRecording(URL)
     case capturedRecording(CapturedDictationRequest)
     case transcriptionError(Error, URL?)
@@ -101,6 +116,7 @@ struct TranscriptionFeature {
   }
 
   @Dependency(\.transcription) var transcription
+  @Dependency(\.lexicon) var lexicon
   @Dependency(\.recording) var recording
   @Dependency(\.pasteboard) var pasteboard
   @Dependency(\.keyEventMonitor) var keyEventMonitor
@@ -155,17 +171,17 @@ struct TranscriptionFeature {
         return handleRecoveredRecording(&state, audioURL: audioURL)
 
       case let .capturedRecording(request):
-        return startFinalTranscription(request)
+        return startFinalTranscription(request, settings: state.hexSettings)
 
       // MARK: - Transcription Results
 
       case let .transcriptionResult(result, audioURL, duration):
         return handleTranscriptionResult(&state, result: result, audioURL: audioURL, duration: duration)
 
-      case let .sessionTranscriptionResult(text, audioURL, duration, isRecovery):
+      case let .sessionTranscriptionResult(output, audioURL, duration, isRecovery):
         return handleSessionTranscriptionResult(
           &state,
-          text: text,
+          text: output.text,
           audioURL: audioURL,
           duration: duration,
           isRecovery: isRecovery
@@ -345,34 +361,12 @@ private extension TranscriptionFeature {
     state.sourceAppBundleID = nil
     state.sourceAppName = nil
 
-    let mode = state.hexSettings.dictationMode
-    let commandPauseMs = Int((state.hexSettings.spokenCommandPauseSeconds * 1_000).rounded())
-    let language = state.hexSettings.outputLanguage
-    let activeVocabulary = state.hexSettings.activeVocabulary
-
-    return .run { send in
-      do {
-        let audioFile = try AVAudioFile(forReading: audioURL)
-        let sampleRate = audioFile.processingFormat.sampleRate
-        let duration = sampleRate > 0 ? Double(audioFile.length) / sampleRate : 0
-        let text = try await DictationSessionRunner(transcribeSamples: transcription.transcribeSamples).run(
-          audioURL,
-          model: model,
-          mode: mode,
-          commandPauseMs: commandPauseMs,
-          language: language,
-          activeVocabulary: activeVocabulary,
-          bypassFormatting: false
-        )
-        guard !Task.isCancelled else { return }
-        await send(.sessionTranscriptionResult(text, audioURL, duration, isRecovery: true))
-      } catch {
-        guard !Task.isCancelled else { return }
-        transcriptionFeatureLogger.error("Recovered recording transcription failed: \(error.localizedDescription, privacy: .private)")
-        await send(.transcriptionError(error, nil))
-      }
-    }
-    .cancellable(id: CancelID.transcription, cancelInFlight: true)
+    let request = CapturedDictationRequest(
+      audioURL: audioURL,
+      duration: 0,
+      session: DictationSessionRunner.Request(settings: state.hexSettings, bypassFormatting: false)
+    )
+    return runSession(request, isRecovery: true, biasingEnabled: state.hexSettings.isBiasingEnabled(for: model))
   }
 
   func handleStartRecording(_ state: inout State) -> Effect<Action> {
@@ -476,11 +470,7 @@ private extension TranscriptionFeature {
     // Otherwise, proceed to transcription
     state.isTranscribing = true
     state.error = nil
-    let language = state.hexSettings.outputLanguage
-    let dictationMode = state.hexSettings.dictationMode
-    let commandPauseMs = Int((state.hexSettings.spokenCommandPauseSeconds * 1_000).rounded())
-    let activeVocabulary = state.hexSettings.activeVocabulary
-    let bypassFormatting = state.isRemappingScratchpadFocused
+    let session = DictationSessionRunner.Request(settings: state.hexSettings, bypassFormatting: state.isRemappingScratchpadFocused)
 
     return .merge(
       .cancel(id: CancelID.recordingStart),
@@ -511,12 +501,7 @@ private extension TranscriptionFeature {
           await send(.capturedRecording(CapturedDictationRequest(
             audioURL: capturedURL,
             duration: duration,
-            model: model,
-            mode: dictationMode,
-            commandPauseMs: commandPauseMs,
-            language: language,
-            activeVocabulary: activeVocabulary,
-            bypassFormatting: bypassFormatting
+            session: session
           )))
         } catch {
           transcriptionFeatureLogger.error("Transcription failed: \(error.localizedDescription)")
@@ -530,31 +515,35 @@ private extension TranscriptionFeature {
   /// Quality before latency: the whole recording is decoded once after stop
   /// (Whisper keeps its acoustic context, e.g. Turbo 14/14 command words vs.
   /// 12/14 on isolated clips) and the text is aligned to the audio pauses.
-  func startFinalTranscription(_ request: CapturedDictationRequest) -> Effect<Action> {
-    .run { send in
+  func startFinalTranscription(_ request: CapturedDictationRequest, settings: HexSettings) -> Effect<Action> {
+    runSession(request, isRecovery: false, biasingEnabled: settings.isBiasingEnabled(for: request.session.model))
+  }
+
+  func runSession(_ request: CapturedDictationRequest, isRecovery: Bool, biasingEnabled: Bool) -> Effect<Action> {
+    .run { [transcription, lexicon] send in
       do {
         let audioFile = try AVAudioFile(forReading: request.audioURL)
         let sampleRate = audioFile.processingFormat.sampleRate
         let duration = sampleRate > 0 ? Double(audioFile.length) / sampleRate : request.duration
-        let text = try await DictationSessionRunner(transcribeSamples: transcription.transcribeSamples).run(
-          request.audioURL,
-          model: request.model,
-          mode: request.mode,
-          commandPauseMs: request.commandPauseMs,
-          language: request.language,
-          activeVocabulary: request.activeVocabulary,
-          bypassFormatting: request.bypassFormatting
+        var session = request.session
+        if biasingEnabled, !session.bypassFormatting {
+          session.biasTerms = await lexicon.biasTerms(session.profile)
+        }
+        let runner = DictationSessionRunner(
+          transcribeSamples: transcription.transcribeSamples,
+          corrector: lexicon.corrector
         )
+        let output = try await runner.run(request.audioURL, request: session)
         guard !Task.isCancelled else { return }
-        transcriptionFeatureLogger.notice("Transcribed dictation; output length \(text.count) characters")
-        await send(.sessionTranscriptionResult(text, request.audioURL, duration, isRecovery: false))
+        transcriptionFeatureLogger.notice("Transcribed dictation; output length \(output.text.count) characters")
+        await send(.sessionTranscriptionResult(output, request.audioURL, duration, isRecovery: isRecovery))
       } catch {
         guard !Task.isCancelled else { return }
         transcriptionFeatureLogger.error("Transcription failed: \(error.localizedDescription, privacy: .private)")
         await send(.transcriptionError(error, nil))
       }
     }
-    .cancellable(id: CancelID.transcription)
+    .cancellable(id: CancelID.transcription, cancelInFlight: isRecovery)
   }
 
 }
@@ -697,7 +686,6 @@ private extension TranscriptionFeature {
       if state.hexSettings.wordRemovalsEnabled {
         output = WordRemovalApplier.apply(output, removals: state.hexSettings.wordRemovals)
       }
-      output = WordRemappingApplier.apply(output, remappings: state.hexSettings.wordRemappings)
       modifiedResult = TranscriptFormattingApplier.apply(
         output,
         lowercase: state.hexSettings.lowercaseTranscripts,

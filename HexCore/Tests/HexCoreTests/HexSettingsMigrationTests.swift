@@ -31,6 +31,18 @@ final class HexSettingsMigrationTests: XCTestCase {
 		XCTAssertEqual(decoded.hasCompletedStorageMigration, true)
 		XCTAssertFalse(decoded.lowercaseTranscripts)
 		XCTAssertFalse(decoded.removePunctuation)
+		// V2 fields default when absent from older files.
+		XCTAssertTrue(decoded.autoReplaceTermsLiteral)
+		XCTAssertEqual(decoded.activeLexiconPacks, [])
+		XCTAssertFalse(decoded.hasMigratedLexicon)
+		XCTAssertFalse(decoded.dictationBoxEnabledNormal)
+		XCTAssertTrue(decoded.dictationBoxEnabledLiteral)
+		XCTAssertEqual(decoded.boxFontSize, 15)
+		XCTAssertEqual(decoded.boxOutputFormat, .richText)
+		XCTAssertTrue(decoded.englishCommandsEnabled)
+		XCTAssertTrue(decoded.agentFormattingEnabled)
+		XCTAssertTrue(decoded.numberFormattingEnabled)
+		XCTAssertFalse(decoded.hasCompletedV2Onboarding)
 	}
 
 	func testEncodeDecodeRoundTripPreservesDefaults() throws {

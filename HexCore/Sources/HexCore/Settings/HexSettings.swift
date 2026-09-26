@@ -57,6 +57,20 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var wordRemappings: [WordRemapping]
 	public var lowercaseTranscripts: Bool
 	public var removePunctuation: Bool
+	public var autoReplaceTermsLiteral: Bool
+	public var activeLexiconPacks: [String]
+	public var hasMigratedLexicon: Bool
+	public var dictationBoxEnabledNormal: Bool
+	public var dictationBoxEnabledLiteral: Bool
+	public var boxFontName: String
+	public var boxFontSize: Double
+	public var boxOutputFormat: OutputFormat
+	public var englishCommandsEnabled: Bool
+	public var agentFormattingEnabled: Bool
+	public var numberFormattingEnabled: Bool
+	public var hasCompletedV2Onboarding: Bool
+	/// Per-model „Kontext-Biasing (experimentell)“; missing = model default.
+	public var modelBiasing: [String: Bool]
 
 	private mutating func normalizeSettings() {
 		if !doubleTapLockEnabled {
@@ -64,6 +78,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		}
 		spokenCommandPauseSeconds = min(max(spokenCommandPauseSeconds, 0.25), 1.0)
 		if ![0, 2, 5, 10, 30].contains(idleUnloadMinutes) { idleUnloadMinutes = 10 }
+		boxFontSize = min(max(boxFontSize, 11), 28)
 		if !selectedModel.isEmpty, profileModelSelections[asrProfile] == nil {
 			profileModelSelections[asrProfile] = selectedModel
 		}
@@ -103,7 +118,20 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		wordRemovals: [WordRemoval] = HexSettings.defaultWordRemovals,
 		wordRemappings: [WordRemapping] = [],
 		lowercaseTranscripts: Bool = false,
-		removePunctuation: Bool = false
+		removePunctuation: Bool = false,
+		autoReplaceTermsLiteral: Bool = true,
+		activeLexiconPacks: [String] = [],
+		hasMigratedLexicon: Bool = false,
+		dictationBoxEnabledNormal: Bool = false,
+		dictationBoxEnabledLiteral: Bool = true,
+		boxFontName: String = "",
+		boxFontSize: Double = 15,
+		boxOutputFormat: OutputFormat = .richText,
+		englishCommandsEnabled: Bool = true,
+		agentFormattingEnabled: Bool = true,
+		numberFormattingEnabled: Bool = true,
+		hasCompletedV2Onboarding: Bool = false,
+		modelBiasing: [String: Bool] = [:]
 	) {
 		self.soundEffectsEnabled = soundEffectsEnabled
 		self.soundEffectsVolume = soundEffectsVolume
@@ -139,6 +167,19 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.wordRemappings = wordRemappings
 		self.lowercaseTranscripts = lowercaseTranscripts
 		self.removePunctuation = removePunctuation
+		self.autoReplaceTermsLiteral = autoReplaceTermsLiteral
+		self.activeLexiconPacks = activeLexiconPacks
+		self.hasMigratedLexicon = hasMigratedLexicon
+		self.dictationBoxEnabledNormal = dictationBoxEnabledNormal
+		self.dictationBoxEnabledLiteral = dictationBoxEnabledLiteral
+		self.boxFontName = boxFontName
+		self.boxFontSize = boxFontSize
+		self.boxOutputFormat = boxOutputFormat
+		self.englishCommandsEnabled = englishCommandsEnabled
+		self.agentFormattingEnabled = agentFormattingEnabled
+		self.numberFormattingEnabled = numberFormattingEnabled
+		self.hasCompletedV2Onboarding = hasCompletedV2Onboarding
+		self.modelBiasing = modelBiasing
 		normalizeSettings()
 	}
 
@@ -166,6 +207,18 @@ public extension HexSettings {
 		case .medical: medicalVocabulary
 		case .technical: technicalVocabulary
 		}
+	}
+
+	/// Lexicon terms are sent as model context only where this is enabled.
+	/// Default on for Qwen/Apple (robust, with leak guard), off for Whisper
+	/// (prompts dropped passages in the 2026-09-26 benchmark) and others.
+	func isBiasingEnabled(for model: String) -> Bool {
+		if let value = modelBiasing[model] { return value }
+		return model.hasPrefix("qwen3-asr") || model.hasPrefix("apple-speechanalyzer")
+	}
+
+	func dictationBoxEnabled(for mode: DictationMode) -> Bool {
+		mode == .literal ? dictationBoxEnabledLiteral : dictationBoxEnabledNormal
 	}
 
 	var activeTerminologyPrompt: String? {
@@ -211,6 +264,19 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case wordRemappings
 	case lowercaseTranscripts
 	case removePunctuation
+	case autoReplaceTermsLiteral
+	case activeLexiconPacks
+	case hasMigratedLexicon
+	case dictationBoxEnabledNormal
+	case dictationBoxEnabledLiteral
+	case boxFontName
+	case boxFontSize
+	case boxOutputFormat
+	case englishCommandsEnabled
+	case agentFormattingEnabled
+	case numberFormattingEnabled
+	case hasCompletedV2Onboarding
+	case modelBiasing
 }
 
 private struct SettingsField<Value: Codable & Sendable> {
@@ -353,6 +419,19 @@ private enum HexSettingsSchema {
 			default: defaults.wordRemappings
 		).eraseToAny(),
 		SettingsField(.lowercaseTranscripts, keyPath: \.lowercaseTranscripts, default: defaults.lowercaseTranscripts).eraseToAny(),
-		SettingsField(.removePunctuation, keyPath: \.removePunctuation, default: defaults.removePunctuation).eraseToAny()
+		SettingsField(.removePunctuation, keyPath: \.removePunctuation, default: defaults.removePunctuation).eraseToAny(),
+		SettingsField(.autoReplaceTermsLiteral, keyPath: \.autoReplaceTermsLiteral, default: defaults.autoReplaceTermsLiteral).eraseToAny(),
+		SettingsField(.activeLexiconPacks, keyPath: \.activeLexiconPacks, default: defaults.activeLexiconPacks).eraseToAny(),
+		SettingsField(.hasMigratedLexicon, keyPath: \.hasMigratedLexicon, default: defaults.hasMigratedLexicon).eraseToAny(),
+		SettingsField(.dictationBoxEnabledNormal, keyPath: \.dictationBoxEnabledNormal, default: defaults.dictationBoxEnabledNormal).eraseToAny(),
+		SettingsField(.dictationBoxEnabledLiteral, keyPath: \.dictationBoxEnabledLiteral, default: defaults.dictationBoxEnabledLiteral).eraseToAny(),
+		SettingsField(.boxFontName, keyPath: \.boxFontName, default: defaults.boxFontName).eraseToAny(),
+		SettingsField(.boxFontSize, keyPath: \.boxFontSize, default: defaults.boxFontSize).eraseToAny(),
+		SettingsField(.boxOutputFormat, keyPath: \.boxOutputFormat, default: defaults.boxOutputFormat).eraseToAny(),
+		SettingsField(.englishCommandsEnabled, keyPath: \.englishCommandsEnabled, default: defaults.englishCommandsEnabled).eraseToAny(),
+		SettingsField(.agentFormattingEnabled, keyPath: \.agentFormattingEnabled, default: defaults.agentFormattingEnabled).eraseToAny(),
+		SettingsField(.numberFormattingEnabled, keyPath: \.numberFormattingEnabled, default: defaults.numberFormattingEnabled).eraseToAny(),
+		SettingsField(.hasCompletedV2Onboarding, keyPath: \.hasCompletedV2Onboarding, default: defaults.hasCompletedV2Onboarding).eraseToAny(),
+		SettingsField(.modelBiasing, keyPath: \.modelBiasing, default: defaults.modelBiasing).eraseToAny()
 	]
 }
