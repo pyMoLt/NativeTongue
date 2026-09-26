@@ -73,6 +73,8 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var modelBiasing: [String: Bool]
 	/// Model for literal mode; empty = same as `selectedModel` (plan 5.12).
 	public var literalModel: String
+	/// Optional local, content-free metrics file (About → Diagnostics).
+	public var diagnosticsEnabled: Bool
 
 	private mutating func normalizeSettings() {
 		if !doubleTapLockEnabled {
@@ -134,7 +136,8 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		numberFormattingEnabled: Bool = true,
 		hasCompletedV2Onboarding: Bool = false,
 		modelBiasing: [String: Bool] = [:],
-		literalModel: String = ""
+		literalModel: String = "",
+		diagnosticsEnabled: Bool = false
 	) {
 		self.soundEffectsEnabled = soundEffectsEnabled
 		self.soundEffectsVolume = soundEffectsVolume
@@ -184,6 +187,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.hasCompletedV2Onboarding = hasCompletedV2Onboarding
 		self.modelBiasing = modelBiasing
 		self.literalModel = literalModel
+		self.diagnosticsEnabled = diagnosticsEnabled
 		normalizeSettings()
 	}
 
@@ -290,6 +294,7 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case hasCompletedV2Onboarding
 	case modelBiasing
 	case literalModel
+	case diagnosticsEnabled
 }
 
 private struct SettingsField<Value: Codable & Sendable> {
@@ -446,6 +451,7 @@ private enum HexSettingsSchema {
 		SettingsField(.numberFormattingEnabled, keyPath: \.numberFormattingEnabled, default: defaults.numberFormattingEnabled).eraseToAny(),
 		SettingsField(.hasCompletedV2Onboarding, keyPath: \.hasCompletedV2Onboarding, default: defaults.hasCompletedV2Onboarding).eraseToAny(),
 		SettingsField(.modelBiasing, keyPath: \.modelBiasing, default: defaults.modelBiasing).eraseToAny(),
-		SettingsField(.literalModel, keyPath: \.literalModel, default: defaults.literalModel).eraseToAny()
+		SettingsField(.literalModel, keyPath: \.literalModel, default: defaults.literalModel).eraseToAny(),
+		SettingsField(.diagnosticsEnabled, keyPath: \.diagnosticsEnabled, default: defaults.diagnosticsEnabled).eraseToAny()
 	]
 }

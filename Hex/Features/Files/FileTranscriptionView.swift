@@ -322,6 +322,7 @@ private struct SegmentRow: View {
       .buttonStyle(.borderless)
       .foregroundStyle(isPlaying ? Color.accentColor : .secondary)
       .help("Play from here")
+      .accessibilityLabel(isPlaying ? "Stop playback" : "Play from \(TranscriptExporter.clock(segment.start))")
       VStack(alignment: .leading, spacing: 3) {
         if let speakerName {
           Text(speakerName).font(.caption.weight(.semibold)).foregroundStyle(.tint)

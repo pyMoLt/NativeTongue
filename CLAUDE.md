@@ -1,6 +1,6 @@
-# Local ASR — Notes for Coding Agents
+# NativeTongue — Notes for Coding Agents
 
-Local ASR is a private, fully offline macOS menu-bar dictation app (fork of Hex v0.8.5, Swift/SwiftUI/TCA). Target: MacBook Pro M5 Pro, macOS 26+ (runs on macOS 27, Xcode 27). Repo: `github.com/pyMoLt/local-asr` (private); original Hex is remote `upstream`.
+NativeTongue (formerly “Local ASR”) is a private, fully offline macOS menu-bar dictation app (fork of Hex v0.8.5, Swift/SwiftUI/TCA). Product name NativeTongue; bundle ID stays `com.localasr.LocalASR` (keeps installed models/settings); module name stays `Hex`. Target: MacBook Pro M5 Pro, macOS 26+ (runs on macOS 27, Xcode 27). Repo: `github.com/pyMoLt/local-asr` (private); original Hex is remote `upstream`.
 
 **The binding implementation plan for version 2.0 lives outside this repo:**
 `../local-asr-docs/03-version-2/LOCAL_ASR_V2_UMSETZUNGSPLAN.md`. Read it before changing anything. Keep `../local-asr-docs/05-logs/LOCAL_ASR_WORK_LOG.md` (current task) and `../local-asr-docs/05-logs/PROGRESS-LOG.md` (append-only steps + decisions) up to date at every significant step. Project documents are intentionally not committed here.
@@ -15,7 +15,10 @@ xcodebuild -scheme Hex -configuration Debug -destination 'platform=macOS,arch=ar
 # Pure logic tests (HexCore)
 swift test --package-path HexCore --scratch-path /private/tmp/LocalASR-HexCore
 
-# App tests (one suite)
+# Release bundle (arm64, ad-hoc, hardened runtime, no sandbox) → dist/NativeTongue.app
+scripts/build-dist.sh
+
+# App tests (one suite; add CODE_SIGN_ENTITLEMENTS= ENABLE_APP_SANDBOX=NO for tests that need installed models)
 xcodebuild test -scheme Hex -destination 'platform=macOS,arch=arm64' \
   -derivedDataPath /private/tmp/LocalASR-DD -skipMacroValidation CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CODE_SIGN_STYLE=Manual -only-testing:HexTests/<Suite>
 ```
@@ -23,9 +26,11 @@ Harmless noise: CoreDevice/CoreSimulator version warnings. With `-quiet`, always
 
 ## Architecture (current, V2 in progress)
 
-- TCA features in `Hex/Features/*` (`AppFeature`, `TranscriptionFeature`, `SettingsFeature`, `AudioImportFeature`, `HistoryFeature`).
-- Clients in `Hex/Clients/*`: `TranscriptionClient` (engine dispatch + explicit model installation), `ParakeetClient`, `QwenASRClient`, `AdditionalFluidAudioASRClient` (Canary, Omi), `RecordingClient`/`SuperFastCaptureController` (16 kHz capture), `PasteboardClient`, `KeyEventMonitorClient`.
-- Pure logic in `HexCore` (settings schema + migration, hotkey processing, formatting). New deterministic V2 logic (segmentation, commands, text pipeline, lexicon) goes into `HexCore` with unit tests.
+- TCA features in `Hex/Features/*`: `AppFeature` + `AppView` (sidebar pages in `App/Pages`), `TranscriptionFeature` + `DictationSessionRunner` (whole-recording decode, pause alignment), `DictationBox/*`, `Lexicon/*`, `Files/*` (file transcription, speaker separation, exports), `SettingsFeature`, `HistoryFeature`.
+- Clients in `Hex/Clients/*`: `TranscriptionClient` (engine dispatch + explicit installs; Whisper greedy/deterministic), `ParakeetClient`, `QwenASRClient`, `CohereMLXASRClient`, `AppleSpeechASRClient`, `AdditionalFluidAudioASRClient` (Canary, Omi), `DiarizationClient`, `LexiconClient`, `RecordingClient`/`SuperFastCaptureController`, `PasteboardClient` (plain + rich paste, full clipboard restore), `KeyEventMonitorClient`.
+- Live clients that create `@Shared` are resolved eagerly at launch (`HexAppDelegate.resolveLiveDependenciesEagerly`) – never mutate shared settings with `withLock` from background effects during first dependency use (launch deadlock, 2026-09-26).
+- Pure logic in `HexCore` (settings schema + migration, hotkey processing, dictation pipeline, lexicon, file transcripts/exports, settings transfer) with unit tests.
+- UI copy: English, general (no persona-specific wording).
 - Model catalog: `Hex/Resources/Data/models.json` + `Hex/Models/LocalASRModelCatalog.swift`.
 - Vendored Qwen3-ASR runtime: `Packages/LocalASRSpeech` (see `VENDORED_FROM.md`).
 - Pinned: WhisperKit 0.15.0, FluidAudio `21493f8`, swift-transformers 1.1.6, mlx-swift 0.31.4.

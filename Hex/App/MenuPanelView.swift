@@ -107,6 +107,7 @@ struct MenuPanelView: View {
               }
               .buttonStyle(.borderless)
               .help("Copy")
+              .accessibilityLabel("Copy dictation")
             }
           }
         }
@@ -149,6 +150,7 @@ struct MenuPanelView: View {
       }
       .buttonStyle(.glass)
       .help("Settings")
+      .accessibilityLabel("Settings")
     }
   }
 

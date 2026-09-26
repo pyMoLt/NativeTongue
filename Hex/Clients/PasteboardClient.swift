@@ -256,9 +256,7 @@ struct PasteboardClientLive {
         let dictationChangeCount = pasteboard.changeCount
         let pasteSucceeded = await performPaste(payload.plain)
         guard !hexSettings.copyToClipboard else { return }
-        try? await Task.sleep(for: pasteSucceeded ? .milliseconds(300) : .seconds(10))
-        guard Self.shouldRestoreSnapshot(currentChangeCount: pasteboard.changeCount, dictationChangeCount: dictationChangeCount) else { return }
-        snapshot.restore(to: pasteboard)
+        await Self.scheduleRestore(snapshot, dictationChangeCount: dictationChangeCount, pasteSucceeded: pasteSucceeded)
     }
 
     @MainActor
@@ -271,18 +269,7 @@ struct PasteboardClientLive {
         let pasteSucceeded = await performPaste(text)
         
         if !hexSettings.copyToClipboard {
-            let savedSnapshot = snapshot
-            let restoreDelay: Duration = pasteSucceeded ? .milliseconds(300) : .seconds(10)
-            // On failure, keep the dictated text available for manual ⌘V for 10 seconds.
-            // On success, wait briefly for the target app to consume the pasteboard data.
-            try? await Task.sleep(for: restoreDelay)
-            // Do not overwrite a new clipboard value copied by the user or target app.
-            guard Self.shouldRestoreSnapshot(
-                currentChangeCount: pasteboard.changeCount,
-                dictationChangeCount: dictationChangeCount
-            ) else { return }
-            pasteboard.clearContents()
-            savedSnapshot.restore(to: pasteboard)
+            await Self.scheduleRestore(snapshot, dictationChangeCount: dictationChangeCount, pasteSucceeded: pasteSucceeded)
         }
         
         // If we failed to paste AND user doesn't want clipboard retention,
@@ -293,6 +280,28 @@ struct PasteboardClientLive {
             
             // TODO: Could add a notification here to inform user
             // that text is available in clipboard
+        }
+    }
+
+    /// Success: wait 300 ms for the target app to read the text, then restore.
+    /// Failure: leave the text on the clipboard for manual ⌘V for 10 s, restoring
+    /// in the background so the dictation flow is not blocked.
+    @MainActor
+    static func scheduleRestore(_ snapshot: PasteboardSnapshot, dictationChangeCount: Int, pasteSucceeded: Bool) async {
+        func restore() {
+            let pasteboard = NSPasteboard.general
+            // Do not overwrite a new clipboard value copied by the user or target app.
+            guard shouldRestoreSnapshot(currentChangeCount: pasteboard.changeCount, dictationChangeCount: dictationChangeCount) else { return }
+            snapshot.restore(to: pasteboard)
+        }
+        if pasteSucceeded {
+            try? await Task.sleep(for: .milliseconds(300))
+            restore()
+        } else {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(10))
+                restore()
+            }
         }
     }
 

@@ -92,17 +92,17 @@ struct OnboardingView: View {
     let installed = store.settings.modelDownload.availableModels.first { $0.name == recommendedModel }?.isDownloaded ?? false
     let downloading = store.settings.modelDownload.downloadingModelName == recommendedModel
     return VStack(alignment: .leading, spacing: 12) {
-      title("Install a model", "Empfehlung: Whisper Large v3 Turbo – bestes Ergebnis im Literal-Test (14/14 Befehle).", symbol: "cpu")
+      title("Install a model", "Recommended: Whisper Large v3 Turbo – best result in the literal test (14/14 commands).", symbol: "cpu")
       Card {
         HStack {
           VStack(alignment: .leading, spacing: 4) {
             Text("Whisper Large v3 Turbo").font(.headline)
-            Text("\((try? LocalASRModelCatalog.descriptor(named: recommendedModel))?.storageSize ?? "~1.64 GB") · Deutsch und Englisch, Sprache automatisch").font(.caption).foregroundStyle(.secondary)
+            Text("\((try? LocalASRModelCatalog.descriptor(named: recommendedModel))?.storageSize ?? "~1.64 GB") · German and English, automatic language").font(.caption).foregroundStyle(.secondary)
             LocalASRLiteralRating.reliable.badge
           }
           Spacer()
           if installed {
-            Label("Installiert", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+            Label("Installed", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
           } else if downloading {
             ProgressView(value: store.settings.modelDownload.downloadProgress).frame(width: 120)
           } else {
@@ -125,7 +125,7 @@ struct OnboardingView: View {
   private var packs: some View {
     VStack(alignment: .leading, spacing: 12) {
       title("Word packs (optional)", "Domain vocabularies (medicine, anatomy, technology) for suggestions and corrections.", symbol: "character.book.closed")
-      Text("Importiere die JSON-Dateien aus deinem Ordner „06-wortlisten/packs“. Sie bleiben lokal und werden nie an das Sprachmodell geschickt.")
+      Text("Import word pack JSON files. They stay on this Mac and are never sent to the speech model.")
         .foregroundStyle(.secondary)
       Button {
         isImporterPresented = true

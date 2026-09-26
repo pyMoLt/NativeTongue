@@ -53,7 +53,7 @@ struct LexiconView: View {
         .foregroundStyle(.secondary)
 
       Table(store.filteredEntries, selection: $store.selection) {
-        TableColumn("Schreibweise") { entry in
+        TableColumn("Spelling") { entry in
           Text(entry.term).fontWeight(.medium)
         }
         TableColumn("Variants (replaced)") { entry in
@@ -84,7 +84,7 @@ struct LexiconView: View {
       .onDeleteCommand { store.send(.deleteSelected) }
 
       HStack(spacing: 8) {
-        TextField("Neuer Begriff, z. B. ST-Hebungsinfarkt", text: $store.draftTerm)
+        TextField("New term, e.g. SwiftUI", text: $store.draftTerm)
           .textFieldStyle(.roundedBorder)
           .onSubmit { store.send(.addDraft) }
         TextField("Variants, comma-separated", text: $store.draftAliases)
@@ -162,7 +162,8 @@ struct LexiconView: View {
                 Image(systemName: "trash")
               }
               .buttonStyle(.borderless)
-              .help("Wortpaket entfernen")
+              .help("Remove word pack")
+              .accessibilityLabel("Remove word pack \(Self.packName(pack.id))")
             }
             .padding(.vertical, 8)
             if pack.id != store.packs.last?.id { Divider() }
@@ -199,7 +200,7 @@ struct LexiconView: View {
     switch id {
     case "medical-de": "Medical (German)"
     case "medical-en": "Medical (English)"
-    case "anatomy-la": "Anatomie Latein"
+    case "anatomy-la": "Anatomy (Latin)"
     case "technical": "Technology & software"
     default: id
     }

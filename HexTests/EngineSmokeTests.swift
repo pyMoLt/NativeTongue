@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import HexCore
+import Qwen3ASR
 import XCTest
 
 @testable import Hex
@@ -9,7 +10,12 @@ import XCTest
 /// No install or network method is called by this suite.
 final class EngineSmokeTests: XCTestCase {
 	private let turbo = "openai_whisper-large-v3-v20240930_turbo"
-	private let models = [
+	/// Optional filter file (Xcode does not pass environment variables to the test host).
+	private var models: [String] {
+		let filter = (try? String(contentsOfFile: "/private/tmp/LocalASR-Phase2Fixtures/only-model", encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+		return filter.map { [$0] } ?? allModels
+	}
+	private let allModels = [
 		"openai_whisper-large-v3-v20240930_turbo",
 		"openai_whisper-large-v3",
 		"parakeet-ultra-coreml",
@@ -42,6 +48,7 @@ final class EngineSmokeTests: XCTestCase {
 				let kept = commandWordsKept(in: literalText)
 				let automaticPunctuation = literalText.unicodeScalars.filter { CharacterSet(charactersIn: ".,;:!?").contains($0) }.count
 				let memoryMB = Int((await client.processFootprintBytes() ?? 0) / 1_048_576)
+				Self.metric("ENGINE_SMOKE model=\(model) literalWords=\(kept)/14 automaticPunctuation=\(automaticPunctuation) seconds=\(Int(Date().timeIntervalSince(start))) processMB=\(memoryMB)")
 				print("ENGINE_SMOKE model=\(model) literalWords=\(kept)/14 automaticPunctuation=\(automaticPunctuation) terminologyCharacters=\(terminologyText.count) seconds=\(Int(Date().timeIntervalSince(start))) processMB=\(memoryMB)")
 				XCTAssertFalse(terminologyText.isEmpty, "\(model) returned empty terminology transcription")
 				XCTAssertTrue(literalResults.allSatisfy(\.punctuationWasSuppressed), "\(model) did not apply the literal punctuation policy")
@@ -50,6 +57,10 @@ final class EngineSmokeTests: XCTestCase {
 				XCTFail("\(model) failed local sample transcription: \(error.localizedDescription)")
 			}
 			await client.unloadModel()
+			try? await Task.sleep(for: .seconds(2))
+			let afterUnloadMB = Int((await client.processFootprintBytes() ?? 0) / 1_048_576)
+			let mlx = MLXMemoryControl.usage()
+			Self.metric("ENGINE_MEMORY model=\(model) afterUnloadMB=\(afterUnloadMB) mlxActiveMB=\(mlx.active / 1_048_576) mlxCacheMB=\(mlx.cache / 1_048_576)")
 			let loadedAfterUnload = await client.loadedModel()
 			XCTAssertNil(loadedAfterUnload, "\(model) remained resident after unload")
 		}
@@ -265,6 +276,17 @@ final class EngineSmokeTests: XCTestCase {
 			let pattern = "(?<![\\p{L}])\(NSRegularExpression.escapedPattern(for: entry.0))(?![\\p{L}])"
 			let regex = try! NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
 			return (entry.0, min(regex.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text)), entry.1))
+		}
+	}
+
+	/// Metrics only (no transcript text) for the test report.
+	static func metric(_ line: String) {
+		let url = URL(fileURLWithPath: "/private/tmp/LocalASR-Metrics.txt")
+		let data = Data((line + "\n").utf8)
+		if let handle = try? FileHandle(forWritingTo: url) {
+			handle.seekToEndOfFile(); handle.write(data); try? handle.close()
+		} else {
+			try? data.write(to: url)
 		}
 	}
 

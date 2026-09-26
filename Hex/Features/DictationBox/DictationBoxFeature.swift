@@ -361,7 +361,9 @@ struct DictationBoxFeature {
         state.lastAction = "Spelled: “\(spelled)”"
       }
     } else if !output.markdown.isEmpty, !output.document.isEmpty {
-      let attributed = BoxTextConverter.attributed(fromMarkdown: output.markdown, baseFont: state.baseFont, corrections: output.document.corrections)
+      let converted = BoxTextConverter.attributed(fromMarkdown: output.markdown, baseFont: state.baseFont, corrections: output.document.corrections)
+      let attributed = NSMutableAttributedString(attributedString: converted)
+      BoxTextConverter.markUncertain(output.uncertainWords, in: attributed)
       let replacedText = target.length > 0
         ? (state.text.string as NSString).substring(with: BoxTextEditing.clamp(target, length: state.text.length))
         : ""
@@ -398,6 +400,7 @@ struct DictationBoxFeature {
     let text = NSMutableAttributedString(attributedString: state.text.value)
     var attributes = clamped.length > 0 ? text.attributes(at: clamped.location, effectiveRange: nil) : BoxTextStyle.attributes(font: state.baseFont)
     attributes[.localASRCorrectionOriginal] = nil
+    attributes[.localASRUncertain] = nil
     attributes[.underlineStyle] = nil
     attributes[.underlineColor] = nil
     text.replaceCharacters(in: clamped, with: NSAttributedString(string: term, attributes: attributes))

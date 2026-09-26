@@ -15,6 +15,9 @@ struct DictationSessionOutput: Equatable, Sendable {
   var markdown: String = ""
   /// Unprocessed ASR text (used by the spelling mode).
   var rawText: String = ""
+  /// Words the engine was unsure about (confidence < 0.5), for the orange
+  /// underline in the dictation box (plan 5.7).
+  var uncertainWords: [String] = []
 }
 
 /// Turns one captured recording into a `DictationDocument`.
@@ -67,7 +70,16 @@ struct DictationSessionRunner {
 
     let capabilities = (try? LocalASRModelCatalog.descriptor(named: request.model))?.capabilities
     let utterances = UtteranceSegmenter.segment(samples, config: SegmenterConfig(minPauseMs: request.commandPauseMs))
-    let aligned = try await transcribe(samples, utterances: utterances, wordTimings: capabilities?.wordTimings ?? false, request: request, options: options)
+    let collector = UncertainWordCollector()
+    let recording = DictationSessionRunner(
+      transcribeSamples: { [transcribeSamples] samples, model, options in
+        let result = try await transcribeSamples(samples, model, options)
+        await collector.add(result.words)
+        return result
+      },
+      corrector: corrector
+    )
+    let aligned = try await recording.transcribe(samples, utterances: utterances, wordTimings: capabilities?.wordTimings ?? false, request: request, options: options)
 
     let language = Self.baseLanguage(request.language ?? aligned.first(where: { $0.language != nil })?.language ?? "de")
     let corrector = await corrector(LexiconContext(
@@ -93,7 +105,10 @@ struct DictationSessionRunner {
     let text = document.render(AssemblerOptions(language: language, mode: request.mode))
     let markdown = document.render(AssemblerOptions(language: language, mode: request.mode, format: .markdown))
     let rawText = aligned.map(\.text).joined(separator: " ")
-    return DictationSessionOutput(document: document, language: language, text: text, markdown: markdown, rawText: rawText)
+    return DictationSessionOutput(
+      document: document, language: language, text: text, markdown: markdown, rawText: rawText,
+      uncertainWords: await collector.words
+    )
   }
 
   /// "de-DE" / "german" → "de".
@@ -104,7 +119,7 @@ struct DictationSessionRunner {
     return String(lower.prefix(2))
   }
 
-  private func transcribe(
+  fileprivate func transcribe(
     _ samples: [Float],
     utterances: [Utterance],
     wordTimings: Bool,
@@ -135,5 +150,18 @@ struct DictationSessionRunner {
       results.append(AlignedUtterance(utterance: utterance, text: result.text, language: result.detectedLanguage))
     }
     return results
+  }
+}
+
+/// Collects low-confidence words from engine results.
+actor UncertainWordCollector {
+  private(set) var words: [String] = []
+
+  func add(_ engineWords: [EngineWord]) {
+    for word in engineWords {
+      guard let confidence = word.confidence, confidence < 0.5 else { continue }
+      let clean = word.text.trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
+      if clean.count >= 3, !words.contains(clean) { words.append(clean) }
+    }
   }
 }

@@ -91,7 +91,7 @@ struct BoxTextEditor: NSViewRepresentable {
     textView.drawsBackground = false
     textView.textContainerInset = NSSize(width: 14, height: 12)
     textView.delegate = context.coordinator
-    textView.setAccessibilityLabel("Diktattext")
+    textView.setAccessibilityLabel("Dictation text")
     textView.onHover = { [weak coordinator = context.coordinator] range in coordinator?.hovered(range) }
     textView.onChooseSuggestion = { [weak coordinator = context.coordinator] index in coordinator?.choose(index) ?? false }
     textView.onEscape = { [weak coordinator = context.coordinator] in coordinator?.store.send(.dismissSuggestions) }
@@ -213,7 +213,7 @@ struct SuggestionPopoverView: View {
                 Image(systemName: "person.crop.circle")
                   .font(.caption)
                   .foregroundStyle(.tint)
-                  .help("Aus deinem Wortschatz")
+                  .help("From your vocabulary")
               }
             }
             .contentShape(Rectangle())

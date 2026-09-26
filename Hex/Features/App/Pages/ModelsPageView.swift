@@ -128,7 +128,7 @@ private struct ModelCard: View {
         actions
       }
     }
-    .confirmationDialog("\(model.displayName) entfernen?", isPresented: $confirmDelete) {
+    .confirmationDialog("Remove \(model.displayName)?", isPresented: $confirmDelete) {
       Button("Remove", role: .destructive, action: onDelete)
     } message: {
       Text("Gibt \(model.storageSize) frei. Du kannst es jederzeit neu installieren.")
@@ -154,6 +154,7 @@ private struct ModelCard: View {
         }
         .buttonStyle(.borderless)
         .help("Remove model")
+        .accessibilityLabel("Remove \(model.displayName)")
       } else {
         Button {
           onInstall()

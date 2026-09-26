@@ -3,6 +3,7 @@ import CohereTranscribeASR
 import Foundation
 import HexCore
 import Hub
+import Qwen3ASR
 
 /// Cohere Transcribe 2B via the vendored MLX runtime (replaces the Core ML export,
 /// which needed ~7.9 GB RSS and lost text at chunk seams in the benchmark).
@@ -78,11 +79,13 @@ actor CohereMLXASRClient {
 			throw NSError(domain: "CohereMLX", code: 2, userInfo: [NSLocalizedDescriptionKey: "Cohere Transcribe (MLX) is not installed."])
 		}
 		model = try CohereTranscribeModel.fromDirectory(try Self.modelDirectory())
+		MLXMemoryControl.setCacheLimit(1 << 30)
 		logger.info("Loaded Cohere Transcribe MLX 8-bit")
 	}
 
 	func unload() {
 		model = nil
+		MLXMemoryControl.clearCache()
 	}
 
 	func delete() throws {

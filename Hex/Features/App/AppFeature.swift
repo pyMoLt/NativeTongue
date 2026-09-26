@@ -71,6 +71,10 @@ struct AppFeature {
     case finishOnboarding
     case lexiconMigrated
     case openFiles([URL])
+    case exportSettings
+    case importSettings
+    case settingsImported(SettingsTransfer)
+    case settingsTransferFailed(String)
     case task
     case pasteLastTranscript
 
@@ -241,6 +245,56 @@ struct AppFeature {
       case let .presentOnboarding(presented):
         state.isOnboardingPresented = presented
         return .none
+
+      case .exportSettings:
+        let settings = state.hexSettings
+        return .run { [lexicon] _ in
+          let transfer = SettingsTransfer(settings: settings, userLexicon: await lexicon.userLexicon())
+          guard let data = try? transfer.encoded() else { return }
+          await MainActor.run {
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = "\(AppBrand.name) Settings.json"
+            panel.allowedContentTypes = [.json]
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            try? data.write(to: url, options: .atomic)
+          }
+        }
+
+      case .importSettings:
+        return .run { send in
+          let url = await MainActor.run { () -> URL? in
+            let panel = NSOpenPanel()
+            panel.allowedContentTypes = [.json]
+            panel.allowsMultipleSelection = false
+            return panel.runModal() == .OK ? panel.url : nil
+          }
+          guard let url else { return }
+          do {
+            await send(.settingsImported(try SettingsTransfer.decode(Data(contentsOf: url))))
+          } catch {
+            await send(.settingsTransferFailed(error.localizedDescription))
+          }
+        }
+
+      case let .settingsImported(transfer):
+        let applied = transfer.settingsToApply(onto: state.hexSettings)
+        state.$hexSettings.withLock { $0 = applied }
+        let lexiconValue = transfer.userLexicon
+        return .run { [lexicon] send in
+          try? await lexicon.saveUserLexicon(lexiconValue)
+          await lexicon.warmUp(applied.activeLexiconPacks)
+          await send(.lexicon(.task))
+        }
+
+      case let .settingsTransferFailed(message):
+        return .run { _ in
+          await MainActor.run {
+            let alert = NSAlert()
+            alert.messageText = "Import failed"
+            alert.informativeText = message
+            alert.runModal()
+          }
+        }
 
       case let .openFiles(urls):
         state.activeTab = .files

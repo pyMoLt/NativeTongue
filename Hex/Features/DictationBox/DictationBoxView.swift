@@ -44,7 +44,7 @@ struct DictationBoxView: View {
 
   private var placeholder: String {
     if transcription.isRecording { return "Speak …" }
-    if transcription.isTranscribing { return "Wird transkribiert …" }
+    if transcription.isTranscribing { return "Transcribing …" }
     return "Press the dictation key and speak. Commands like “new paragraph” or “period” work here."
   }
 
@@ -123,7 +123,7 @@ struct DictationBoxView: View {
       }
       .menuStyle(.borderlessButton)
       .fixedSize()
-      .help("Schriftart")
+      .help("Font")
 
       Menu {
         ForEach([11, 12, 13, 14, 15, 16, 18, 20, 22, 24, 28], id: \.self) { size in
@@ -244,7 +244,7 @@ struct DictationBoxView: View {
       }
       HStack {
         Spacer()
-        Button("Nicht jetzt") { store.send(.learnSkipped) }
+        Button("Not now") { store.send(.learnSkipped) }
           .buttonStyle(.glass)
         Button("Add") { store.send(.learnConfirmed) }
           .buttonStyle(.glassProminent)

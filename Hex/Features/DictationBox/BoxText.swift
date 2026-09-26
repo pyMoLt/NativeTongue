@@ -4,6 +4,8 @@ import HexCore
 extension NSAttributedString.Key {
   /// Original spelling of an automatic lexicon replacement (blue dotted underline).
   static let localASRCorrectionOriginal = NSAttributedString.Key("LocalASRCorrectionOriginal")
+  /// Word the engine was unsure about (orange dotted underline).
+  static let localASRUncertain = NSAttributedString.Key("LocalASRUncertain")
   /// Heading level of a paragraph (1 = H1, 2 = H2).
   static let localASRHeading = NSAttributedString.Key("LocalASRHeading")
 }
@@ -136,11 +138,38 @@ enum BoxTextConverter {
     }
   }
 
+  /// Orange dotted underline for low-confidence words (whole-word matches,
+  /// skipping words that already carry a lexicon correction).
+  static func markUncertain(_ words: [String], in text: NSMutableAttributedString) {
+    let string = text.string as NSString
+    for word in words {
+      var searchRange = NSRange(location: 0, length: string.length)
+      while true {
+        let range = string.range(of: word, options: [.caseInsensitive], range: searchRange)
+        guard range.location != NSNotFound else { break }
+        let before = range.location > 0 ? string.character(at: range.location - 1) : 32
+        let afterIndex = range.location + range.length
+        let after = afterIndex < string.length ? string.character(at: afterIndex) : 32
+        let isWord = !(UnicodeScalar(before).map(CharacterSet.alphanumerics.contains) ?? false)
+          && !(UnicodeScalar(after).map(CharacterSet.alphanumerics.contains) ?? false)
+        if isWord, text.attribute(.localASRCorrectionOriginal, at: range.location, effectiveRange: nil) == nil {
+          text.addAttributes([
+            .localASRUncertain: true,
+            .underlineStyle: NSUnderlineStyle.single.rawValue | NSUnderlineStyle.patternDot.rawValue,
+            .underlineColor: NSColor.systemOrange,
+          ], range: range)
+        }
+        searchRange = NSRange(location: afterIndex, length: string.length - afterIndex)
+      }
+    }
+  }
+
   /// Copy without the box-only markers (correction underline etc.).
   static func exportCopy(_ text: NSAttributedString) -> NSAttributedString {
     let copy = NSMutableAttributedString(attributedString: text)
     let full = NSRange(location: 0, length: copy.length)
     copy.removeAttribute(.localASRCorrectionOriginal, range: full)
+    copy.removeAttribute(.localASRUncertain, range: full)
     copy.removeAttribute(.underlineStyle, range: full)
     copy.removeAttribute(.underlineColor, range: full)
     copy.removeAttribute(.localASRHeading, range: full)

@@ -41,6 +41,17 @@ final class BoxTextTests: XCTestCase {
     XCTAssertEqual(middle.string, "Hallo schöne Welt")
   }
 
+  func testUncertainWordsGetOrangeMarkerButNotInExport() {
+    let text = NSMutableAttributedString(string: "Die Iunum und das Duodenum", attributes: [.font: font])
+    BoxTextConverter.markUncertain(["Iunum", "und"], in: text)
+    let range = (text.string as NSString).range(of: "Iunum")
+    XCTAssertEqual(text.attribute(.localASRUncertain, at: range.location, effectiveRange: nil) as? Bool, true)
+    // "und" inside "Duodenum"? no – whole words only; the standalone "und" is marked.
+    let inside = (text.string as NSString).range(of: "Duodenum")
+    XCTAssertNil(text.attribute(.localASRUncertain, at: inside.location + 2, effectiveRange: nil))
+    XCTAssertNil(BoxTextConverter.exportCopy(text).attribute(.localASRUncertain, at: range.location, effectiveRange: nil))
+  }
+
   func testFormattingHelpers() {
     let text = NSAttributedString(string: "eins zwei", attributes: [.font: font])
     let bold = BoxTextEditing.toggleTrait(.boldFontMask, in: text, range: NSRange(location: 0, length: 4))

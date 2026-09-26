@@ -160,6 +160,6 @@ struct DictationHomeView: View {
     let modifiers = hotkey.modifiers.sorted.map(\.stringValue).joined()
     let key = hotkey.key?.toString ?? ""
     let text = modifiers + key
-    return text.isEmpty ? "Nicht festgelegt" : text
+    return text.isEmpty ? "Not set" : text
   }
 }

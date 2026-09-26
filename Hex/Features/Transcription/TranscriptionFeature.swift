@@ -530,10 +530,10 @@ private extension TranscriptionFeature {
   /// (Whisper keeps its acoustic context, e.g. Turbo 14/14 command words vs.
   /// 12/14 on isolated clips) and the text is aligned to the audio pauses.
   func startFinalTranscription(_ request: CapturedDictationRequest, settings: HexSettings) -> Effect<Action> {
-    runSession(request, isRecovery: false, biasingEnabled: settings.isBiasingEnabled(for: request.session.model))
+    runSession(request, isRecovery: false, biasingEnabled: settings.isBiasingEnabled(for: request.session.model), diagnosticsEnabled: settings.diagnosticsEnabled)
   }
 
-  func runSession(_ request: CapturedDictationRequest, isRecovery: Bool, biasingEnabled: Bool) -> Effect<Action> {
+  func runSession(_ request: CapturedDictationRequest, isRecovery: Bool, biasingEnabled: Bool, diagnosticsEnabled: Bool = false) -> Effect<Action> {
     .run { [transcription, lexicon] send in
       do {
         let audioFile = try AVAudioFile(forReading: request.audioURL)
@@ -547,13 +547,30 @@ private extension TranscriptionFeature {
           transcribeSamples: transcription.transcribeSamples,
           corrector: lexicon.corrector
         )
+        let started = Date()
         let output = try await runner.run(request.audioURL, request: session)
         guard !Task.isCancelled else { return }
+        DiagnosticsStore.record(DiagnosticsRecord(
+          kind: "dictation",
+          model: session.model,
+          mode: session.mode.rawValue,
+          audioSeconds: duration,
+          processingSeconds: Date().timeIntervalSince(started),
+          utterances: output.document.entries.count,
+          structuralCommands: output.document.structuralCommandCount,
+          editCommands: output.document.unappliedEdits.count,
+          lexiconCorrections: output.document.corrections.count
+        ), enabled: diagnosticsEnabled)
         transcriptionFeatureLogger.notice("Transcribed dictation; output length \(output.text.count) characters")
         await send(.sessionTranscriptionResult(output, request.audioURL, duration, isRecovery: isRecovery))
       } catch {
         guard !Task.isCancelled else { return }
         transcriptionFeatureLogger.error("Transcription failed: \(error.localizedDescription, privacy: .private)")
+        let nsError = error as NSError
+        DiagnosticsStore.record(DiagnosticsRecord(
+          kind: "error", model: request.session.model, mode: request.session.mode.rawValue,
+          audioSeconds: request.duration, processingSeconds: 0, errorCode: "\(nsError.domain)#\(nsError.code)"
+        ), enabled: diagnosticsEnabled)
         await send(.transcriptionError(error, nil))
       }
     }

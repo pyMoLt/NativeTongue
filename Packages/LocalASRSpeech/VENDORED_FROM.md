@@ -29,3 +29,4 @@ commit recorded above.
   (masked to -inf in `pickNextToken`; disables the greedy fast path when
   non-empty), `Qwen3Tokenizer.punctuationTokenIDs()` and
   `Qwen3ASRModel.punctuationTokenIDs()` for literal-mode punctuation masking.
+- `Sources/Qwen3ASR/MLXMemoryControl.swift`: NativeTongue-Ergänzung (Cache-Limit setzen, Cache leeren) – nicht upstream.

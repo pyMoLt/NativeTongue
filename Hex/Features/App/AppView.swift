@@ -107,7 +107,7 @@ struct AppView: View {
     case .remappings:
       WordRemappingsView(store: store.scope(state: \.settings, action: \.settings))
     case .about:
-      AboutView(store: store.scope(state: \.settings, action: \.settings))
+      AboutView(store: store)
     }
   }
 }
