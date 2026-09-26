@@ -19,7 +19,6 @@
 		47512ABF2E14D8C9000E25BA /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 47512ABE2E14D8C9000E25BA /* WhisperKit */; };
 		476316272E5FB31400913CDE /* HexCore in Frameworks */ = {isa = PBXBuildFile; productRef = 476316262E5FB31400913CDE /* HexCore */; };
 		4765045E2D45900200C7EA60 /* Pow in Frameworks */ = {isa = PBXBuildFile; productRef = 4765045D2D45900200C7EA60 /* Pow */; };
-		476BAD3E2D47E7880088C61F /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 476BAD3D2D47E7880088C61F /* Sparkle */; };
 		47C08AB62DE9F61B00564AE6 /* Inject in Frameworks */ = {isa = PBXBuildFile; productRef = 47C08AB52DE9F61B00564AE6 /* Inject */; };
 		47E05E022D444EE900D26DA6 /* ComposableArchitecture in Frameworks */ = {isa = PBXBuildFile; productRef = 47E05E012D444EE900D26DA6 /* ComposableArchitecture */; };
 		47E05E052D444EF800D26DA6 /* Sauce in Frameworks */ = {isa = PBXBuildFile; productRef = 47E05E042D444EF800D26DA6 /* Sauce */; };
@@ -28,6 +27,11 @@
 		47E16A622EC6C9D300885CF7 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 47E16A612EC6C9D300885CF7 /* FluidAudio */; };
 		B5045C972D78DED500D0A119 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = B5045C962D78DED500D0A119 /* MarkdownUI */; };
 		B53356002D7B8D4900E5F542 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B53355FF2D7B8D4900E5F542 /* Localizable.xcstrings */; };
+		A17B00012F25092500000001 /* Hub in Frameworks */ = {isa = PBXBuildFile; productRef = A17B00052F25092500000005 /* Hub */; };
+		A17B00022F25092500000002 /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = A17B00062F25092500000006 /* Tokenizers */; };
+		A17B00112F25092500000011 /* DependenciesTestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = A17B00122F25092500000012 /* DependenciesTestSupport */; };
+		A17B00212F25092500000021 /* Qwen3ASR in Frameworks */ = {isa = PBXBuildFile; productRef = A17B00242F25092500000024 /* Qwen3ASR */; };
+		A17B00222F25092500000022 /* AudioCommon in Frameworks */ = {isa = PBXBuildFile; productRef = A17B00252F25092500000025 /* AudioCommon */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -86,6 +90,7 @@
 				4F0D6A0E2F1A000100000001 /* CasePaths in Frameworks */,
 				4F0D6A0F2F1A000100000001 /* Dependencies in Frameworks */,
 				4F0D6A102F1A000100000001 /* IdentifiedCollections in Frameworks */,
+				A17B00112F25092500000011 /* DependenciesTestSupport in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -93,7 +98,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				476BAD3E2D47E7880088C61F /* Sparkle in Frameworks */,
 				476316272E5FB31400913CDE /* HexCore in Frameworks */,
 				47E05E0A2D44525B00D26DA6 /* Dependencies in Frameworks */,
 				B5045C972D78DED500D0A119 /* MarkdownUI in Frameworks */,
@@ -107,6 +111,10 @@
 				4F0D6A042F1A000100000001 /* Sharing in Frameworks */,
 				4F0D6A082F1A000100000001 /* CasePaths in Frameworks */,
 				4F0D6A092F1A000100000001 /* IdentifiedCollections in Frameworks */,
+				A17B00012F25092500000001 /* Hub in Frameworks */,
+				A17B00022F25092500000002 /* Tokenizers in Frameworks */,
+				A17B00212F25092500000021 /* Qwen3ASR in Frameworks */,
+				A17B00222F25092500000022 /* AudioCommon in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -170,6 +178,9 @@
 				4F0D6A0C2F1A000100000001 /* CasePaths */,
 				47E05E092D44525B00D26DA6 /* Dependencies */,
 				4F0D6A0D2F1A000100000001 /* IdentifiedCollections */,
+				A17B00242F25092500000024 /* Qwen3ASR */,
+				A17B00252F25092500000025 /* AudioCommon */,
+				A17B00122F25092500000012 /* DependenciesTestSupport */,
 			);
 			productName = HexTests;
 			productReference = 478637A52D48725900319BFA /* HexTests.xctest */;
@@ -197,7 +208,6 @@
 				47E05E092D44525B00D26DA6 /* Dependencies */,
 				47E05E0B2D44525B00D26DA6 /* DependenciesMacros */,
 				4765045D2D45900200C7EA60 /* Pow */,
-				476BAD3D2D47E7880088C61F /* Sparkle */,
 				B5045C962D78DED500D0A119 /* MarkdownUI */,
 				47C08AB52DE9F61B00564AE6 /* Inject */,
 				47512ABE2E14D8C9000E25BA /* WhisperKit */,
@@ -244,7 +254,6 @@
 				47E05E032D444EF800D26DA6 /* XCRemoteSwiftPackageReference "Sauce" */,
 				47E05E082D44525B00D26DA6 /* XCRemoteSwiftPackageReference "swift-dependencies" */,
 				4765045C2D45900200C7EA60 /* XCRemoteSwiftPackageReference "Pow" */,
-				476BAD3C2D47E7880088C61F /* XCRemoteSwiftPackageReference "Sparkle" */,
 				B5045C952D78DED500D0A119 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 				47C08AB42DE9F61B00564AE6 /* XCRemoteSwiftPackageReference "Inject" */,
 				47512ABD2E14D8C9000E25BA /* XCRemoteSwiftPackageReference "WhisperKit" */,
@@ -253,6 +262,8 @@
 				4F0D6A062F1A000100000001 /* XCRemoteSwiftPackageReference "swift-sharing" */,
 				4F0D6A0A2F1A000100000001 /* XCRemoteSwiftPackageReference "swift-case-paths" */,
 				4F0D6A0B2F1A000100000001 /* XCRemoteSwiftPackageReference "swift-identified-collections" */,
+				A17B00032F25092500000003 /* XCRemoteSwiftPackageReference "swift-transformers" */,
+				A17B00232F25092500000023 /* XCLocalSwiftPackageReference "LocalASRSpeech" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 47E05DEF2D444EC600D26DA6 /* Products */;
@@ -318,7 +329,7 @@
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 0.8.5;
-				PRODUCT_BUNDLE_IDENTIFIER = com.kitlangton.HexTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.localasr.LocalASTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
@@ -335,7 +346,7 @@
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 0.8.5;
-				PRODUCT_BUNDLE_IDENTIFIER = com.kitlangton.HexTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.localasr.LocalASTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
@@ -398,7 +409,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -458,7 +469,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
@@ -496,20 +507,21 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Hex/Info.plist;
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Hex needs to control keyboard events to simulate paste operations.";
+				INFOPLIST_KEY_CFBundleName = "Local ASR";
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Local ASR needs to simulate paste so dictated text can be inserted into the active app.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Hex needs microphone access in order to transcribe your voice.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Local ASR needs microphone access to transcribe your voice on this Mac.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 0.8.5;
 				OTHER_LDFLAGS = (
 					"-Xlinker",
 					"-interposable",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.kitlangton.Hex.debug;
+				PRODUCT_BUNDLE_IDENTIFIER = com.localasr.LocalASR.debug;
 				PRODUCT_MODULE_NAME = Hex;
 				PRODUCT_NAME = "Hex Debug";
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
@@ -551,16 +563,17 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Hex/Info.plist;
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Hex needs to control keyboard events to simulate paste operations.";
+				INFOPLIST_KEY_CFBundleName = "Local ASR";
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Local ASR needs to simulate paste so dictated text can be inserted into the active app.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Hex needs microphone access in order to transcribe your voice.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Local ASR needs microphone access to transcribe your voice on this Mac.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 0.8.5;
-				PRODUCT_BUNDLE_IDENTIFIER = com.kitlangton.Hex;
+				PRODUCT_BUNDLE_IDENTIFIER = com.localasr.LocalASR;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
@@ -610,6 +623,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = HexCore;
 		};
+		A17B00232F25092500000023 /* XCLocalSwiftPackageReference "LocalASRSpeech" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/LocalASRSpeech;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -627,14 +644,6 @@
 			requirement = {
 				kind = revision;
 				revision = 1b4b1dda28c50b95f0872927ee2226fe8b58950e;
-			};
-		};
-		476BAD3C2D47E7880088C61F /* XCRemoteSwiftPackageReference "Sparkle" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/sparkle-project/Sparkle";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.9.4;
 			};
 		};
 		47C08AB42DE9F61B00564AE6 /* XCRemoteSwiftPackageReference "Inject" */ = {
@@ -674,7 +683,7 @@
 			repositoryURL = "https://github.com/FluidInference/FluidAudio";
 			requirement = {
 				kind = exactVersion;
-				version = 0.15.5;
+				version = 0.17.4;
 			};
 		};
 		4F0D6A062F1A000100000001 /* XCRemoteSwiftPackageReference "swift-sharing" */ = {
@@ -709,6 +718,14 @@
 				minimumVersion = 2.4.1;
 			};
 		};
+		A17B00032F25092500000003 /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/huggingface/swift-transformers.git";
+			requirement = {
+				kind = exactVersion;
+				version = 1.1.6;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -725,11 +742,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 4765045C2D45900200C7EA60 /* XCRemoteSwiftPackageReference "Pow" */;
 			productName = Pow;
-		};
-		476BAD3D2D47E7880088C61F /* Sparkle */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 476BAD3C2D47E7880088C61F /* XCRemoteSwiftPackageReference "Sparkle" */;
-			productName = Sparkle;
 		};
 		47C08AB52DE9F61B00564AE6 /* Inject */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -775,6 +787,29 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 4F0D6A0B2F1A000100000001 /* XCRemoteSwiftPackageReference "swift-identified-collections" */;
 			productName = IdentifiedCollections;
+		};
+		A17B00052F25092500000005 /* Hub */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A17B00032F25092500000003 /* XCRemoteSwiftPackageReference "swift-transformers" */;
+			productName = Hub;
+		};
+		A17B00062F25092500000006 /* Tokenizers */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A17B00032F25092500000003 /* XCRemoteSwiftPackageReference "swift-transformers" */;
+			productName = Tokenizers;
+		};
+		A17B00122F25092500000012 /* DependenciesTestSupport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 47E05E082D44525B00D26DA6 /* XCRemoteSwiftPackageReference "swift-dependencies" */;
+			productName = DependenciesTestSupport;
+		};
+		A17B00242F25092500000024 /* Qwen3ASR */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Qwen3ASR;
+		};
+		A17B00252F25092500000025 /* AudioCommon */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AudioCommon;
 		};
 		B5045C962D78DED500D0A119 /* MarkdownUI */ = {
 			isa = XCSwiftPackageProductDependency;

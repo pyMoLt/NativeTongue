@@ -10,9 +10,9 @@ public extension URL {
 				appropriateFor: nil,
 				create: true
 			)
-			let hexDirectory = appSupport.appendingPathComponent("com.kitlangton.Hex", isDirectory: true)
-			try fm.createDirectory(at: hexDirectory, withIntermediateDirectories: true)
-			return hexDirectory
+			let appDirectory = appSupport.appendingPathComponent("com.localasr.LocalASR", isDirectory: true)
+			try fm.createDirectory(at: appDirectory, withIntermediateDirectories: true)
+			return appDirectory
 		}
 	}
 

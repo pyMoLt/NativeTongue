@@ -10,10 +10,21 @@ actor ParakeetClient {
   private var currentVariant: ParakeetModel?
   private let logger = HexLog.parakeet
   private let vendorDirs = [
-    // Our app-specific cache path convention (under XDG or com.kitlangton.Hex/cache)
+    // Our app-specific cache path convention (under XDG or Local ASR's cache directory)
     "fluidaudio/Models",
     "FluidAudio/Models"
   ]
+
+  init() {
+    // FluidAudio has its own downloader and does not inherit the app's policy.
+    // Keep its global model hub offline except during an explicit model install.
+    var revisionOverrides = ModelRegistry.revisionOverrides
+    for model in ParakeetModel.allCases {
+      revisionOverrides[model.repository] = model.revision
+    }
+    ModelRegistry.revisionOverrides = revisionOverrides
+    ModelHub.offlineMode = true
+  }
 
   func isModelAvailable(_ modelName: String) async -> Bool {
     guard let variant = ParakeetModel(rawValue: modelName) else {
@@ -49,6 +60,9 @@ actor ParakeetClient {
       asr = nil
       models = nil
     }
+    ModelHub.offlineMode = false
+    defer { ModelHub.offlineMode = true }
+
     migrateLegacyCacheIfNeeded(
       variant,
       to: AsrModels.defaultCacheDirectory(for: variant.asrVersion)
@@ -88,6 +102,56 @@ actor ParakeetClient {
     logger.notice("Parakeet ensureLoaded completed in \(String(format: "%.2f", Date().timeIntervalSince(t0)))s")
   }
 
+  /// Loads only complete model files already present in FluidAudio's cache.
+  /// Unlike `ensureLoaded`, this path never invokes the model downloader.
+  func loadInstalled(modelName: String, progress: @escaping (Progress) -> Void) async throws {
+    guard let variant = ParakeetModel(rawValue: modelName) else {
+      throw NSError(
+        domain: "Parakeet",
+        code: -4,
+        userInfo: [NSLocalizedDescriptionKey: "Unsupported Parakeet variant: \(modelName)"]
+      )
+    }
+    if currentVariant == variant, asr != nil {
+      let completed = Progress(totalUnitCount: 100)
+      completed.completedUnitCount = 100
+      progress(completed)
+      return
+    }
+
+    let directory = AsrModels.defaultCacheDirectory(for: variant.asrVersion)
+    guard AsrModels.modelsExist(at: directory, version: variant.asrVersion) else {
+      throw NSError(
+        domain: "Parakeet",
+        code: -5,
+        userInfo: [NSLocalizedDescriptionKey: "This Parakeet model is not installed. Download it in Model Settings before dictating."]
+      )
+    }
+
+    if currentVariant != variant { await unload() }
+    ModelHub.offlineMode = true
+    let loading = Progress(totalUnitCount: 100)
+    progress(loading)
+    let loadedModels = try await AsrModels.load(
+      from: directory,
+      version: variant.asrVersion,
+      encoderPrecision: .int8
+    )
+    let manager = AsrManager(config: .init(), models: loadedModels)
+    self.models = loadedModels
+    self.asr = manager
+    self.currentVariant = variant
+    loading.completedUnitCount = 100
+    progress(loading)
+    logger.notice("Loaded installed Parakeet model variant=\(variant.identifier)")
+  }
+
+  func unload() {
+    asr = nil
+    models = nil
+    currentVariant = nil
+  }
+
   private func directorySize(_ dir: URL) -> UInt64? {
     let fm = FileManager.default
     guard let en = fm.enumerator(at: dir, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey], options: .skipsHiddenFiles) else { return nil }
@@ -120,14 +184,16 @@ actor ParakeetClient {
     }
   }
 
-  func transcribe(_ url: URL) async throws -> String {
+  func transcribe(_ url: URL) async throws -> TranscriptionOutput {
     guard let asr else { throw NSError(domain: "Parakeet", code: -1, userInfo: [NSLocalizedDescriptionKey: "Parakeet not initialized"]) }
     let t0 = Date()
     logger.notice("Transcribing with Parakeet file=\(url.lastPathComponent)")
     var decoderState = TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
     let result = try await asr.transcribe(url, decoderState: &decoderState)
     logger.info("Parakeet transcription finished in \(String(format: "%.2f", Date().timeIntervalSince(t0)))s")
-    return result.text
+    let wordTimings = buildWordTimings(from: result.tokenTimings ?? [])
+      .map { TranscriptWordTiming(word: $0.word, startTime: $0.startTime, endTime: $0.endTime) }
+    return TranscriptionOutput(text: result.text, wordTimings: wordTimings)
   }
 
   // Delete cached Parakeet models from known locations and reset state
@@ -192,6 +258,7 @@ private extension ParakeetModel {
     switch self {
     case .englishV2: return .v2
     case .multilingualV3: return .v3
+    case .multilingualUltra: return .ultra
     }
   }
 }
@@ -207,7 +274,11 @@ actor ParakeetClient {
       userInfo: [NSLocalizedDescriptionKey: "Parakeet support not linked. Add Swift Package: https://github.com/FluidInference/FluidAudio.git and link FluidAudio to Hex."]
     )
   }
-  func transcribe(_ url: URL) async throws -> String { throw NSError(domain: "Parakeet", code: -3, userInfo: [NSLocalizedDescriptionKey: "Parakeet not available"]) }
+  func loadInstalled(modelName: String, progress: @escaping (Progress) -> Void) async throws {
+    throw NSError(domain: "Parakeet", code: -2, userInfo: [NSLocalizedDescriptionKey: "Parakeet support not linked."])
+  }
+  func unload() {}
+  func transcribe(_ url: URL) async throws -> TranscriptionOutput { throw NSError(domain: "Parakeet", code: -3, userInfo: [NSLocalizedDescriptionKey: "Parakeet not available"]) }
   func deleteCaches(modelName: String) async throws {}
 }
 

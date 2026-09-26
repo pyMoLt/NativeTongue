@@ -29,6 +29,13 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var openOnLogin: Bool
 	public var showDockIcon: Bool
 	public var selectedModel: String
+	public var dictationMode: DictationMode
+	public var asrProfile: ASRProfile
+	public var profileModelSelections: [ASRProfile: String]
+	public var spokenCommandPauseSeconds: Double
+	public var generalVocabulary: String
+	public var medicalVocabulary: String
+	public var technicalVocabulary: String
 	public var useClipboardPaste: Bool
 	public var preventSystemSleep: Bool
 	public var recordingAudioBehavior: RecordingAudioBehavior
@@ -51,9 +58,13 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var lowercaseTranscripts: Bool
 	public var removePunctuation: Bool
 
-	private mutating func normalizeDoubleTapSettings() {
+	private mutating func normalizeSettings() {
 		if !doubleTapLockEnabled {
 			useDoubleTapOnly = false
+		}
+		spokenCommandPauseSeconds = min(max(spokenCommandPauseSeconds, 0.25), 1.0)
+		if !selectedModel.isEmpty, profileModelSelections[asrProfile] == nil {
+			profileModelSelections[asrProfile] = selectedModel
 		}
 	}
 
@@ -63,7 +74,14 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		hotkey: HotKey = .init(key: nil, modifiers: [.option]),
 		openOnLogin: Bool = false,
 		showDockIcon: Bool = true,
-		selectedModel: String = ParakeetModel.multilingualV3.identifier,
+		selectedModel: String = "",
+		dictationMode: DictationMode = .normal,
+		asrProfile: ASRProfile = .general,
+		profileModelSelections: [ASRProfile: String] = [:],
+		spokenCommandPauseSeconds: Double = 0.45,
+		generalVocabulary: String = "",
+		medicalVocabulary: String = "",
+		technicalVocabulary: String = "",
 		useClipboardPaste: Bool = true,
 		preventSystemSleep: Bool = true,
 		recordingAudioBehavior: RecordingAudioBehavior = .doNothing,
@@ -74,7 +92,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		doubleTapLockEnabled: Bool = true,
 		outputLanguage: String? = nil,
 		selectedMicrophoneID: String? = nil,
-		saveTranscriptionHistory: Bool = true,
+		saveTranscriptionHistory: Bool = false,
 		maxHistoryEntries: Int? = nil,
 		pasteLastTranscriptHotkey: HotKey? = HexSettings.defaultPasteLastTranscriptHotkey,
 		hasCompletedModelBootstrap: Bool = false,
@@ -92,6 +110,13 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.openOnLogin = openOnLogin
 		self.showDockIcon = showDockIcon
 		self.selectedModel = selectedModel
+		self.dictationMode = dictationMode
+		self.asrProfile = asrProfile
+		self.profileModelSelections = profileModelSelections
+		self.spokenCommandPauseSeconds = min(max(spokenCommandPauseSeconds, 0.25), 1.0)
+		self.generalVocabulary = generalVocabulary
+		self.medicalVocabulary = medicalVocabulary
+		self.technicalVocabulary = technicalVocabulary
 		self.useClipboardPaste = useClipboardPaste
 		self.preventSystemSleep = preventSystemSleep
 		self.recordingAudioBehavior = recordingAudioBehavior
@@ -113,7 +138,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.wordRemappings = wordRemappings
 		self.lowercaseTranscripts = lowercaseTranscripts
 		self.removePunctuation = removePunctuation
-		normalizeDoubleTapSettings()
+		normalizeSettings()
 	}
 
 	public init(from decoder: Decoder) throws {
@@ -122,7 +147,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		for field in HexSettingsSchema.fields {
 			try field.decode(into: &self, from: container)
 		}
-		normalizeDoubleTapSettings()
+		normalizeSettings()
 	}
 
 	public func encode(to encoder: Encoder) throws {
@@ -130,6 +155,20 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		for field in HexSettingsSchema.fields {
 			try field.encode(self, into: &container)
 		}
+	}
+}
+
+public extension HexSettings {
+	var activeVocabulary: String {
+		switch asrProfile {
+		case .general: generalVocabulary
+		case .medical: medicalVocabulary
+		case .technical: technicalVocabulary
+		}
+	}
+
+	var activeTerminologyPrompt: String? {
+		ASRTerminologyContext.prompt(profile: asrProfile, additionalTerms: activeVocabulary)
 	}
 }
 
@@ -142,6 +181,13 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case openOnLogin
 	case showDockIcon
 	case selectedModel
+	case dictationMode
+	case asrProfile
+	case profileModelSelections
+	case spokenCommandPauseSeconds
+	case generalVocabulary
+	case medicalVocabulary
+	case technicalVocabulary
 	case useClipboardPaste
 	case preventSystemSleep
 	case recordingAudioBehavior
@@ -230,6 +276,13 @@ private enum HexSettingsSchema {
 		SettingsField(.openOnLogin, keyPath: \.openOnLogin, default: defaults.openOnLogin).eraseToAny(),
 		SettingsField(.showDockIcon, keyPath: \.showDockIcon, default: defaults.showDockIcon).eraseToAny(),
 		SettingsField(.selectedModel, keyPath: \.selectedModel, default: defaults.selectedModel).eraseToAny(),
+		SettingsField(.dictationMode, keyPath: \.dictationMode, default: defaults.dictationMode).eraseToAny(),
+		SettingsField(.asrProfile, keyPath: \.asrProfile, default: defaults.asrProfile).eraseToAny(),
+		SettingsField(.profileModelSelections, keyPath: \.profileModelSelections, default: defaults.profileModelSelections).eraseToAny(),
+		SettingsField(.spokenCommandPauseSeconds, keyPath: \.spokenCommandPauseSeconds, default: defaults.spokenCommandPauseSeconds).eraseToAny(),
+		SettingsField(.generalVocabulary, keyPath: \.generalVocabulary, default: defaults.generalVocabulary).eraseToAny(),
+		SettingsField(.medicalVocabulary, keyPath: \.medicalVocabulary, default: defaults.medicalVocabulary).eraseToAny(),
+		SettingsField(.technicalVocabulary, keyPath: \.technicalVocabulary, default: defaults.technicalVocabulary).eraseToAny(),
 		SettingsField(.useClipboardPaste, keyPath: \.useClipboardPaste, default: defaults.useClipboardPaste).eraseToAny(),
 		SettingsField(.preventSystemSleep, keyPath: \.preventSystemSleep, default: defaults.preventSystemSleep).eraseToAny(),
 		SettingsField(

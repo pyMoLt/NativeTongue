@@ -8,24 +8,17 @@
 	<string>AppIcon</string>
 	<key>CFBundleIconName</key>
 	<string>AppIcon</string>
+	<key>CFBundleName</key>
+	<string>Local ASR</string>
+	<key>CFBundleDisplayName</key>
+	<string>Local ASR</string>
 	<key>CFBundleShortVersionString</key>
 	<string>0.8.5</string>
 	<key>CFBundleVersion</key>
 	<string>92</string>
 	<key>NSAccessibilityUsageDescription</key>
-	<string>Hex needs accessibility access to monitor keyboard events for hotkey detection.</string>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-	</dict>
+	<string>Local ASR needs accessibility access to detect the global dictation shortcut and insert transcribed text.</string>
 	<key>NSInputMonitoringUsageDescription</key>
-	<string>Hex needs Input Monitoring permission so your global hotkey works in every app.</string>
-	<key>SUEnableInstallerLauncherService</key>
-	<true/>
-	<key>SUFeedURL</key>
-	<string>https://hex-updates.s3.amazonaws.com/appcast.xml</string>
-	<key>SUPublicEDKey</key>
-	<string>mIek27lttJe8cIBqVZFhh6reRKjpTx1h9ZY9OKWPtuM=</string>
+	<string>Local ASR needs Input Monitoring permission so your global dictation shortcut works in every app.</string>
 </dict>
 </plist>

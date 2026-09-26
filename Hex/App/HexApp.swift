@@ -1,6 +1,5 @@
 import ComposableArchitecture
 import Inject
-import Sparkle
 import AppKit
 import SwiftUI
 
@@ -8,41 +7,43 @@ import SwiftUI
 struct HexApp: App {
 	static let appStore = Store(initialState: AppFeature.State()) {
 		AppFeature()
+	} withDependencies: {
+		if isTesting {
+			$0.defaultFileStorage = .inMemory
+		}
 	}
 
 	@NSApplicationDelegateAdaptor(HexAppDelegate.self) var appDelegate
   
     var body: some Scene {
         MenuBarExtra {
-            MenuBarCopyLastTranscriptButton()
+            if isTesting {
+                EmptyView()
+            } else {
+                MenuBarCopyLastTranscriptButton()
 
-            Button("Settings…") {
-                appDelegate.presentSettingsView()
-            }.keyboardShortcut(",")
+                Button("Transcribe Audio File…") {
+                    HexApp.appStore.send(.setActiveTab(.audioImport))
+                    appDelegate.presentSettingsView()
+                }
 
-            CheckForUpdatesView()
-			
-			Divider()
-			
-			Button("Quit Hex") {
-				NSApplication.shared.terminate(nil)
-			}.keyboardShortcut("q")
-		} label: {
-			if let image = NSImage(named: "HexIcon").map({
-				let ratio = $0.size.height / $0.size.width
-				$0.size.height = 18
-				$0.size.width = 18 / ratio
-				return $0
-			}) {
-				Image(nsImage: image)
-			} else {
-				Image(systemName: "hexagon")
+                Button("Settings…") {
+                    appDelegate.presentSettingsView()
+                }.keyboardShortcut(",")
+
+				Divider()
+
+				Button("Quit Local ASR") {
+					NSApplication.shared.terminate(nil)
+				}.keyboardShortcut("q")
 			}
+		} label: {
+			Image(systemName: "waveform")
+				.symbolRenderingMode(.monochrome)
+				.accessibilityLabel("Local ASR")
 		}
 		.commands {
 			CommandGroup(after: .appInfo) {
-				CheckForUpdatesView()
-
 				Button("Settings…") {
 					appDelegate.presentSettingsView()
 				}.keyboardShortcut(",")

@@ -21,3 +21,7 @@ node_modules/
 
 # Claude
 .claude/
+
+# Local ASR fork
+dist/
+Packages/*/.build/

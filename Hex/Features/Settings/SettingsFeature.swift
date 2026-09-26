@@ -81,6 +81,10 @@ struct SettingsFeature {
     case setDoubleTapLockEnabled(Bool)
     case setUseDoubleTapOnly(Bool)
     case setMinimumKeyTime(Double)
+    case setDictationMode(DictationMode)
+	case setASRProfile(ASRProfile)
+	case setSpokenCommandPause(Double)
+	case setProfileVocabulary(ASRProfile, String)
     case setOutputLanguage(String?)
     case setSelectedMicrophoneID(String?)
     case setSoundEffectsEnabled(Bool)
@@ -490,6 +494,41 @@ struct SettingsFeature {
       case let .setMinimumKeyTime(value):
         state.$hexSettings.withLock { $0.minimumKeyTime = value }
         return .none
+
+      case let .setDictationMode(mode):
+        state.$hexSettings.withLock { $0.dictationMode = mode }
+        return .none
+
+	  case let .setASRProfile(profile):
+		var targetModel = ""
+		state.$hexSettings.withLock { settings in
+			if !settings.selectedModel.isEmpty {
+				settings.profileModelSelections[settings.asrProfile] = settings.selectedModel
+			}
+			settings.asrProfile = profile
+			targetModel = settings.profileModelSelections[profile] ?? settings.selectedModel
+			settings.selectedModel = targetModel
+			if !targetModel.isEmpty {
+				settings.profileModelSelections[profile] = targetModel
+			}
+		}
+		return .send(.modelDownload(.selectModel(targetModel)))
+
+	  case let .setSpokenCommandPause(seconds):
+		state.$hexSettings.withLock {
+			$0.spokenCommandPauseSeconds = min(max(seconds, 0.25), 1.0)
+		}
+		return .none
+
+	  case let .setProfileVocabulary(profile, vocabulary):
+		state.$hexSettings.withLock { settings in
+			switch profile {
+			case .general: settings.generalVocabulary = vocabulary
+			case .medical: settings.medicalVocabulary = vocabulary
+			case .technical: settings.technicalVocabulary = vocabulary
+			}
+		}
+		return .none
 
       case let .setOutputLanguage(language):
         state.$hexSettings.withLock { $0.outputLanguage = language }

@@ -95,10 +95,11 @@ enum ParakeetClipPreparer {
 
     paddedBuffer.frameLength = minimumFrames
 
-    let paddedURL = makePaddedURL(from: url)
-    if FileManager.default.fileExists(atPath: paddedURL.path) {
-      try FileManager.default.removeItem(at: paddedURL)
-    }
+    let paddedURL = makePaddedURL()
+    try FileManager.default.createDirectory(
+      at: paddedURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
 
     let paddedFile = try AVAudioFile(forWriting: paddedURL, settings: audioFile.fileFormat.settings)
     try paddedFile.write(from: paddedBuffer)
@@ -110,9 +111,9 @@ enum ParakeetClipPreparer {
     return ParakeetClipPreparationResult(url: paddedURL, cleanupURL: paddedURL)
   }
 
-  private static func makePaddedURL(from url: URL) -> URL {
-    let base = url.deletingLastPathComponent()
-    let stem = url.deletingPathExtension().lastPathComponent
-    return base.appendingPathComponent("\(stem)-parakeet-padded.wav")
+  private static func makePaddedURL() -> URL {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("LocalASR-Parakeet", isDirectory: true)
+    return directory.appendingPathComponent("\(UUID().uuidString)-padded.wav")
   }
 }

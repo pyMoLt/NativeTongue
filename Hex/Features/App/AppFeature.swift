@@ -19,6 +19,7 @@ struct AppFeature {
 
   enum ActiveTab: Equatable {
     case settings
+    case audioImport
     case remappings
     case history
     case about
@@ -27,6 +28,7 @@ struct AppFeature {
 	@ObservableState
 	struct State {
 		var transcription: TranscriptionFeature.State = .init()
+		var audioImport: AudioImportFeature.State = .init()
 		var settings: SettingsFeature.State = .init()
 		var history: HistoryFeature.State = .init()
 		var activeTab: ActiveTab = .settings
@@ -42,6 +44,7 @@ struct AppFeature {
   enum Action: BindableAction {
     case binding(BindingAction<State>)
     case transcription(TranscriptionFeature.Action)
+    case audioImport(AudioImportFeature.Action)
     case settings(SettingsFeature.Action)
     case history(HistoryFeature.Action)
     case setActiveTab(ActiveTab)
@@ -65,6 +68,10 @@ struct AppFeature {
 
     Scope(state: \.transcription, action: \.transcription) {
       TranscriptionFeature()
+    }
+
+    Scope(state: \.audioImport, action: \.audioImport) {
+      AudioImportFeature()
     }
 
     Scope(state: \.settings, action: \.settings) {
@@ -111,6 +118,12 @@ struct AppFeature {
 		.cancellable(id: CancelID.modelMissingFlash, cancelInFlight: true)
 
       case .transcription:
+        return .none
+
+      case .audioImport(.openModelSettings):
+        state.activeTab = .settings
+        return .none
+      case .audioImport:
         return .none
 
       case .settings(.requestMicrophone):
@@ -273,6 +286,14 @@ struct AppView: View {
         .tag(AppFeature.ActiveTab.settings)
 
         Button {
+          store.send(.setActiveTab(.audioImport))
+        } label: {
+          Label("Import Audio", systemImage: "waveform")
+        }
+        .buttonStyle(.plain)
+        .tag(AppFeature.ActiveTab.audioImport)
+
+        Button {
           store.send(.setActiveTab(.remappings))
         } label: {
           Label("Transforms", systemImage: "text.badge.plus")
@@ -306,6 +327,9 @@ struct AppView: View {
           inputMonitoringPermission: store.inputMonitoringPermission
         )
         .navigationTitle("Settings")
+      case .audioImport:
+        AudioImportView(store: store.scope(state: \.audioImport, action: \.audioImport))
+          .navigationTitle("Import Audio")
       case .remappings:
         WordRemappingsView(store: store.scope(state: \.settings, action: \.settings))
           .navigationTitle("Transforms")

@@ -1,5 +1,5 @@
 {
-  "originHash" : "8ca6a90764720064f60093a93501e626765bfac81ce6e7cea5843f1752d5a5d1",
+  "originHash" : "2244b05d06f3561e21fa158ba9d0f49ff04ab392975ca2790e02001f66cce385",
   "pins" : [
     {
       "identity" : "combine-schedulers",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/FluidInference/FluidAudio",
       "state" : {
-        "revision" : "19600a485baa4998812e4654b70d2bab8f2c9949",
-        "version" : "0.15.5"
+        "revision" : "21493f8dac5a97e65742e6ff26f42f164c2fda0f",
+        "version" : "0.17.4"
       }
     },
     {
@@ -26,6 +26,15 @@
       "state" : {
         "revision" : "f53380e986a8b056e37d7ce9ca68de610b8415ef",
         "version" : "1.6.0"
+      }
+    },
+    {
+      "identity" : "mlx-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ml-explore/mlx-swift",
+      "state" : {
+        "revision" : "dc43e62d7055353c7f99fa071a4e71d29dfddc44",
+        "version" : "0.31.4"
       }
     },
     {
@@ -52,15 +61,6 @@
       "state" : {
         "branch" : "master",
         "revision" : "9c0de6c233f29d892e86dda68c2dd791aa10670c"
-      }
-    },
-    {
-      "identity" : "sparkle",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/sparkle-project/Sparkle",
-      "state" : {
-        "revision" : "b6496a74a087257ef5e6da1c5b29a447a60f5bd7",
-        "version" : "2.9.4"
       }
     },
     {
@@ -187,6 +187,15 @@
       "state" : {
         "revision" : "32f35241b8be0719c4c7f00eb27713b1cadb6248",
         "version" : "2.8.0"
+      }
+    },
+    {
+      "identity" : "swift-numerics",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-numerics",
+      "state" : {
+        "revision" : "0c0290ff6b24942dadb83a929ffaaa1481df04a2",
+        "version" : "1.1.1"
       }
     },
     {

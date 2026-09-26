@@ -34,11 +34,8 @@ public struct ModelDownloadView: View {
 			}
 			if selectedModelName == nil, downloadingModel == nil {
 				NoModelChooser(
-					models: parakeetModels,
-					suggestedModel: suggestedParakeetIdentifier,
 					isLoading: store.isLoadingModels,
 					isFlashing: shouldFlash,
-					onDownload: { store.send(.downloadModel($0.internalName)) },
 					onBrowse: { isModelLibraryPresented = true },
 					onRetry: { store.send(.fetchModels) }
 				)
@@ -97,23 +94,11 @@ public struct ModelDownloadView: View {
 		}
 	}
 
-	private var parakeetModels: [CuratedModelInfo] {
-		let models = store.curatedModels.filter(\.isParakeet)
-		return models.filter { modelNamesMatch($0.internalName, suggestedParakeetIdentifier) } +
-			models.filter { !modelNamesMatch($0.internalName, suggestedParakeetIdentifier) }
-	}
-
-	private var suggestedParakeetIdentifier: String {
-		store.preferredParakeetIdentifier
-	}
 }
 
 private struct NoModelChooser: View {
-	let models: [CuratedModelInfo]
-	let suggestedModel: String
 	let isLoading: Bool
 	let isFlashing: Bool
-	let onDownload: (CuratedModelInfo) -> Void
 	let onBrowse: () -> Void
 	let onRetry: () -> Void
 
@@ -132,35 +117,18 @@ private struct NoModelChooser: View {
 						.foregroundStyle(.secondary)
 				}
 				Spacer()
-				Button("View All Models…", action: onBrowse)
+				Button("Browse Models…", action: onBrowse)
+					.buttonStyle(.borderedProminent)
 					.controlSize(.small)
 			}
 
-			if models.isEmpty {
-				if isLoading {
-					Text("Loading model choices…")
-						.font(.caption)
-						.foregroundStyle(.secondary)
-				} else {
-					HStack {
-						Text("Model choices couldn’t be loaded.")
-							.font(.caption)
-							.foregroundStyle(.secondary)
-						Button("Retry", action: onRetry)
-							.controlSize(.small)
-					}
-				}
+			if isLoading {
+				ProgressView("Checking locally installed models…")
+					.font(.caption)
 			} else {
-				HStack(spacing: 10) {
-					ForEach(models) { model in
-						NoModelCard(
-							model: model,
-							isRecommended: matches(model),
-							isFlashing: isFlashing && matches(model),
-							onDownload: { onDownload(model) }
-						)
-					}
-				}
+				Button("Refresh local model status", action: onRetry)
+					.font(.caption)
+					.buttonStyle(.link)
 			}
 		}
 		.padding(10)
@@ -177,62 +145,6 @@ private struct NoModelChooser: View {
 		return Color.primary.opacity(0.08)
 	}
 
-	private func matches(_ model: CuratedModelInfo) -> Bool {
-		modelNamesMatch(model.internalName, suggestedModel)
-	}
-}
-
-private struct NoModelCard: View {
-	let model: CuratedModelInfo
-	let isRecommended: Bool
-	let isFlashing: Bool
-	let onDownload: () -> Void
-
-	var body: some View {
-		Button(action: onDownload) {
-			VStack(alignment: .leading, spacing: 8) {
-				HStack(alignment: .top, spacing: 8) {
-					Text(model.displayName)
-						.font(.body.weight(.medium))
-						.foregroundStyle(.primary)
-					Spacer(minLength: 8)
-					if isRecommended {
-						Text("Suggested")
-							.font(.caption2.weight(.medium))
-							.foregroundStyle(Color.accentColor)
-							.padding(.horizontal, 6)
-							.padding(.vertical, 2)
-							.background(Color.accentColor.opacity(0.12), in: Capsule())
-					}
-				}
-				HStack(spacing: 6) {
-					Text(model.size)
-					Text("·")
-					Text(model.storageSize)
-					Spacer()
-					Image(systemName: "arrow.down.circle")
-				}
-				.font(.caption)
-				.foregroundStyle(.secondary)
-			}
-			.padding(12)
-			.frame(maxWidth: .infinity, alignment: .leading)
-			.background(Color(NSColor.windowBackgroundColor).opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
-			.overlay(
-				RoundedRectangle(cornerRadius: 8)
-					.stroke(borderColor, lineWidth: isFlashing ? 3 : 1)
-					.animation(.easeInOut(duration: 0.5).repeatCount(3, autoreverses: true), value: isFlashing)
-			)
-			.contentShape(.rect)
-		}
-		.buttonStyle(.plain)
-	}
-
-	private var borderColor: Color {
-		if isFlashing { return Color.accentColor }
-		if isRecommended { return Color.accentColor.opacity(0.45) }
-		return Color.primary.opacity(0.08)
-	}
 }
 
 private struct CurrentModelSummary: View {
@@ -359,12 +271,7 @@ private struct ModelLibrarySheet: View {
 
 			ScrollView {
 				VStack(alignment: .leading, spacing: 14) {
-					if let recommendedLibraryModel {
-						modelSection(title: "Recommended", models: [recommendedLibraryModel], showsBadges: false)
-					}
-					if !otherLibraryModels.isEmpty {
-						modelSection(title: "Other Models", models: otherLibraryModels, showsBadges: true)
-					}
+					modelSection(title: "Available Models", models: Array(store.curatedModels))
 				}
 			}
 
@@ -402,7 +309,7 @@ private struct ModelLibrarySheet: View {
 	}
 
 	@ViewBuilder
-	private func modelSection(title: String, models: [CuratedModelInfo], showsBadges: Bool) -> some View {
+	private func modelSection(title: String, models: [CuratedModelInfo]) -> some View {
 		VStack(alignment: .leading, spacing: 6) {
 			Text(title)
 				.font(.caption.weight(.semibold))
@@ -415,11 +322,10 @@ private struct ModelLibrarySheet: View {
 						isSelected: model.isDownloaded && isSelected(model),
 						isDownloading: isDownloading(model),
 						// Only the active row receives live progress so the other
-						// rows don't re-render on every tick.
-						downloadProgress: isDownloading(model) ? store.downloadProgress : 0,
-						isDisabled: store.isDownloading && !isDownloading(model),
-						showsBadge: showsBadges && !model.isDownloaded,
-						onSelect: { select(model) },
+							// rows don't re-render on every tick.
+							downloadProgress: isDownloading(model) ? store.downloadProgress : 0,
+							isDisabled: store.isDownloading && !isDownloading(model),
+							onSelect: { select(model) },
 						onDownload: { store.send(.downloadModel(model.internalName)) },
 						onCancelDownload: { store.send(.cancelDownload) },
 						onShowInFinder: { store.send(.openModelLocation(model.internalName)) },
@@ -434,15 +340,6 @@ private struct ModelLibrarySheet: View {
 		}
 	}
 
-	private var recommendedLibraryModel: CuratedModelInfo? {
-		store.curatedModels.first { modelNamesMatch($0.internalName, suggestedParakeetIdentifier) } ?? store.curatedModels.first(where: \.isParakeet)
-	}
-
-	private var otherLibraryModels: [CuratedModelInfo] {
-		guard let recommendedLibraryModel else { return Array(store.curatedModels) }
-		return store.curatedModels.filter { $0.id != recommendedLibraryModel.id }
-	}
-
 	private func isSelected(_ model: CuratedModelInfo) -> Bool {
 		let selected = store.hexSettings.selectedModel
 		return modelNamesMatch(model.internalName, selected)
@@ -452,9 +349,6 @@ private struct ModelLibrarySheet: View {
 		store.isDownloading && store.downloadingModelName == model.internalName
 	}
 
-	private var suggestedParakeetIdentifier: String {
-		store.preferredParakeetIdentifier
-	}
 }
 
 private struct ModelLibraryRow: View {
@@ -463,7 +357,6 @@ private struct ModelLibraryRow: View {
 	let isDownloading: Bool
 	let downloadProgress: Double
 	let isDisabled: Bool
-	let showsBadge: Bool
 	let onSelect: () -> Void
 	let onDownload: () -> Void
 	let onCancelDownload: () -> Void
@@ -483,28 +376,22 @@ private struct ModelLibraryRow: View {
 						HStack(spacing: 7) {
 							Text(model.displayName)
 								.font(.body.weight(.medium))
-							if showsBadge, let badge = model.badge {
-								Text(badge)
-									.font(.caption2.weight(.medium))
-									.foregroundStyle(Color.accentColor)
-									.padding(.horizontal, 6)
+							if model.experimental {
+								Text("Experimental")
+									.font(.caption2.weight(.semibold))
+									.padding(.horizontal, 5)
 									.padding(.vertical, 2)
-									.background(Color.accentColor.opacity(0.12), in: Capsule())
+									.background(Color.orange.opacity(0.14), in: Capsule())
+									.foregroundStyle(.orange)
 							}
 						}
-						HStack(spacing: 12) {
-							Text(model.size)
-								.font(.caption)
-								.foregroundStyle(.secondary)
-							HStack(spacing: 5) {
-								Text("Accuracy").font(.caption2).foregroundStyle(.secondary)
-								StarRatingView(model.accuracyStars)
-							}
-							HStack(spacing: 5) {
-								Text("Speed").font(.caption2).foregroundStyle(.secondary)
-								StarRatingView(model.speedStars)
-							}
-						}
+						Text(model.size)
+							.font(.caption)
+							.foregroundStyle(.secondary)
+						Text("\(model.backend.displayName) · \(model.precision) · \(model.license)")
+							.font(.caption2)
+							.foregroundStyle(.tertiary)
+							.lineLimit(1)
 					}
 
 					Spacer()
@@ -532,6 +419,7 @@ private struct ModelLibraryRow: View {
 		.disabled(isDisabled)
 		.opacity(isDisabled ? 0.55 : 1)
 		.background(isSelected ? Color.accentColor.opacity(0.06) : Color.clear)
+		.help(modelDetails)
 		.contextMenu {
 			if isDownloading {
 				Button("Cancel Download", role: .destructive, action: onCancelDownload)
@@ -601,6 +489,16 @@ private struct ModelLibraryRow: View {
 	private var leadingColor: Color {
 		if isDownloading || isSelected { return .accentColor }
 		return .secondary
+	}
+
+	private var modelDetails: String {
+		let revision = model.revision ?? "not pinned by this catalog entry"
+		let capabilities = [
+			model.capabilities.wordTimings ? "word timings" : "no word timings",
+			model.capabilities.contextPrompt ? "terminology context" : "no terminology context",
+			model.capabilities.languageHint ? "language hint" : "automatic/model-controlled language",
+		].joined(separator: ", ")
+		return "\(model.repository)\nRevision: \(revision)\nLanguages: \(model.languages.joined(separator: ", "))\nCapabilities: \(capabilities)"
 	}
 
 }

@@ -13,20 +13,20 @@ class HexAppDelegate: NSObject, NSApplicationDelegate {
 
 	@Dependency(\.soundEffects) var soundEffect
 	@Dependency(\.recording) var recording
-	@Shared(.hexSettings) var hexSettings: HexSettings
 
 	func applicationDidFinishLaunching(_: Notification) {
-		DiagnosticsLogging.bootstrapIfNeeded()
-		// Ensure Parakeet/FluidAudio caches live under Application Support, not ~/.cache
-		configureLocalCaches()
 		if isTesting {
-			appLogger.debug("Running in testing mode")
 			return
 		}
 
+		DiagnosticsLogging.bootstrapIfNeeded()
+		// Ensure Parakeet/FluidAudio caches live under Application Support, not ~/.cache
+		configureLocalCaches()
+
 		Task {
 			await soundEffect.preloadSounds()
-			await soundEffect.setEnabled(hexSettings.soundEffectsEnabled)
+			let soundEffectsEnabled = HexApp.appStore.withState { $0.hexSettings.soundEffectsEnabled }
+			await soundEffect.setEnabled(soundEffectsEnabled)
 		}
 		launchedAtLogin = wasLaunchedAtLogin()
 		appLogger.info("Application did finish launching")
@@ -149,8 +149,9 @@ class HexAppDelegate: NSObject, NSApplicationDelegate {
 
 	@MainActor
 	private func updateAppMode() {
-		appLogger.debug("showDockIcon = \(self.hexSettings.showDockIcon)")
-		if self.hexSettings.showDockIcon {
+		let showDockIcon = HexApp.appStore.withState { $0.hexSettings.showDockIcon }
+		appLogger.debug("showDockIcon = \(showDockIcon)")
+		if showDockIcon {
 			NSApp.setActivationPolicy(.regular)
 		} else {
 			NSApp.setActivationPolicy(.accessory)

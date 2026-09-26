@@ -13,15 +13,15 @@ final class ModelDownloadFeatureTests: XCTestCase {
     XCTAssertEqual(state.selectedModelNameForDisplay, ParakeetModel.englishV2.identifier)
   }
 
-  func testSuggestedParakeetFollowsOutputLanguage() {
+  func testChangingOutputLanguageDoesNotAutomaticallySelectModel() {
     var state = makeState(selectedModel: "")
-    XCTAssertEqual(state.preferredParakeetIdentifier, ParakeetModel.englishV2.identifier)
+    XCTAssertEqual(state.hexSettings.selectedModel, "")
 
     state.$hexSettings.withLock { $0.outputLanguage = "en" }
-    XCTAssertEqual(state.preferredParakeetIdentifier, ParakeetModel.englishV2.identifier)
+    XCTAssertEqual(state.hexSettings.selectedModel, "")
 
     state.$hexSettings.withLock { $0.outputLanguage = "fr" }
-    XCTAssertEqual(state.preferredParakeetIdentifier, ParakeetModel.multilingualV3.identifier)
+    XCTAssertEqual(state.hexSettings.selectedModel, "")
   }
 
   func testFailedModelRefreshPreservesInstalledSelection() async {
@@ -31,8 +31,7 @@ final class ModelDownloadFeatureTests: XCTestCase {
     let store = TestStore(initialState: state) {
       ModelDownloadFeature()
     } withDependencies: {
-      $0.transcription.getRecommendedModels = { throw TestError() }
-      $0.transcription.getAvailableModels = { [] }
+      $0.transcription.getAvailableModels = { throw TestError() }
     }
 
     await store.send(.fetchModels) {
@@ -78,7 +77,7 @@ final class ModelDownloadFeatureTests: XCTestCase {
     }
     store.exhaustivity = .off
 
-    await store.send(.modelsLoaded(recommended: "", available: []))
+    await store.send(.modelsLoaded(available: []))
 
     XCTAssertEqual(store.state.hexSettings.selectedModel, ParakeetModel.englishV2.identifier)
   }

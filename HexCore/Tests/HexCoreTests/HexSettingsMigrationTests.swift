@@ -12,6 +12,9 @@ final class HexSettingsMigrationTests: XCTestCase {
 		XCTAssertEqual(decoded.openOnLogin, true)
 		XCTAssertEqual(decoded.showDockIcon, false)
 		XCTAssertEqual(decoded.selectedModel, "whisper-large-v3")
+		XCTAssertEqual(decoded.asrProfile, .general)
+		XCTAssertEqual(decoded.profileModelSelections[.general], "whisper-large-v3")
+		XCTAssertEqual(decoded.spokenCommandPauseSeconds, 0.45)
 		XCTAssertEqual(decoded.useClipboardPaste, false)
 		XCTAssertEqual(decoded.preventSystemSleep, true)
 		XCTAssertEqual(decoded.minimumKeyTime, 0.25)
@@ -38,6 +41,54 @@ final class HexSettingsMigrationTests: XCTestCase {
 
 	func testNewSettingsEnableSuperFastModeByDefault() {
 		XCTAssertTrue(HexSettings().superFastModeEnabled)
+	}
+
+	func testNewSettingsDisableTranscriptionHistoryByDefault() {
+		XCTAssertFalse(HexSettings().saveTranscriptionHistory)
+	}
+
+	func testNewSettingsDoNotChooseAnASRModelBeforeTheUserDoes() {
+		XCTAssertTrue(HexSettings().selectedModel.isEmpty)
+	}
+
+	func testDictationModeDefaultsToNormalAndPersists() throws {
+		var settings = try JSONDecoder().decode(HexSettings.self, from: Data("{}".utf8))
+		XCTAssertEqual(settings.dictationMode, .normal)
+
+		settings.dictationMode = .literal
+		let decoded = try JSONDecoder().decode(HexSettings.self, from: JSONEncoder().encode(settings))
+		XCTAssertEqual(decoded.dictationMode, .literal)
+	}
+
+	func testASRProfileVocabularyAndPausePersist() throws {
+		var settings = HexSettings()
+		settings.asrProfile = .medical
+		settings.profileModelSelections[.medical] = "medical-model"
+		settings.spokenCommandPauseSeconds = 0.6
+		settings.medicalVocabulary = "Metoprolol\nBisoprolol"
+
+		let decoded = try JSONDecoder().decode(HexSettings.self, from: JSONEncoder().encode(settings))
+		XCTAssertEqual(decoded.asrProfile, .medical)
+		XCTAssertEqual(decoded.profileModelSelections[.medical], "medical-model")
+		XCTAssertEqual(decoded.spokenCommandPauseSeconds, 0.6)
+		XCTAssertEqual(decoded.medicalVocabulary, "Metoprolol\nBisoprolol")
+	}
+
+	func testSpokenCommandPauseIsClampedOnDecode() throws {
+		let low = try JSONDecoder().decode(HexSettings.self, from: Data("{\"spokenCommandPauseSeconds\":0.01}".utf8))
+		let high = try JSONDecoder().decode(HexSettings.self, from: Data("{\"spokenCommandPauseSeconds\":4}".utf8))
+
+		XCTAssertEqual(low.spokenCommandPauseSeconds, 0.25)
+		XCTAssertEqual(high.spokenCommandPauseSeconds, 1.0)
+	}
+
+	func testTerminologyContextIsDeduplicatedAndBounded() {
+		let repeated = Array(repeating: "Apixaban", count: 100).joined(separator: "\n")
+		let prompt = ASRTerminologyContext.prompt(profile: .medical, additionalTerms: repeated)
+
+		XCTAssertNotNil(prompt)
+		XCTAssertLessThanOrEqual(prompt?.count ?? .max, ASRTerminologyContext.maximumCharacters)
+		XCTAssertEqual(prompt?.components(separatedBy: "Apixaban").count, 2)
 	}
 
 	func testRustBetaBannerDismissalDefaultsToVisibleAndPersists() throws {

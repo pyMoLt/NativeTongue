@@ -29,60 +29,68 @@ public struct ModelInfo: Equatable, Identifiable {
 public struct CuratedModelInfo: Equatable, Identifiable, Codable {
 	public let displayName: String
 	public let internalName: String
+	public let backend: LocalASRBackend
+	public let repository: String
+	public let revision: String?
+	public let precision: String
+	public let license: String
+	public let languages: [String]
 	public let size: String
-	public let accuracyStars: Int
-	public let speedStars: Int
 	public let storageSize: String
+	public let capabilities: LocalASRModelCapabilities
+	public let experimental: Bool
 	public var isDownloaded: Bool
 	public var id: String { internalName }
-
-	public var badge: String? {
-		switch parakeetModel {
-		case .englishV2:
-			return "BEST FOR ENGLISH"
-		case .multilingualV3:
-			return "BEST FOR MULTILINGUAL"
-		case nil:
-			return nil
-		}
-	}
-
-	var parakeetModel: ParakeetModel? {
-		ParakeetModel(rawValue: internalName)
-	}
-
-	var isParakeet: Bool {
-		parakeetModel != nil
-	}
 
 	public init(
 		displayName: String,
 		internalName: String,
+		backend: LocalASRBackend,
+		repository: String,
+		revision: String? = nil,
+		precision: String,
+		license: String,
+		languages: [String],
 		size: String,
-		accuracyStars: Int,
-		speedStars: Int,
 		storageSize: String,
+		capabilities: LocalASRModelCapabilities,
+		experimental: Bool,
 		isDownloaded: Bool
 	) {
 		self.displayName = displayName
 		self.internalName = internalName
+		self.backend = backend
+		self.repository = repository
+		self.revision = revision
+		self.precision = precision
+		self.license = license
+		self.languages = languages
 		self.size = size
-		self.accuracyStars = accuracyStars
-		self.speedStars = speedStars
 		self.storageSize = storageSize
+		self.capabilities = capabilities
+		self.experimental = experimental
 		self.isDownloaded = isDownloaded
 	}
 
 	// Codable (isDownloaded is set at runtime)
-	private enum CodingKeys: String, CodingKey { case displayName, internalName, size, accuracyStars, speedStars, storageSize }
+	private enum CodingKeys: String, CodingKey {
+		case displayName, internalName, backend, repository, revision, precision, license
+		case languages, size, storageSize, capabilities, experimental
+	}
 	public init(from decoder: Decoder) throws {
 		let c = try decoder.container(keyedBy: CodingKeys.self)
 		displayName = try c.decode(String.self, forKey: .displayName)
 		internalName = try c.decode(String.self, forKey: .internalName)
+		backend = try c.decode(LocalASRBackend.self, forKey: .backend)
+		repository = try c.decode(String.self, forKey: .repository)
+		revision = try c.decodeIfPresent(String.self, forKey: .revision)
+		precision = try c.decode(String.self, forKey: .precision)
+		license = try c.decode(String.self, forKey: .license)
+		languages = try c.decode([String].self, forKey: .languages)
 		size = try c.decode(String.self, forKey: .size)
-		accuracyStars = try c.decode(Int.self, forKey: .accuracyStars)
-		speedStars = try c.decode(Int.self, forKey: .speedStars)
 		storageSize = try c.decode(String.self, forKey: .storageSize)
+		capabilities = try c.decode(LocalASRModelCapabilities.self, forKey: .capabilities)
+		experimental = try c.decode(Bool.self, forKey: .experimental)
 		isDownloaded = false
 	}
 }
@@ -119,10 +127,9 @@ public struct ModelDownloadFeature {
 		@Shared(.hexSettings) var hexSettings: HexSettings
 		@Shared(.modelBootstrapState) var modelBootstrapState: ModelBootstrapState
 
-		// Remote data
+		// Data derived from the local, bundled model catalog and on-disk checks
 		public var availableModels: IdentifiedArrayOf<ModelInfo> = []
 		public var curatedModels = IdentifiedArrayOf(uniqueElements: CuratedModelLoader.load())
-		public var recommendedModel: String = ""
 
 		// UI state
 		public var isLoadingModels = false
@@ -178,7 +185,7 @@ public struct ModelDownloadFeature {
 		case selectModel(String)
 		case downloadModel(String)
 		// Effects
-		case modelsLoaded(recommended: String, available: [ModelInfo])
+		case modelsLoaded(available: [ModelInfo])
 		case modelsLoadFailed
 		case downloadProgress(id: UUID, progress: Double)
 		case downloadCompleted(id: UUID, result: Result<String, Error>)
@@ -255,7 +262,10 @@ public struct ModelDownloadFeature {
 			// If the curated item is a glob (e.g., "distil*large-v3"),
 			// resolve it to a concrete available model so both tabs stay in sync
 			let resolved = resolvePattern(model, from: Array(state.availableModels)) ?? model
-			state.$hexSettings.withLock { $0.selectedModel = resolved }
+			state.$hexSettings.withLock {
+				$0.selectedModel = resolved
+				$0.profileModelSelections[$0.asrProfile] = resolved
+			}
 			updateBootstrapState(&state)
 			return .none
 
@@ -266,11 +276,8 @@ public struct ModelDownloadFeature {
 			state.isLoadingModels = true
 			return .run { send in
 				do {
-					async let recommendedSupportTask = transcription.getRecommendedModels()
 					async let availableNamesTask = transcription.getAvailableModels()
-					let recommendedSupport = try await recommendedSupportTask
 					let names = try await availableNamesTask
-					let recommended = recommendedSupport.default
 					let infos = try await withThrowingTaskGroup(of: ModelInfo.self) { group -> [ModelInfo] in
 						for name in names {
 							group.addTask {
@@ -282,7 +289,7 @@ public struct ModelDownloadFeature {
 						}
 						return try await group.reduce(into: []) { $0.append($1) }
 					}
-					await send(.modelsLoaded(recommended: recommended, available: infos))
+					await send(.modelsLoaded(available: infos))
 				} catch {
 					await send(.modelsLoadFailed)
 				}
@@ -292,9 +299,9 @@ public struct ModelDownloadFeature {
 			state.isLoadingModels = false
 			return .none
 
-		case let .modelsLoaded(recommended, available):
+		case let .modelsLoaded(available):
 			state.isLoadingModels = false
-			// Ensure our curated Parakeet options are visible even if WhisperKit doesn't list them
+			// Ensure every bundled Parakeet option is represented in the local model state.
 			var availablePlus = available
 			for model in ParakeetModel.allCases.reversed() {
 				if !availablePlus.contains(where: { $0.name == model.identifier }) {
@@ -302,17 +309,15 @@ public struct ModelDownloadFeature {
 				}
 			}
 
-			if availablePlus.contains(where: { $0.name == state.preferredParakeetIdentifier }) {
-				state.recommendedModel = state.preferredParakeetIdentifier
-			} else {
-				state.recommendedModel = recommended
-			}
 			state.availableModels = IdentifiedArrayOf(uniqueElements: availablePlus)
 
 			// If the selected model is a pattern, resolve it now to the first available match
 			if state.hexSettings.selectedModel.contains("*") || state.hexSettings.selectedModel.contains("?") {
 				if let resolved = resolvePattern(state.hexSettings.selectedModel, from: available) {
-					state.$hexSettings.withLock { $0.selectedModel = resolved }
+					state.$hexSettings.withLock {
+						$0.selectedModel = resolved
+						$0.profileModelSelections[$0.asrProfile] = resolved
+					}
 				}
 			}
 
@@ -327,27 +332,8 @@ public struct ModelDownloadFeature {
 				}
 			}
 			state.curatedModels = IdentifiedArrayOf(uniqueElements: curated)
-			// If the selection isn't installed but another model is, switch to the
-			// installed one so transcription keeps working. Never clear the user's
-			// selection outright: availability scans can produce false negatives
-			// (e.g. after a dependency changes its cache layout), and wiping the
-			// setting turns a transient glitch into a permanent silent failure.
-			if !state.selectedModelIsDownloaded,
-			   let installedModel = state.curatedModels.first(where: \.isDownloaded)
-			{
-				let fallback = resolvePattern(installedModel.internalName, from: Array(state.availableModels)) ?? installedModel.internalName
-				if fallback != state.selectedModel {
-					state.$hexSettings.withLock { $0.selectedModel = fallback }
-				}
-			}
+			// Never silently substitute a different model when the selected one is missing.
 			updateBootstrapState(&state)
-			if !state.anyModelDownloaded && !state.hexSettings.hasCompletedModelBootstrap {
-				let preferred = state.recommendedModel.isEmpty ? state.hexSettings.selectedModel : state.recommendedModel
-				if !preferred.isEmpty {
-					state.$hexSettings.withLock { $0.selectedModel = preferred }
-					updateBootstrapState(&state)
-				}
-			}
 			return .none
 
 		// MARK: – Download
@@ -414,6 +400,7 @@ public struct ModelDownloadFeature {
 				}
 				state.$hexSettings.withLock { settings in
 					settings.selectedModel = name
+					settings.profileModelSelections[settings.asrProfile] = name
 					settings.hasCompletedModelBootstrap = true
 				}
 				state.downloadError = nil
@@ -479,7 +466,10 @@ public struct ModelDownloadFeature {
 			}
 			if ModelPatternMatcher.namesMatch(state.selectedModel, model) {
 				let fallback = state.availableModels.first { $0.isDownloaded }?.name ?? ""
-				state.$hexSettings.withLock { $0.selectedModel = fallback }
+				state.$hexSettings.withLock {
+					$0.selectedModel = fallback
+					$0.profileModelSelections[$0.asrProfile] = fallback
+				}
 				updateBootstrapState(&state)
 			}
 			return .send(.fetchModels)
@@ -501,25 +491,18 @@ public struct ModelDownloadFeature {
 		// models folder. Route "Show in Finder" to the matching root so users
 		// don't end up staring at an empty WhisperKit folder thinking the
 		// Parakeet download silently failed.
-		let usesParakeetRoot = ParakeetModel(rawValue: model) != nil
+		let backend = try? LocalASRModelCatalog.descriptor(named: model).backend
 		return .run { _ in
-			let base = try usesParakeetRoot
-				? URL.hexParakeetModelsDirectory
-				: URL.hexModelsDirectory
+			let base: URL
+			switch backend {
+			case .parakeetFluidAudioCoreML:
+				base = try URL.hexParakeetModelsDirectory
+			case .qwen3MLX:
+				base = try URL.hexModelsDirectory.appendingPathComponent("qwen3-mlx", isDirectory: true)
+			default:
+				base = try URL.hexModelsDirectory
+			}
 			NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: base.path)
 		}
-	}
-}
-
-extension ModelDownloadFeature.State {
-	var preferredParakeetIdentifier: String {
-		(prefersEnglishParakeet ? ParakeetModel.englishV2 : ParakeetModel.multilingualV3).identifier
-	}
-
-	private var prefersEnglishParakeet: Bool {
-		guard let language = hexSettings.outputLanguage?.lowercased(), !language.isEmpty else {
-			return true
-		}
-		return language.hasPrefix("en")
 	}
 }

@@ -15,6 +15,25 @@ import WhisperKit
 
 private let transcriptionFeatureLogger = HexLog.transcription
 
+/// A wall-clock dependency with an explicit deterministic test value. The generic
+/// `DependencyValues.date` key has no test implementation and is especially brittle
+/// when an XCTest host links the app and test-support products as separate dylibs.
+struct TranscriptionWallClock: Sendable {
+  var now: @Sendable () -> Date
+}
+
+extension TranscriptionWallClock: DependencyKey {
+  static let liveValue = Self(now: { Date() })
+  static let testValue = Self(now: { Date(timeIntervalSince1970: 1_234) })
+}
+
+extension DependencyValues {
+  var transcriptionWallClock: TranscriptionWallClock {
+    get { self[TranscriptionWallClock.self] }
+    set { self[TranscriptionWallClock.self] = newValue }
+  }
+}
+
 @Reducer
 struct TranscriptionFeature {
   @ObservableState
@@ -50,7 +69,7 @@ struct TranscriptionFeature {
     case discard  // Silent discard (too short/accidental)
 
     // Transcription result flow
-    case transcriptionResult(String, URL, TimeInterval)
+    case transcriptionResult(TranscriptionOutput, URL, TimeInterval)
     case transcriptionError(Error, URL?)
 
     // Model availability
@@ -70,7 +89,7 @@ struct TranscriptionFeature {
   @Dependency(\.keyEventMonitor) var keyEventMonitor
   @Dependency(\.soundEffects) var soundEffect
   @Dependency(\.sleepManagement) var sleepManagement
-  @Dependency(\.date.now) var now
+  @Dependency(\.transcriptionWallClock) var wallClock
   @Dependency(\.transcriptPersistence) var transcriptPersistence
 
   var body: some ReducerOf<Self> {
@@ -284,7 +303,7 @@ private extension TranscriptionFeature {
       )
     }
     state.isRecording = true
-    let startTime = now
+    let startTime = wallClock.now()
     state.recordingStartTime = startTime
     
     // Capture the active application
@@ -302,7 +321,7 @@ private extension TranscriptionFeature {
         soundEffect.play(.startRecording)
 
         if preventSleep {
-          await sleepManagement.preventSleep(reason: "Hex Voice Recording")
+          await sleepManagement.preventSleep(reason: "Local ASR Voice Recording")
         }
         guard !Task.isCancelled else {
           if preventSleep {
@@ -319,7 +338,7 @@ private extension TranscriptionFeature {
   func handleStopRecording(_ state: inout State) -> Effect<Action> {
     state.isRecording = false
     
-    let stopTime = now
+    let stopTime = wallClock.now()
     let startTime = state.recordingStartTime
     let duration = startTime.map { stopTime.timeIntervalSince($0) } ?? 0
 
@@ -365,6 +384,7 @@ private extension TranscriptionFeature {
     state.isTranscribing = true
     state.error = nil
     let language = state.hexSettings.outputLanguage
+    let terminologyContext = state.hexSettings.activeTerminologyPrompt
 
     state.isPrewarming = true
 
@@ -407,12 +427,17 @@ private extension TranscriptionFeature {
           let decodeOptions = DecodingOptions(
             language: language,
             detectLanguage: language == nil, // Only auto-detect if no language specified
+            wordTimestamps: true,
             chunkingStrategy: .vad,
           )
 
-          let result = try await transcription.transcribe(capturedURL, model, decodeOptions) { _ in }
+          let requestOptions = ASRTranscriptionOptions(
+            decoding: decodeOptions,
+            terminologyContext: terminologyContext
+          )
+          let result = try await transcription.transcribe(capturedURL, model, requestOptions) { _ in }
 
-          transcriptionFeatureLogger.notice("Transcribed audio from \(capturedURL.lastPathComponent) to text length \(result.count)")
+          transcriptionFeatureLogger.notice("Transcribed audio from \(capturedURL.lastPathComponent) to text length \(result.text.count)")
           audioURL = nil
           await send(.transcriptionResult(result, capturedURL, duration))
         } catch {
@@ -430,7 +455,7 @@ private extension TranscriptionFeature {
 private extension TranscriptionFeature {
   func handleTranscriptionResult(
     _ state: inout State,
-    result: String,
+    result: TranscriptionOutput,
     audioURL: URL,
     duration: TimeInterval
   ) -> Effect<Action> {
@@ -438,8 +463,8 @@ private extension TranscriptionFeature {
     state.isPrewarming = false
 
     // Check for force quit command (emergency escape hatch)
-    if ForceQuitCommandDetector.matches(result) {
-      transcriptionFeatureLogger.fault("Force quit voice command recognized; terminating Hex.")
+    if ForceQuitCommandDetector.matches(result.text) {
+      transcriptionFeatureLogger.fault("Force quit voice command recognized; terminating Local ASR.")
       return .run { _ in
         FileManager.default.removeItemIfExists(at: audioURL)
         await MainActor.run {
@@ -449,22 +474,30 @@ private extension TranscriptionFeature {
     }
 
     // If empty text, nothing else to do
-    guard !result.isEmpty else {
+    guard !result.text.isEmpty else {
       return .run { _ in
         FileManager.default.removeItemIfExists(at: audioURL)
       }
     }
 
-    transcriptionFeatureLogger.info("Raw transcription: '\(result, privacy: .private)'")
     let remappings = state.hexSettings.wordRemappings
+    let dictationMode = state.hexSettings.dictationMode
     let removalsEnabled = state.hexSettings.wordRemovalsEnabled
     let removals = state.hexSettings.wordRemovals
     let modifiedResult: String
     if state.isRemappingScratchpadFocused {
-      modifiedResult = result
+      modifiedResult = result.text
       transcriptionFeatureLogger.info("Scratchpad focused; skipping word modifications")
     } else {
-      var output = result
+      var output = SpokenCommandFormatter.apply(
+        result.text,
+        mode: dictationMode,
+        wordTimings: result.wordTimings,
+        minimumCommandPause: state.hexSettings.spokenCommandPauseSeconds
+      )
+      if output != result.text {
+        transcriptionFeatureLogger.info("Applied spoken formatting commands in mode=\(dictationMode.rawValue)")
+      }
       if removalsEnabled {
         let removedResult = WordRemovalApplier.apply(output, removals: removals)
         if removedResult != output {
@@ -497,6 +530,8 @@ private extension TranscriptionFeature {
     let sourceAppBundleID = state.sourceAppBundleID
     let sourceAppName = state.sourceAppName
     let transcriptionHistory = state.$transcriptionHistory
+    let saveTranscriptionHistory = state.hexSettings.saveTranscriptionHistory
+    let maxHistoryEntries = state.hexSettings.maxHistoryEntries
 
     return .run { send in
       do {
@@ -506,7 +541,9 @@ private extension TranscriptionFeature {
           sourceAppBundleID: sourceAppBundleID,
           sourceAppName: sourceAppName,
           audioURL: audioURL,
-          transcriptionHistory: transcriptionHistory
+          transcriptionHistory: transcriptionHistory,
+          saveTranscriptionHistory: saveTranscriptionHistory,
+          maxHistoryEntries: maxHistoryEntries
         )
       } catch {
         await send(.transcriptionError(error, audioURL))
@@ -538,11 +575,11 @@ private extension TranscriptionFeature {
     sourceAppBundleID: String?,
     sourceAppName: String?,
     audioURL: URL,
-    transcriptionHistory: Shared<TranscriptionHistory>
+    transcriptionHistory: Shared<TranscriptionHistory>,
+    saveTranscriptionHistory: Bool,
+    maxHistoryEntries: Int?
   ) async throws {
-    @Shared(.hexSettings) var hexSettings: HexSettings
-
-    if hexSettings.saveTranscriptionHistory {
+    if saveTranscriptionHistory {
       let transcript = try await transcriptPersistence.save(
         result,
         audioURL,
@@ -554,7 +591,7 @@ private extension TranscriptionFeature {
       transcriptionHistory.withLock { history in
         history.history.insert(transcript, at: 0)
 
-        if let maxEntries = hexSettings.maxHistoryEntries, maxEntries > 0 {
+        if let maxEntries = maxHistoryEntries, maxEntries > 0 {
           while history.history.count > maxEntries {
             if let removedTranscript = history.history.popLast() {
               Task {
@@ -657,10 +694,10 @@ struct TranscriptionView: View {
 
 // MARK: - Force Quit Command
 
-private enum ForceQuitCommandDetector {
+enum ForceQuitCommandDetector {
   static func matches(_ text: String) -> Bool {
     let normalized = normalize(text)
-    return normalized == "force quit hex now" || normalized == "force quit hex"
+    return normalized == "force quit local asr now" || normalized == "force quit local asr"
   }
 
   private static func normalize(_ text: String) -> String {

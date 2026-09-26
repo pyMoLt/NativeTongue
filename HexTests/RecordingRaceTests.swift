@@ -24,7 +24,6 @@ final class RecordingRaceTests: XCTestCase {
     let store = TestStore(initialState: Self.makeState()) {
       TranscriptionFeature()
     } withDependencies: {
-      $0.date.now = now
       $0.recording.startRecording = {
         await probe.recordStart()
       }
@@ -110,12 +109,13 @@ final class RecordingRaceTests: XCTestCase {
     state.recordingStartTime = now
     state.$hexSettings.withLock { settings in
       settings.hotkey = HotKey(key: .a, modifiers: [.command])
+      settings.selectedModel = "test-model"
     }
+    let stopProbe = FailedStopProbe()
     let store = TestStore(initialState: state) {
       TranscriptionFeature()
     } withDependencies: {
-      $0.date.now = now
-      $0.recording.stopRecording = { .failed(.fallbackExportFailed("copy failed")) }
+      $0.recording.stopRecording = { await stopProbe.stopRecording() }
       $0.sleepManagement.allowSleep = {}
     }
 
@@ -125,6 +125,8 @@ final class RecordingRaceTests: XCTestCase {
       $0.error = nil
       $0.isPrewarming = true
     }
+    await stopProbe.waitUntilPending()
+    await stopProbe.resume()
     await store.receive(\.transcriptionError) {
       $0.isTranscribing = false
       $0.isPrewarming = false
@@ -147,7 +149,6 @@ final class RecordingRaceTests: XCTestCase {
     let store = TestStore(initialState: Self.makeState()) {
       TranscriptionFeature()
     } withDependencies: {
-      $0.date.now = now
       $0.recording.startRecording = {}
       $0.recording.stopRecording = { .captured(stopURL) }
       $0.sleepManagement.preventSleep = { _ in
@@ -185,7 +186,6 @@ final class RecordingRaceTests: XCTestCase {
     let store = TestStore(initialState: Self.makeState()) {
       TranscriptionFeature()
     } withDependencies: {
-      $0.date.now = now
       $0.recording.startRecording = {
         await recordingProbe.recordStart()
       }
@@ -232,7 +232,11 @@ final class RecordingRaceTests: XCTestCase {
       TranscriptionFeature()
     }
 
-    await store.send(.transcriptionResult("", audioURL, 1.25))
+    await store.send(.transcriptionResult(
+      TranscriptionOutput(text: "", wordTimings: []),
+      audioURL,
+      1.25
+    ))
     await store.finish()
 
     XCTAssertFalse(FileManager.default.fileExists(atPath: audioURL.path))
@@ -251,7 +255,9 @@ final class RecordingRaceTests: XCTestCase {
       sourceAppName: nil
     )
     let probe = TranscriptPersistenceProbe()
-    let store = TestStore(initialState: Self.makeState()) {
+    var state = Self.makeState()
+    state.$hexSettings.withLock { $0.saveTranscriptionHistory = true }
+    let store = TestStore(initialState: state) {
       TranscriptionFeature()
     } withDependencies: {
       $0.transcriptPersistence.save = { text, audioURL, duration, sourceAppBundleID, sourceAppName in
@@ -262,7 +268,11 @@ final class RecordingRaceTests: XCTestCase {
       $0.soundEffects.play = { _ in }
     }
 
-    await store.send(.transcriptionResult("hello", audioURL, duration))
+    await store.send(.transcriptionResult(
+      TranscriptionOutput(text: "hello", wordTimings: []),
+      audioURL,
+      duration
+    ))
     while await probe.duration == nil {
       await Task.yield()
     }
@@ -370,5 +380,26 @@ private actor TranscriptPersistenceProbe {
 
   func record(duration: TimeInterval) {
     self.duration = duration
+  }
+}
+
+private actor FailedStopProbe {
+  private var continuation: CheckedContinuation<RecordingStopResult, Never>?
+
+  func stopRecording() async -> RecordingStopResult {
+    await withCheckedContinuation { continuation in
+      self.continuation = continuation
+    }
+  }
+
+  func waitUntilPending() async {
+    while continuation == nil {
+      await Task.yield()
+    }
+  }
+
+  func resume() {
+    continuation?.resume(returning: .failed(.fallbackExportFailed("copy failed")))
+    continuation = nil
   }
 }
