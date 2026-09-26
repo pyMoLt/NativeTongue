@@ -79,7 +79,7 @@ struct DictationBoxView: View {
   }
 
   private var modelName: String {
-    let model = transcription.hexSettings.selectedModel
+    let model = transcription.hexSettings.model(for: store.mode)
     return (try? LocalASRModelCatalog.descriptor(named: model))?.displayName ?? model
   }
 

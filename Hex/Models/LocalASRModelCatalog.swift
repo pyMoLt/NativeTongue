@@ -135,8 +135,12 @@ enum LocalASRModelCatalog {
 		return try decode(Data(contentsOf: url))
 	}
 
+	/// Parsed once; the catalog is a bundled, immutable resource.
+	static let bundled: [LocalASRModelDescriptor] = (try? load()) ?? []
+
 	static func descriptor(named name: String, bundle: Bundle = .main) throws -> LocalASRModelDescriptor {
-		guard let descriptor = try load(bundle: bundle).first(where: { $0.internalName == name }) else {
+		let descriptors = bundle == .main && !bundled.isEmpty ? bundled : try load(bundle: bundle)
+		guard let descriptor = descriptors.first(where: { $0.internalName == name }) else {
 			throw NSError(domain: "LocalASRModelCatalog", code: 2, userInfo: [
 				NSLocalizedDescriptionKey: "Unsupported local model identifier: \(name)",
 			])

@@ -71,12 +71,14 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var hasCompletedV2Onboarding: Bool
 	/// Per-model „Kontext-Biasing (experimentell)“; missing = model default.
 	public var modelBiasing: [String: Bool]
+	/// Model for literal mode; empty = same as `selectedModel` (plan 5.12).
+	public var literalModel: String
 
 	private mutating func normalizeSettings() {
 		if !doubleTapLockEnabled {
 			useDoubleTapOnly = false
 		}
-		spokenCommandPauseSeconds = min(max(spokenCommandPauseSeconds, 0.25), 1.0)
+		spokenCommandPauseSeconds = min(max(spokenCommandPauseSeconds, 0.25), 1.2)
 		if ![0, 2, 5, 10, 30].contains(idleUnloadMinutes) { idleUnloadMinutes = 10 }
 		boxFontSize = min(max(boxFontSize, 11), 28)
 		if !selectedModel.isEmpty, profileModelSelections[asrProfile] == nil {
@@ -131,7 +133,8 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		agentFormattingEnabled: Bool = true,
 		numberFormattingEnabled: Bool = true,
 		hasCompletedV2Onboarding: Bool = false,
-		modelBiasing: [String: Bool] = [:]
+		modelBiasing: [String: Bool] = [:],
+		literalModel: String = ""
 	) {
 		self.soundEffectsEnabled = soundEffectsEnabled
 		self.soundEffectsVolume = soundEffectsVolume
@@ -143,7 +146,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.dictationMode = dictationMode
 		self.asrProfile = asrProfile
 		self.profileModelSelections = profileModelSelections
-		self.spokenCommandPauseSeconds = min(max(spokenCommandPauseSeconds, 0.25), 1.0)
+		self.spokenCommandPauseSeconds = min(max(spokenCommandPauseSeconds, 0.25), 1.2)
 		self.generalVocabulary = generalVocabulary
 		self.medicalVocabulary = medicalVocabulary
 		self.technicalVocabulary = technicalVocabulary
@@ -180,6 +183,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.numberFormattingEnabled = numberFormattingEnabled
 		self.hasCompletedV2Onboarding = hasCompletedV2Onboarding
 		self.modelBiasing = modelBiasing
+		self.literalModel = literalModel
 		normalizeSettings()
 	}
 
@@ -216,6 +220,14 @@ public extension HexSettings {
 		if let value = modelBiasing[model] { return value }
 		return model.hasPrefix("qwen3-asr") || model.hasPrefix("apple-speechanalyzer")
 	}
+
+	/// Model used for a dictation in `mode` (literal may use its own model).
+	func model(for mode: DictationMode) -> String {
+		mode == .literal && !literalModel.isEmpty ? literalModel : selectedModel
+	}
+
+	/// Model for the currently selected mode.
+	var activeModel: String { model(for: dictationMode) }
 
 	func dictationBoxEnabled(for mode: DictationMode) -> Bool {
 		mode == .literal ? dictationBoxEnabledLiteral : dictationBoxEnabledNormal
@@ -277,6 +289,7 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case numberFormattingEnabled
 	case hasCompletedV2Onboarding
 	case modelBiasing
+	case literalModel
 }
 
 private struct SettingsField<Value: Codable & Sendable> {
@@ -432,6 +445,7 @@ private enum HexSettingsSchema {
 		SettingsField(.agentFormattingEnabled, keyPath: \.agentFormattingEnabled, default: defaults.agentFormattingEnabled).eraseToAny(),
 		SettingsField(.numberFormattingEnabled, keyPath: \.numberFormattingEnabled, default: defaults.numberFormattingEnabled).eraseToAny(),
 		SettingsField(.hasCompletedV2Onboarding, keyPath: \.hasCompletedV2Onboarding, default: defaults.hasCompletedV2Onboarding).eraseToAny(),
-		SettingsField(.modelBiasing, keyPath: \.modelBiasing, default: defaults.modelBiasing).eraseToAny()
+		SettingsField(.modelBiasing, keyPath: \.modelBiasing, default: defaults.modelBiasing).eraseToAny(),
+		SettingsField(.literalModel, keyPath: \.literalModel, default: defaults.literalModel).eraseToAny()
 	]
 }

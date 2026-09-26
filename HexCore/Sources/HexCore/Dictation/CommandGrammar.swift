@@ -13,7 +13,10 @@ public enum CommandGrammar {
 	public struct Phrase: Sendable {
 		public let words: [String]      // normalized, e.g. ["neuer", "absatz"]
 		public let english: Bool
+		/// Spelling for display in the commands page.
+		public let text: String
 		public init(_ text: String, english: Bool = false) {
+			self.text = text
 			self.words = CommandGrammar.normalizedWords(text)
 			self.english = english
 		}

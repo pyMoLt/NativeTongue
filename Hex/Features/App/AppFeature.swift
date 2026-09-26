@@ -17,13 +17,22 @@ struct AppFeature {
 		case modelMissingFlash
 	}
 
-  enum ActiveTab: Equatable {
-    case settings
-    case audioImport
-    case remappings
+  enum ActiveTab: Equatable, CaseIterable {
+    case dictation
+    case models
     case vocabulary
+    case commands
+    case dictationBox
+    case audioImport
     case history
+    case settings
+    case remappings
     case about
+  }
+
+  struct ModelStatus: Equatable {
+    var loadedModel: String?
+    var footprintMB: Int?
   }
 
 	@ObservableState
@@ -34,7 +43,9 @@ struct AppFeature {
 		var history: HistoryFeature.State = .init()
 		var lexicon: LexiconFeature.State = .init()
 		var dictationBox: DictationBoxFeature.State = .init()
-		var activeTab: ActiveTab = .settings
+		var activeTab: ActiveTab = .dictation
+		var modelStatus = ModelStatus()
+		var isOnboardingPresented = false
 		@Shared(.hexSettings) var hexSettings: HexSettings
 		@Shared(.modelBootstrapState) var modelBootstrapState: ModelBootstrapState
 
@@ -53,6 +64,11 @@ struct AppFeature {
     case lexicon(LexiconFeature.Action)
     case dictationBox(DictationBoxFeature.Action)
     case setActiveTab(ActiveTab)
+    case refreshModelStatus
+    case modelStatusLoaded(String?, Int?)
+    case unloadModel
+    case presentOnboarding(Bool)
+    case finishOnboarding
     case task
     case pasteLastTranscript
 
@@ -120,8 +136,8 @@ struct AppFeature {
         }
         
       case .transcription(.modelMissing):
-        HexLog.app.notice("Model missing - activating app and switching to settings")
-        state.activeTab = .settings
+        HexLog.app.notice("Model missing - activating app and switching to models")
+        state.activeTab = .models
         state.settings.shouldFlashModelSection = true
         return .run { send in
           await MainActor.run {
@@ -162,7 +178,7 @@ struct AppFeature {
         return .none
 
       case .audioImport(.openModelSettings):
-        state.activeTab = .settings
+        state.activeTab = .models
         return .none
       case .audioImport:
         return .none
@@ -205,6 +221,32 @@ struct AppFeature {
 		case let .setActiveTab(tab):
 			state.activeTab = tab
 			return .none
+
+      case .refreshModelStatus:
+        return .run { [transcription] send in
+          let loaded = await transcription.loadedModel()
+          let bytes = await transcription.processFootprintBytes()
+          await send(.modelStatusLoaded(loaded, bytes.map { Int($0 / 1_048_576) }))
+        }
+
+      case let .modelStatusLoaded(loaded, megabytes):
+        state.modelStatus = ModelStatus(loadedModel: loaded, footprintMB: megabytes)
+        return .none
+
+      case .unloadModel:
+        return .run { [transcription] send in
+          await transcription.unloadModel()
+          await send(.refreshModelStatus)
+        }
+
+      case let .presentOnboarding(presented):
+        state.isOnboardingPresented = presented
+        return .none
+
+      case .finishOnboarding:
+        state.isOnboardingPresented = false
+        state.$hexSettings.withLock { $0.hasCompletedV2Onboarding = true }
+        return .none
 
       // Permission handling
       case .checkPermissions:
@@ -388,90 +430,4 @@ struct AppFeature {
     }
   }
 
-}
-
-struct AppView: View {
-  @Bindable var store: StoreOf<AppFeature>
-  @State private var columnVisibility = NavigationSplitViewVisibility.automatic
-
-  var body: some View {
-    NavigationSplitView(columnVisibility: $columnVisibility) {
-      List(selection: $store.activeTab) {
-        Button {
-          store.send(.setActiveTab(.settings))
-        } label: {
-          Label("Settings", systemImage: "gearshape")
-        }
-        .buttonStyle(.plain)
-        .tag(AppFeature.ActiveTab.settings)
-
-        Button {
-          store.send(.setActiveTab(.audioImport))
-        } label: {
-          Label("Import Audio", systemImage: "waveform")
-        }
-        .buttonStyle(.plain)
-        .tag(AppFeature.ActiveTab.audioImport)
-
-        Button {
-          store.send(.setActiveTab(.remappings))
-        } label: {
-          Label("Transforms", systemImage: "text.badge.plus")
-        }
-        .buttonStyle(.plain)
-        .tag(AppFeature.ActiveTab.remappings)
-
-        Button {
-          store.send(.setActiveTab(.vocabulary))
-        } label: {
-          Label("Wortschatz", systemImage: "character.book.closed")
-        }
-        .buttonStyle(.plain)
-        .tag(AppFeature.ActiveTab.vocabulary)
-
-        Button {
-          store.send(.setActiveTab(.history))
-        } label: {
-          Label("History", systemImage: "clock")
-        }
-        .buttonStyle(.plain)
-        .tag(AppFeature.ActiveTab.history)
-
-        Button {
-          store.send(.setActiveTab(.about))
-        } label: {
-          Label("About", systemImage: "info.circle")
-        }
-        .buttonStyle(.plain)
-        .tag(AppFeature.ActiveTab.about)
-      }
-    } detail: {
-      switch store.state.activeTab {
-      case .settings:
-        SettingsView(
-          store: store.scope(state: \.settings, action: \.settings),
-          microphonePermission: store.microphonePermission,
-          accessibilityPermission: store.accessibilityPermission,
-          inputMonitoringPermission: store.inputMonitoringPermission
-        )
-        .navigationTitle("Settings")
-      case .audioImport:
-        AudioImportView(store: store.scope(state: \.audioImport, action: \.audioImport))
-          .navigationTitle("Import Audio")
-      case .remappings:
-        WordRemappingsView(store: store.scope(state: \.settings, action: \.settings))
-          .navigationTitle("Transforms")
-      case .vocabulary:
-        LexiconView(store: store.scope(state: \.lexicon, action: \.lexicon))
-          .navigationTitle("Wortschatz")
-      case .history:
-        HistoryView(store: store.scope(state: \.history, action: \.history))
-          .navigationTitle("History")
-      case .about:
-        AboutView(store: store.scope(state: \.settings, action: \.settings))
-          .navigationTitle("About")
-      }
-    }
-    .enableInjection()
-  }
 }

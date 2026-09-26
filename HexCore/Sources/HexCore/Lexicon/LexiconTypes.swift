@@ -132,6 +132,14 @@ public struct LexiconPackInfo: Codable, Sendable, Equatable, Identifiable {
 	public var license: String?
 	public var entryCount: Int
 	public var fileBytes: Int
+
+	public init(id: String, version: String?, license: String?, entryCount: Int, fileBytes: Int) {
+		self.id = id
+		self.version = version
+		self.license = license
+		self.entryCount = entryCount
+		self.fileBytes = fileBytes
+	}
 }
 
 /// The user's own lexicon (`lexicon/user.json`).

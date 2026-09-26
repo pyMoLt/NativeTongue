@@ -132,11 +132,13 @@ final class EngineSmokeTests: XCTestCase {
 		await client.unloadModel()
 		let corrections = output.document.corrections
 		print("SESSION_LEXICON corrections=\(corrections.count) \(corrections.map { "\($0.original)→\($0.replacement)" })")
+		let variants = output.text.split(whereSeparator: { !$0.isLetter }).filter { $0.lowercased().hasPrefix("myco") || $0.lowercased().hasPrefix("mico") }
+		print("SESSION_LEXICON_MYCO \(variants)")
 		let forbidden = ["anatomy", "enolic", "locale", " MIT ", " THE "]
 		for word in forbidden { XCTAssertFalse(output.text.contains(word), word) }
-		XCTAssertTrue(output.text.contains("Mycophenolatmofetil"))
-		XCTAssertTrue(output.text.contains("PostgreSQL"))
-		XCTAssertTrue(output.text.contains("AVFoundation"))
+		for term in ["Mycophenolatmofetil", "PostgreSQL", "AVFoundation"] {
+			XCTAssertTrue(output.text.contains(term), "missing \(term)")
+		}
 	}
 
 	func testIdleUnloadFiresAndInvalidatesPreviousTimer() async throws {

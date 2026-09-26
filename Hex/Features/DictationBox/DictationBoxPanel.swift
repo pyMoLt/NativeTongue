@@ -64,6 +64,12 @@ final class DictationBoxPanelController {
     observers.append(center.addObserver(forName: .dismissDictationBox, object: nil, queue: .main) { [weak self] _ in
       MainActor.assumeIsolated { self?.panel?.orderOut(nil) }
     })
+    observers.append(center.addObserver(forName: .resetDictationBoxPosition, object: nil, queue: .main) { [weak self] _ in
+      MainActor.assumeIsolated {
+        self?.panel?.setContentSize(NSSize(width: 640, height: 360))
+        self?.panel?.placeAboveDock()
+      }
+    })
   }
 
   private func show(store: StoreOf<AppFeature>) {

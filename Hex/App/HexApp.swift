@@ -20,28 +20,14 @@ struct HexApp: App {
             if isTesting {
                 EmptyView()
             } else {
-                MenuBarCopyLastTranscriptButton()
-
-                Button("Transcribe Audio File…") {
-                    HexApp.appStore.send(.setActiveTab(.audioImport))
+                MenuPanelView(store: HexApp.appStore) {
                     appDelegate.presentSettingsView()
                 }
-
-                Button("Settings…") {
-                    appDelegate.presentSettingsView()
-                }.keyboardShortcut(",")
-
-				Divider()
-
-				Button("Quit Local ASR") {
-					NSApplication.shared.terminate(nil)
-				}.keyboardShortcut("q")
-			}
+            }
 		} label: {
-			Image(systemName: "waveform")
-				.symbolRenderingMode(.monochrome)
-				.accessibilityLabel("Local ASR")
+			MenuBarIcon(store: HexApp.appStore)
 		}
+		.menuBarExtraStyle(.window)
 		.commands {
 			CommandGroup(after: .appInfo) {
 				Button("Settings…") {

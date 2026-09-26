@@ -27,7 +27,7 @@ extension DictationSessionRunner.Request {
   /// affect a dictation that is already being transcribed).
   init(settings: HexSettings, bypassFormatting: Bool) {
     self.init(
-      model: settings.selectedModel,
+      model: settings.activeModel,
       mode: settings.dictationMode,
       commandPauseMs: Int((settings.spokenCommandPauseSeconds * 1_000).rounded()),
       language: settings.outputLanguage,
@@ -365,7 +365,7 @@ private extension TranscriptionFeature {
 private extension TranscriptionFeature {
   func handleRecoveredRecording(_ state: inout State, audioURL: URL) -> Effect<Action> {
     guard !state.isRecording, !state.isTranscribing else { return .none }
-    let model = state.hexSettings.selectedModel
+    let model = state.hexSettings.activeModel
     guard !model.isEmpty else { return .send(.modelMissing) }
 
     state.isTranscribing = true
@@ -390,7 +390,7 @@ private extension TranscriptionFeature {
       )
     }
     state.isRecording = true
-    let model = state.hexSettings.selectedModel
+    let model = state.hexSettings.activeModel
     state.isPrewarming = !model.isEmpty
     let startTime = wallClock.now()
     state.recordingStartTime = startTime
@@ -466,7 +466,7 @@ private extension TranscriptionFeature {
       return handleDiscard(&state)
     }
 
-    let model = state.hexSettings.selectedModel
+    let model = state.hexSettings.activeModel
     guard !model.isEmpty else {
       // Defense-in-depth: handleStartRecording already blocks recording when the
       // bootstrap state says no model is ready, but settings can change while a
@@ -876,7 +876,9 @@ struct TranscriptionView: View {
   var body: some View {
     TranscriptionIndicatorView(
       status: status,
-      meter: store.meter
+      meter: store.meter,
+      mode: store.hexSettings.dictationMode,
+      recordingStart: store.recordingStartTime
     )
     .task {
       await store.send(.task).finish()
