@@ -49,16 +49,26 @@ extension DependencyValues {
 struct PasteboardClientLive {
     @Shared(.hexSettings) var hexSettings: HexSettings
     
-    private struct PasteboardSnapshot {
-        let items: [[String: Any]]
+    struct PasteboardSnapshot {
+        enum Value {
+            case data(Data)
+            case string(String)
+            case propertyList(Any)
+        }
+
+        let items: [[String: Value]]
         
         init(pasteboard: NSPasteboard) {
-            var saved: [[String: Any]] = []
+            var saved: [[String: Value]] = []
             for item in pasteboard.pasteboardItems ?? [] {
-                var itemDict: [String: Any] = [:]
+                var itemDict: [String: Value] = [:]
                 for type in item.types {
                     if let data = item.data(forType: type) {
-                        itemDict[type.rawValue] = data
+                        itemDict[type.rawValue] = .data(data)
+                    } else if let string = item.string(forType: type) {
+                        itemDict[type.rawValue] = .string(string)
+                    } else if let propertyList = item.propertyList(forType: type) {
+                        itemDict[type.rawValue] = .propertyList(propertyList)
                     }
                 }
                 saved.append(itemDict)
@@ -68,14 +78,23 @@ struct PasteboardClientLive {
         
         func restore(to pasteboard: NSPasteboard) {
             pasteboard.clearContents()
+            var restoredItems: [NSPasteboardItem] = []
             for itemDict in items {
                 let item = NSPasteboardItem()
-                for (type, data) in itemDict {
-                    if let data = data as? Data {
+                for (type, value) in itemDict {
+                    switch value {
+                    case let .data(data):
                         item.setData(data, forType: NSPasteboard.PasteboardType(rawValue: type))
+                    case let .string(string):
+                        item.setString(string, forType: NSPasteboard.PasteboardType(rawValue: type))
+                    case let .propertyList(propertyList):
+                        item.setPropertyList(propertyList, forType: NSPasteboard.PasteboardType(rawValue: type))
                     }
                 }
-                pasteboard.writeObjects([item])
+                restoredItems.append(item)
+            }
+            if !restoredItems.isEmpty {
+                pasteboard.writeObjects(restoredItems)
             }
         }
     }
@@ -206,20 +225,22 @@ struct PasteboardClientLive {
         let snapshot = PasteboardSnapshot(pasteboard: pasteboard)
         let targetChangeCount = writeAndTrackChangeCount(pasteboard: pasteboard, text: text)
         _ = await waitForPasteboardCommit(targetChangeCount: targetChangeCount)
+        let dictationChangeCount = pasteboard.changeCount
         let pasteSucceeded = await performPaste(text)
         
-        // Only restore original pasteboard contents if:
-        // 1. Copying to clipboard is disabled AND
-        // 2. The paste operation succeeded
-        if !hexSettings.copyToClipboard && pasteSucceeded {
+        if !hexSettings.copyToClipboard {
             let savedSnapshot = snapshot
-            Task { @MainActor in
-                // Give slower apps a short window to read the plain-text entry
-                // before we repopulate the clipboard with the user's previous rich data.
-                try? await Task.sleep(for: .milliseconds(500))
-                pasteboard.clearContents()
-                savedSnapshot.restore(to: pasteboard)
-            }
+            let restoreDelay: Duration = pasteSucceeded ? .milliseconds(300) : .seconds(10)
+            // On failure, keep the dictated text available for manual ⌘V for 10 seconds.
+            // On success, wait briefly for the target app to consume the pasteboard data.
+            try? await Task.sleep(for: restoreDelay)
+            // Do not overwrite a new clipboard value copied by the user or target app.
+            guard Self.shouldRestoreSnapshot(
+                currentChangeCount: pasteboard.changeCount,
+                dictationChangeCount: dictationChangeCount
+            ) else { return }
+            pasteboard.clearContents()
+            savedSnapshot.restore(to: pasteboard)
         }
         
         // If we failed to paste AND user doesn't want clipboard retention,
@@ -231,6 +252,10 @@ struct PasteboardClientLive {
             // TODO: Could add a notification here to inform user
             // that text is available in clipboard
         }
+    }
+
+    static func shouldRestoreSnapshot(currentChangeCount: Int, dictationChangeCount: Int) -> Bool {
+        currentChangeCount == dictationChangeCount
     }
 
     @MainActor

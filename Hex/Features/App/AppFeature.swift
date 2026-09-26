@@ -91,7 +91,8 @@ struct AppFeature {
         return .merge(
           startPasteLastTranscriptMonitoring(),
           ensureSelectedModelReadiness(),
-          startPermissionMonitoring()
+          startPermissionMonitoring(),
+          promptForPendingRecordingRecovery()
         )
         
       case .pasteLastTranscript:
@@ -250,6 +251,47 @@ struct AppFeature {
         }
       }
       await send(.modelStatusEvaluated(isReady))
+    }
+  }
+
+  private func promptForPendingRecordingRecovery() -> Effect<Action> {
+    .run { send in
+      guard !isTesting else { return }
+      do {
+        let store = try RecordingRecoveryStore()
+        let pending = try store.pendingRecordings()
+        guard let newest = pending.first else { return }
+
+        let response = await MainActor.run { () -> NSApplication.ModalResponse in
+          NSApp.activate(ignoringOtherApps: true)
+          let alert = NSAlert()
+          alert.alertStyle = .warning
+          alert.messageText = "Unfinished local dictation found"
+          let countDescription = pending.count == 1
+            ? "One interrupted recording is still stored on this Mac."
+            : "\(pending.count) interrupted recordings are still stored on this Mac."
+          let dateString = DateFormatter.localizedString(from: newest.createdAt, dateStyle: .medium, timeStyle: .short)
+          alert.informativeText = "\(countDescription) The newest is from \(dateString). Recovering will transcribe it locally."
+          alert.addButton(withTitle: "Recover newest")
+          alert.addButton(withTitle: "Later")
+          alert.addButton(withTitle: "Discard all")
+          return alert.runModal()
+        }
+
+        switch response {
+        case .alertFirstButtonReturn:
+          await send(.transcription(.recoverRecording(newest.url)))
+        case .alertThirdButtonReturn:
+          for recording in pending {
+            try store.remove(recording)
+          }
+          HexLog.app.notice("Discarded pending local recordings count=\(pending.count)")
+        default:
+          break
+        }
+      } catch {
+        HexLog.app.error("Failed to inspect recording recovery items: \(error.localizedDescription, privacy: .private)")
+      }
     }
   }
 
