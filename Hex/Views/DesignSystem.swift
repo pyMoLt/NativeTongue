@@ -93,8 +93,8 @@ struct ModeSwitch: View {
   var body: some View {
     GlassEffectContainer(spacing: 8) {
       HStack(spacing: 6) {
-        segment(.normal, title: "Normal", subtitle: "für KI-Agenten & Chat", symbol: "waveform")
-        segment(.literal, title: "Literal", subtitle: "Befunde & Doktorarbeit", symbol: "paragraphsign")
+        segment(.normal, title: "Normal", subtitle: "natural text for chats & AI agents", symbol: "waveform")
+        segment(.literal, title: "Literal", subtitle: "precise dictation for demanding texts", symbol: "paragraphsign")
       }
     }
     .animation(.smooth(duration: 0.25), value: mode)
@@ -126,23 +126,13 @@ struct ModeSwitch: View {
   }
 }
 
-extension ASRProfile {
-  var germanName: String {
-    switch self {
-    case .general: "Allgemein"
-    case .medical: "Medizin"
-    case .technical: "Technik"
-    }
-  }
-}
-
 extension LocalASRLiteralRating {
   var badge: Badge {
     switch self {
-    case .reliable: Badge(text: "Literal zuverlässig", systemImage: "checkmark.seal.fill", style: .positive)
-    case .limited: Badge(text: "Literal eingeschränkt", systemImage: "exclamationmark.triangle.fill", style: .caution)
-    case .unverified: Badge(text: "Literal ungeprüft", systemImage: "questionmark.circle", style: .neutral)
-    case .unsuitable: Badge(text: "Nicht für Literal", systemImage: "xmark.circle", style: .caution)
+    case .reliable: Badge(text: "Literal: reliable", systemImage: "checkmark.seal.fill", style: .positive)
+    case .limited: Badge(text: "Literal: limited", systemImage: "exclamationmark.triangle.fill", style: .caution)
+    case .unverified: Badge(text: "Literal: unverified", systemImage: "questionmark.circle", style: .neutral)
+    case .unsuitable: Badge(text: "Not for Literal", systemImage: "xmark.circle", style: .caution)
     }
   }
 }
@@ -150,10 +140,10 @@ extension LocalASRLiteralRating {
 extension LocalASRModelGroup {
   var title: String {
     switch self {
-    case .recommended: "Empfohlen"
-    case .general: "Allgemein"
-    case .medical: "Medizin"
-    case .experimental: "Experimentell"
+    case .recommended: "Recommended"
+    case .general: "General"
+    case .medical: "Medical"
+    case .experimental: "Experimental"
     }
   }
 }
@@ -162,5 +152,14 @@ extension Text {
   /// Caption font with secondary color for helper text in settings.
   func settingsCaption() -> some View {
     self.font(.caption).foregroundStyle(.secondary)
+  }
+}
+
+/// Single source for the product name (Info.plist `CFBundleDisplayName`), so
+/// a rename touches only Info.plist and the product name build setting.
+enum AppBrand {
+  static var name: String {
+    (Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+      .map { $0.replacingOccurrences(of: " Debug", with: "") } ?? "Local ASR"
   }
 }

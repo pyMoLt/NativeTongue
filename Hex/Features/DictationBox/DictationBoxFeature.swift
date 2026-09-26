@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import ComposableArchitecture
 import Foundation
 import HexCore
@@ -56,6 +57,7 @@ struct DictationBoxFeature {
     var isConfirmingDiscard = false
     @Shared(.hexSettings) var hexSettings: HexSettings
     @Shared(.isDictationBoxPresented) var isDictationBoxPresented: Bool = false
+    @Shared(.transcriptionHistory) var transcriptionHistory: TranscriptionHistory
 
     var baseFont: NSFont {
       BoxTextStyle.baseFont(name: hexSettings.boxFontName, size: hexSettings.boxFontSize)
@@ -103,6 +105,7 @@ struct DictationBoxFeature {
   }
 
   @Dependency(\.pasteboard) var pasteboard
+  @Dependency(\.transcriptPersistence) var transcriptPersistence
   @Dependency(\.lexicon) var lexicon
 
   private enum CancelID { case suggestions, draft }
@@ -123,7 +126,7 @@ struct DictationBoxFeature {
         state.mode = mode
         state.language = state.hexSettings.outputLanguage ?? "de"
         state.$isDictationBoxPresented.withLock { $0 = true }
-        state.lastAction = targetAppName.map { "Ziel: \($0)" } ?? ""
+        state.lastAction = targetAppName.map { "Target: \($0)" } ?? ""
         return .run { _ in await MainActor.run { NotificationCenter.default.post(name: .presentDictationBox, object: nil) } }
 
       case let .restoreDraft(text):
@@ -135,7 +138,7 @@ struct DictationBoxFeature {
         state.mode = state.hexSettings.dictationMode
         state.language = state.hexSettings.outputLanguage ?? "de"
         state.$isDictationBoxPresented.withLock { $0 = true }
-        state.lastAction = "Wiederhergestelltes Diktat"
+        state.lastAction = "Restored dictation"
         return .run { _ in await MainActor.run { NotificationCenter.default.post(name: .presentDictationBox, object: nil) } }
 
       case .recordingStarted:
@@ -189,13 +192,13 @@ struct DictationBoxFeature {
       case let .applySuggestion(term):
         guard let suggestion = state.suggestion else { return .none }
         replace(&state, range: suggestion.range, with: term, learnFrom: suggestion.original ?? suggestion.word)
-        state.lastAction = "„\(suggestion.word)“ → „\(term)“"
+        state.lastAction = "“\(suggestion.word)” → “\(term)”"
         return saveDraft(state)
 
       case .revertCorrection:
         guard let suggestion = state.suggestion, let original = suggestion.original else { return .none }
         replace(&state, range: suggestion.range, with: original, learnFrom: nil)
-        state.lastAction = "Ersetzung zurückgenommen"
+        state.lastAction = "Replacement undone"
         return saveDraft(state)
 
       case .prepareRedictation:
@@ -203,7 +206,7 @@ struct DictationBoxFeature {
         state.selection = suggestion.range
         state.revision += 1
         state.suggestion = nil
-        state.lastAction = "Markierung neu einsprechen: Diktat-Taste drücken"
+        state.lastAction = "Re-dictate selection: press the dictation key"
         return .none
 
       case .spellSelection:
@@ -213,7 +216,7 @@ struct DictationBoxFeature {
         }
         state.suggestion = nil
         state.spellingMode = true
-        state.lastAction = "Buchstabieren: Diktat-Taste drücken"
+        state.lastAction = "Spelling: press the dictation key"
         return .none
 
       case .addHoveredWordToLexicon:
@@ -227,7 +230,7 @@ struct DictationBoxFeature {
           autoReplace: true
         )
         state.suggestion = nil
-        state.lastAction = "„\(suggestion.word)“ im Wortschatz"
+        state.lastAction = "“\(suggestion.word)” added to vocabulary"
         return .run { [lexicon] _ in try? await lexicon.addUserEntries([entry]) }
 
       case .dismissSuggestions:
@@ -235,24 +238,24 @@ struct DictationBoxFeature {
         return .cancel(id: CancelID.suggestions)
 
       case .toggleBold:
-        return edit(&state, "Fett") { BoxTextEditing.toggleTrait(.boldFontMask, in: $0, range: $1) }
+        return edit(&state, "Bold") { BoxTextEditing.toggleTrait(.boldFontMask, in: $0, range: $1) }
       case .toggleItalic:
-        return edit(&state, "Kursiv") { BoxTextEditing.toggleTrait(.italicFontMask, in: $0, range: $1) }
+        return edit(&state, "Italic") { BoxTextEditing.toggleTrait(.italicFontMask, in: $0, range: $1) }
       case .toggleHeading:
         let base = state.baseFont
-        return edit(&state, "Überschrift") { BoxTextEditing.toggleHeading(in: $0, range: $1, baseFont: base) }
+        return edit(&state, "Heading") { BoxTextEditing.toggleHeading(in: $0, range: $1, baseFont: base) }
       case .toggleBullets:
         let base = state.baseFont
-        return edit(&state, "Aufzählung") { BoxTextEditing.toggleBullets(in: $0, range: $1, baseFont: base) }
+        return edit(&state, "Bullets") { BoxTextEditing.toggleBullets(in: $0, range: $1, baseFont: base) }
       case .quoteSelection:
         let language = state.language
-        return edit(&state, "Anführungszeichen") { BoxTextEditing.quote(in: $0, range: $1, language: language) }
+        return edit(&state, "Quotes") { BoxTextEditing.quote(in: $0, range: $1, language: language) }
       case .cycleCase:
-        return edit(&state, "Groß/klein") { BoxTextEditing.cycleCase(in: $0, range: $1) }
+        return edit(&state, "Case") { BoxTextEditing.cycleCase(in: $0, range: $1) }
 
       case .toggleSpellingMode:
         state.spellingMode.toggle()
-        state.lastAction = state.spellingMode ? "Buchstabieren: Diktat-Taste drücken" : "Buchstabieren aus"
+        state.lastAction = state.spellingMode ? "Spelling: press the dictation key" : "Spelling off"
         return .none
 
       case let .setFont(name):
@@ -326,18 +329,18 @@ struct DictationBoxFeature {
       case .deleteLastUtterance, .undo:
         if let previous = state.snapshots.popLast() {
           state.text = previous
-          state.lastAction = edit == .undo ? "Rückgängig" : "Letztes Diktat gestrichen"
+          state.lastAction = edit == .undo ? "Undo" : "Deleted last dictation"
         }
       case .deleteLastSentence:
         state.text = BoxText(BoxTextEditing.deleteLastSentence(state.text.value))
-        state.lastAction = "Letzten Satz gelöscht"
+        state.lastAction = "Deleted last sentence"
       case .deleteLastWord:
         state.text = BoxText(BoxTextEditing.deleteLastWord(state.text.value))
-        state.lastAction = "Letztes Wort gelöscht"
+        state.lastAction = "Deleted last word"
       case .clearAll:
         state.snapshots.append(state.text)
         state.text = BoxText()
-        state.lastAction = "Alles gelöscht"
+        state.lastAction = "Cleared everything"
       }
       state.selection = NSRange(location: state.text.length, length: 0)
       state.revision += 1
@@ -355,7 +358,7 @@ struct DictationBoxFeature {
         let original = (state.text.string as NSString).substring(with: BoxTextEditing.clamp(target, length: state.text.length))
         insert(&state, NSAttributedString(string: spelled, attributes: BoxTextStyle.attributes(font: state.baseFont)), at: target)
         state.learnCandidates.append(LearnCandidate(original: original, replacement: spelled))
-        state.lastAction = "Buchstabiert: „\(spelled)“"
+        state.lastAction = "Spelled: “\(spelled)”"
       }
     } else if !output.markdown.isEmpty, !output.document.isEmpty {
       let attributed = BoxTextConverter.attributed(fromMarkdown: output.markdown, baseFont: state.baseFont, corrections: output.document.corrections)
@@ -374,7 +377,7 @@ struct DictationBoxFeature {
 
     if spell {
       state.spellingMode = true
-      state.lastAction = "Buchstabieren: Diktat-Taste drücken"
+      state.lastAction = "Spelling: press the dictation key"
     }
     effects.append(saveDraft(state))
     if transfer { effects.append(.send(.confirmTapped)) }
@@ -422,15 +425,15 @@ struct DictationBoxFeature {
 
   static func describe(_ output: DictationSessionOutput) -> String {
     let tokens = output.document.tokens
-    if tokens.last == .paragraphBreak { return "¶ Neuer Absatz" }
-    if tokens.last == .lineBreak { return "↵ Neue Zeile" }
+    if tokens.last == .paragraphBreak { return "¶ New paragraph" }
+    if tokens.last == .lineBreak { return "↵ New line" }
     if let mark = tokens.last(where: { if case .mark = $0 { return true } else { return false } }), case let .mark(value) = mark {
-      return "Satzzeichen „\(value.glyph(language: output.language))“"
+      return "Punctuation “\(value.glyph(language: output.language))”"
     }
     if !output.document.corrections.isEmpty {
-      return "\(output.document.corrections.count) Fachwort-Korrektur(en)"
+      return "\(output.document.corrections.count) term correction(s)"
     }
-    return "Diktat eingefügt"
+    return "Dictation added"
   }
 
   // MARK: - Confirm / discard
@@ -455,10 +458,30 @@ struct DictationBoxFeature {
     if hasLearnCandidates {
       state.phase = .learning
     }
+    let saveHistory = state.hexSettings.saveTranscriptionHistory
+    let maxHistoryEntries = state.hexSettings.maxHistoryEntries
+    let history = state.$transcriptionHistory
+    let historyText = BoxTextConverter.plainText(from: text)
+    let target = (state.targetBundleID, state.targetAppName)
     return .merge(
-      .run { [pasteboard] send in
+      .run { [pasteboard, transcriptPersistence] send in
         await MainActor.run { NotificationCenter.default.post(name: .dictationBoxWillPaste, object: nil) }
         await pasteboard.pasteRich(payload)
+        // Keep the text in the history (the user's fallback when insertion fails).
+        if saveHistory, let firstAudio = audioURLs.first {
+          let duration = audioURLs.reduce(0.0) { total, url in
+            guard let file = try? AVAudioFile(forReading: url), file.processingFormat.sampleRate > 0 else { return total }
+            return total + Double(file.length) / file.processingFormat.sampleRate
+          }
+          if let transcript = try? await transcriptPersistence.save(historyText, firstAudio, duration, target.0, target.1) {
+            history.withLock { history in
+              history.history.insert(transcript, at: 0)
+              if let maxHistoryEntries, maxHistoryEntries > 0 {
+                while history.history.count > maxHistoryEntries { _ = history.history.popLast() }
+              }
+            }
+          }
+        }
         for url in audioURLs { FileManager.default.removeItemIfExists(at: url) }
         DictationBoxDraftStore.remove()
         if !hasLearnCandidates { await send(.close) }

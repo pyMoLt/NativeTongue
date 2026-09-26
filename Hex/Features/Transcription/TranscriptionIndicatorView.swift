@@ -39,10 +39,10 @@ struct TranscriptionIndicatorView: View {
         }
       case .transcribing:
         ProgressView().controlSize(.small)
-        Text(message ?? "Transkribiert …").font(.system(size: 13, weight: .medium))
+        Text(message ?? "Transcribing …").font(.system(size: 13, weight: .medium))
       case .prewarming:
         ProgressView().controlSize(.small)
-        Text("Modell wird geladen …").font(.system(size: 13, weight: .medium))
+        Text("Loading model …").font(.system(size: 13, weight: .medium))
       case .optionKeyPressed, .hidden:
         EmptyView()
       }
@@ -61,9 +61,9 @@ struct TranscriptionIndicatorView: View {
 
   private var accessibilityText: String {
     switch status {
-    case .recording: "Aufnahme läuft"
-    case .transcribing: "Transkribiert"
-    case .prewarming: "Modell wird geladen"
+    case .recording: "Recording"
+    case .transcribing: "Transcribing"
+    case .prewarming: "Loading model"
     case .hidden, .optionKeyPressed: ""
     }
   }

@@ -11,7 +11,7 @@ struct DictationHomeView: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 18) {
-        PageHeader(title: "Diktat", subtitle: "Modus, Modell und Sprache für die nächste Aufnahme", symbol: "mic.fill")
+        PageHeader(title: "Dictation", subtitle: "Mode, model and language for your next dictation", symbol: "mic.fill")
         ModeSwitch(mode: settings.dictationMode) { mode in
           store.send(.settings(.setDictationMode(mode)))
         }
@@ -33,20 +33,20 @@ struct DictationHomeView: View {
   }
 
   private var statusCard: some View {
-    Card(title: "Modell", systemImage: "cpu") {
+    Card(title: "Model", systemImage: "cpu") {
       HStack(alignment: .center, spacing: 14) {
         VStack(alignment: .leading, spacing: 6) {
-          Text(activeDescriptor?.displayName ?? (settings.activeModel.isEmpty ? "Kein Modell gewählt" : settings.activeModel))
+          Text(activeDescriptor?.displayName ?? (settings.activeModel.isEmpty ? "No model selected" : settings.activeModel))
             .font(.title3.weight(.semibold))
           HStack(spacing: 6) {
             if let descriptor = activeDescriptor {
               descriptor.literalRating.badge
               if settings.isBiasingEnabled(for: descriptor.internalName), descriptor.capabilities.contextPrompt || !descriptor.capabilities.biasing.isEmpty {
-                Badge(text: "Wortschatz-Biasing", systemImage: "text.book.closed", style: .accent)
+                Badge(text: "Vocabulary biasing", systemImage: "text.book.closed", style: .accent)
               }
             }
             if settings.dictationMode == .literal, !settings.literalModel.isEmpty {
-              Badge(text: "eigenes Literal-Modell", systemImage: "paragraphsign")
+              Badge(text: "separate Literal model", systemImage: "paragraphsign")
             }
           }
           Text(statusLine)
@@ -59,21 +59,21 @@ struct DictationHomeView: View {
             Button {
               store.send(.unloadModel)
             } label: {
-              Label("Entladen", systemImage: "eject")
+              Label("Unload", systemImage: "eject")
             }
             .buttonStyle(.glass)
-            .help("Modell aus dem Arbeitsspeicher entfernen; lädt beim nächsten Diktat neu")
+            .help("Free the model's memory; it reloads on the next dictation")
           }
           Button {
             store.send(.setActiveTab(.models))
           } label: {
-            Label("Modelle", systemImage: "square.grid.2x2")
+            Label("Models", systemImage: "square.grid.2x2")
           }
           .buttonStyle(.glass)
         }
       }
       if !store.modelBootstrapState.isModelReady {
-        Label("Noch kein Modell installiert – unter „Modelle“ eines installieren.", systemImage: "exclamationmark.triangle.fill")
+        Label("No model installed yet – install one under Models.", systemImage: "exclamationmark.triangle.fill")
           .font(.callout)
           .foregroundStyle(.orange)
       }
@@ -86,13 +86,13 @@ struct DictationHomeView: View {
       let name = (try? LocalASRModelCatalog.descriptor(named: loaded))?.displayName ?? loaded
       parts.append("Geladen: \(name)")
     } else {
-      parts.append("Nicht geladen – lädt beim Drücken der Diktat-Taste")
+      parts.append("Not loaded – loads when you press the dictation key")
     }
     if let megabytes = store.modelStatus.footprintMB {
       parts.append("App-Speicher \(ByteCountFormatter.string(fromByteCount: Int64(megabytes) * 1_048_576, countStyle: .memory))")
     }
     if settings.idleUnloadMinutes > 0 {
-      parts.append("entlädt nach \(settings.idleUnloadMinutes) min")
+      parts.append("unloads after \(settings.idleUnloadMinutes) min")
     }
     return parts.joined(separator: " · ")
   }
@@ -100,30 +100,30 @@ struct DictationHomeView: View {
   // MARK: Profile & language
 
   private var profileCard: some View {
-    Card(title: "Profil & Sprache", systemImage: "person.text.rectangle") {
-      Picker("Profil", selection: Binding(
+    Card(title: "Profile & language", systemImage: "person.text.rectangle") {
+      Picker("Profile", selection: Binding(
         get: { settings.asrProfile },
         set: { store.send(.settings(.setASRProfile($0))) }
       )) {
         ForEach(ASRProfile.allCases, id: \.self) { profile in
-          Text(profile.germanName).tag(profile)
+          Text(profile.displayName).tag(profile)
         }
       }
       .pickerStyle(.segmented)
-      Text("Das Profil wählt die Wortpakete und deinen Wortschatz für Vorschläge und Korrekturen.")
+      Text("The profile selects the word packs and your vocabulary used for suggestions and corrections.")
         .font(.caption)
         .foregroundStyle(.secondary)
 
-      Picker("Sprache", selection: Binding(
+      Picker("Language", selection: Binding(
         get: { settings.outputLanguage ?? "auto" },
         set: { value in store.$hexSettings.withLock { $0.outputLanguage = value == "auto" ? nil : value } }
       )) {
-        Text("Automatisch").tag("auto")
-        Text("Deutsch").tag("de")
-        Text("Englisch").tag("en")
+        Text("Automatic").tag("auto")
+        Text("German").tag("de")
+        Text("English").tag("en")
       }
       if settings.outputLanguage == nil, let descriptor = activeDescriptor, !descriptor.capabilities.supportsAutoLanguage {
-        Text("\(descriptor.displayName) erkennt die Sprache nicht selbst; es wird Deutsch verwendet.")
+        Text("\(descriptor.displayName) cannot detect the language; German is used.")
           .font(.caption)
           .foregroundStyle(.orange)
       }
@@ -133,15 +133,15 @@ struct DictationHomeView: View {
   // MARK: Hotkey
 
   private var hotkeyCard: some View {
-    Card(title: "Kurzbefehl", systemImage: "keyboard") {
+    Card(title: "Shortcut", systemImage: "keyboard") {
       Text(Self.describe(settings.hotkey))
         .font(.system(.title2, design: .rounded).weight(.semibold))
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .glassEffect(.regular, in: .capsule)
       Text(settings.useDoubleTapOnly
-        ? "Doppelt tippen startet und beendet die Aufnahme."
-        : "Halten zum Diktieren · doppelt tippen, um die Aufnahme zu sperren.")
+        ? "Double-tap starts and stops recording."
+        : "Hold to dictate · double-tap to lock recording.")
         .font(.callout)
         .foregroundStyle(.secondary)
       Toggle("Diktierbox im \(settings.dictationMode == .literal ? "Literal" : "Normal")-Modus", isOn: Binding(

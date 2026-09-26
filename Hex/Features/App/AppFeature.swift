@@ -373,10 +373,10 @@ struct AppFeature {
           let restore = await MainActor.run { () -> Bool in
             NSApp.activate(ignoringOtherApps: true)
             let alert = NSAlert()
-            alert.messageText = "Nicht übertragenes Diktat wiederherstellen?"
-            alert.informativeText = "Die Diktierbox wurde nicht bestätigt oder verworfen (\(BoxTextEditing.wordCount(draft.string)) Wörter). Der Text ist nur auf diesem Mac gespeichert."
-            alert.addButton(withTitle: "Wiederherstellen")
-            alert.addButton(withTitle: "Verwerfen")
+            alert.messageText = "Restore unsent dictation?"
+            alert.informativeText = "The dictation box was neither inserted nor discarded (\(BoxTextEditing.wordCount(draft.string)) words). The text is stored only on this Mac."
+            alert.addButton(withTitle: "Restore")
+            alert.addButton(withTitle: "Discard")
             return alert.runModal() == .alertFirstButtonReturn
           }
           for recording in pending { try? store.remove(recording) }

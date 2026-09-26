@@ -31,21 +31,21 @@ struct DictationBoxView: View {
     }
     .frame(minWidth: 480, minHeight: 260)
     .confirmationDialog(
-      "Diktat verwerfen?",
+      "Discard dictation?",
       isPresented: $store.isConfirmingDiscard,
       titleVisibility: .visible
     ) {
-      Button("Verwerfen", role: .destructive) { store.send(.discardConfirmed) }
-      Button("Abbrechen", role: .cancel) {}
+      Button("Discard", role: .destructive) { store.send(.discardConfirmed) }
+      Button("Cancel", role: .cancel) {}
     } message: {
-      Text("\(store.wordCount) Wörter gehen verloren.")
+      Text("\(store.wordCount) words will be lost.")
     }
   }
 
   private var placeholder: String {
-    if transcription.isRecording { return "Sprechen …" }
+    if transcription.isRecording { return "Speak …" }
     if transcription.isTranscribing { return "Wird transkribiert …" }
-    return "Diktat-Taste drücken und sprechen. Befehle wie „neuer Absatz“ oder „Punkt“ funktionieren hier."
+    return "Press the dictation key and speak. Commands like “new paragraph” or “period” work here."
   }
 
   // MARK: Header
@@ -61,15 +61,15 @@ struct DictationBoxView: View {
         .foregroundStyle(.secondary)
         .lineLimit(1)
       Menu {
-        Button("Automatisch") { store.send(.setLanguage(nil)) }
-        Button("Deutsch") { store.send(.setLanguage("de")) }
+        Button("Automatic") { store.send(.setLanguage(nil)) }
+        Button("German") { store.send(.setLanguage("de")) }
         Button("English") { store.send(.setLanguage("en")) }
       } label: {
         Text(store.language.uppercased()).font(.callout.monospaced())
       }
       .menuStyle(.borderlessButton)
       .fixedSize()
-      .help("Sprache dieser Box")
+      .help("Language of this box")
       Spacer()
       statusIndicator
     }
@@ -96,14 +96,14 @@ struct DictationBoxView: View {
           }
         }
       }
-      .accessibilityLabel("Aufnahme läuft")
+      .accessibilityLabel("Recording")
     } else if transcription.isTranscribing {
       HStack(spacing: 6) {
         ProgressView().controlSize(.small)
-        Text("Transkribiert").font(.callout).foregroundStyle(.secondary)
+        Text("Transcribing").font(.callout).foregroundStyle(.secondary)
       }
     } else if store.spellingMode {
-      Label("Buchstabieren", systemImage: "character.cursor.ibeam")
+      Label("Spell", systemImage: "character.cursor.ibeam")
         .font(.callout)
         .foregroundStyle(.tint)
     }
@@ -134,17 +134,17 @@ struct DictationBoxView: View {
       }
       .menuStyle(.borderlessButton)
       .fixedSize()
-      .help("Schriftgröße")
+      .help("Font size")
 
       Divider().frame(height: 18)
 
-      toolButton("bold", "Fett") { store.send(.toggleBold) }
-      toolButton("italic", "Kursiv") { store.send(.toggleItalic) }
-      toolButton("textformat.size.larger", "Überschrift") { store.send(.toggleHeading) }
-      toolButton("list.bullet", "Aufzählung") { store.send(.toggleBullets) }
-      toolButton("quote.opening", "Anführungszeichen um Markierung") { store.send(.quoteSelection) }
-      toolButton("textformat", "Groß/klein umschalten") { store.send(.cycleCase) }
-      toolButton("character.cursor.ibeam", "Buchstabiermodus: nächstes Diktat als Buchstaben", active: store.spellingMode) {
+      toolButton("bold", "Bold") { store.send(.toggleBold) }
+      toolButton("italic", "Italic") { store.send(.toggleItalic) }
+      toolButton("textformat.size.larger", "Heading") { store.send(.toggleHeading) }
+      toolButton("list.bullet", "Bullets") { store.send(.toggleBullets) }
+      toolButton("quote.opening", "Wrap selection in quotes") { store.send(.quoteSelection) }
+      toolButton("textformat", "Toggle case") { store.send(.cycleCase) }
+      toolButton("character.cursor.ibeam", "Spelling mode: next dictation as letters", active: store.spellingMode) {
         store.send(.toggleSpellingMode)
       }
 
@@ -156,11 +156,11 @@ struct DictationBoxView: View {
       )) {
         Text("Rich Text").tag(OutputFormat.richText)
         Text("Markdown").tag(OutputFormat.markdown)
-        Text("Klartext").tag(OutputFormat.plainText)
+        Text("Plain text").tag(OutputFormat.plainText)
       }
       .labelsHidden()
       .fixedSize()
-      .help("Was beim Einfügen übertragen wird")
+      .help("What gets inserted")
     }
     .padding(.horizontal, 10)
     .padding(.vertical, 6)
@@ -188,7 +188,7 @@ struct DictationBoxView: View {
         .lineLimit(1)
         .truncationMode(.middle)
       Spacer()
-      Text("\(store.wordCount) Wörter")
+      Text("\(store.wordCount) words")
         .font(.caption.monospacedDigit())
         .foregroundStyle(.tertiary)
       Button {
@@ -199,8 +199,8 @@ struct DictationBoxView: View {
           .frame(width: 30, height: 22)
       }
       .buttonStyle(.glass)
-      .help("Verwerfen")
-      .accessibilityLabel("Verwerfen")
+      .help("Discard")
+      .accessibilityLabel("Discard")
 
       Button {
         store.send(.confirmTapped)
@@ -210,8 +210,8 @@ struct DictationBoxView: View {
           .frame(width: 30, height: 22)
       }
       .buttonStyle(.glassProminent)
-      .help(store.targetAppName.map { "In \($0) einfügen" } ?? "Einfügen")
-      .accessibilityLabel("Einfügen")
+      .help(store.targetAppName.map { "Insert into \($0)" } ?? "Insert")
+      .accessibilityLabel("Insert")
       .disabled(store.text.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
     .padding(.horizontal, 14)
@@ -222,9 +222,9 @@ struct DictationBoxView: View {
 
   private var learnView: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Text("\(store.learnCandidates.count) Korrektur\(store.learnCandidates.count == 1 ? "" : "en") ins Lexikon übernehmen?")
+      Text("Add \(store.learnCandidates.count) correction\(store.learnCandidates.count == 1 ? "" : "s") to your vocabulary?")
         .font(.headline)
-      Text("Die Variante links wird künftig automatisch durch die Schreibweise rechts ersetzt.")
+      Text("From now on the variant on the left is replaced by the spelling on the right.")
         .font(.caption)
         .foregroundStyle(.secondary)
       ScrollView {
@@ -246,7 +246,7 @@ struct DictationBoxView: View {
         Spacer()
         Button("Nicht jetzt") { store.send(.learnSkipped) }
           .buttonStyle(.glass)
-        Button("Übernehmen") { store.send(.learnConfirmed) }
+        Button("Add") { store.send(.learnConfirmed) }
           .buttonStyle(.glassProminent)
           .disabled(!store.learnCandidates.contains(where: \.isSelected))
       }

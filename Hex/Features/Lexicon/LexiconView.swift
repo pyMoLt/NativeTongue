@@ -24,7 +24,7 @@ struct LexiconView: View {
     ) { result in
       if case let .success(urls) = result { store.send(.importPacks(urls)) }
     }
-    .alert("Wortschatz", isPresented: Binding(
+    .alert("Vocabulary", isPresented: Binding(
       get: { store.errorMessage != nil },
       set: { if !$0 { store.send(.binding(.set(\.errorMessage, nil))) } }
     )) {
@@ -39,16 +39,16 @@ struct LexiconView: View {
   private var userLexiconSection: some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack {
-        Text("Eigene Begriffe").font(.headline)
+        Text("Your terms").font(.headline)
         Text("\(store.userEntries.count)")
           .font(.caption.monospacedDigit())
           .foregroundStyle(.secondary)
         Spacer()
-        TextField("Suchen", text: $store.searchText)
+        TextField("Search", text: $store.searchText)
           .textFieldStyle(.roundedBorder)
           .frame(maxWidth: 220)
       }
-      Text("Richtige Schreibweise und bekannte Fehlerkennungen. Varianten werden immer ersetzt; ähnlich klingende Wörter nur, wenn „Auto“ an ist.")
+      Text("Correct spelling and known misrecognitions. Variants are always replaced; similar-sounding words only when “Auto” is on.")
         .font(.caption)
         .foregroundStyle(.secondary)
 
@@ -56,12 +56,12 @@ struct LexiconView: View {
         TableColumn("Schreibweise") { entry in
           Text(entry.term).fontWeight(.medium)
         }
-        TableColumn("Varianten (werden ersetzt)") { entry in
+        TableColumn("Variants (replaced)") { entry in
           Text(entry.aliases.joined(separator: ", "))
             .foregroundStyle(.secondary)
         }
-        TableColumn("Profil") { entry in
-          Text(entry.profile.map(Self.profileName) ?? "Alle")
+        TableColumn("Profile") { entry in
+          Text(entry.profile.map(Self.profileName) ?? "All")
             .foregroundStyle(.secondary)
         }
         .width(90)
@@ -76,7 +76,7 @@ struct LexiconView: View {
           ))
           .labelsHidden()
           .toggleStyle(.checkbox)
-          .help("Ähnlich klingende Fehlerkennungen automatisch ersetzen")
+          .help("Automatically replace similar-sounding misrecognitions")
         }
         .width(44)
       }
@@ -87,11 +87,11 @@ struct LexiconView: View {
         TextField("Neuer Begriff, z. B. ST-Hebungsinfarkt", text: $store.draftTerm)
           .textFieldStyle(.roundedBorder)
           .onSubmit { store.send(.addDraft) }
-        TextField("Varianten, mit Komma getrennt", text: $store.draftAliases)
+        TextField("Variants, comma-separated", text: $store.draftAliases)
           .textFieldStyle(.roundedBorder)
           .onSubmit { store.send(.addDraft) }
         Picker("", selection: $store.draftProfile) {
-          Text("Alle Profile").tag(ASRProfile?.none)
+          Text("All profiles").tag(ASRProfile?.none)
           ForEach(ASRProfile.allCases, id: \.self) { profile in
             Text(Self.profileName(profile)).tag(Optional(profile))
           }
@@ -101,13 +101,13 @@ struct LexiconView: View {
         Button {
           store.send(.addDraft)
         } label: {
-          Label("Hinzufügen", systemImage: "plus")
+          Label("Add", systemImage: "plus")
         }
         .disabled(store.draftTerm.trimmingCharacters(in: .whitespaces).isEmpty)
         Button(role: .destructive) {
           store.send(.deleteSelected)
         } label: {
-          Label("Entfernen", systemImage: "minus")
+          Label("Remove", systemImage: "minus")
         }
         .disabled(store.selection.isEmpty)
       }
@@ -120,22 +120,22 @@ struct LexiconView: View {
   private var packsSection: some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack {
-        Text("Wortpakete").font(.headline)
+        Text("Word packs").font(.headline)
         Spacer()
         if store.isImporting { ProgressView().controlSize(.small) }
         Button {
           store.send(.binding(.set(\.isImporterPresented, true)))
         } label: {
-          Label("Wortpaket hinzufügen…", systemImage: "square.and.arrow.down")
+          Label("Add word pack…", systemImage: "square.and.arrow.down")
         }
         .controlSize(.small)
       }
-      Text("Fachwortlisten für Vorschläge und automatische Korrektur (Diagnosen, Wirkstoffe, Anatomie, Technik). Sie bleiben lokal auf diesem Mac und werden nie an das Sprachmodell geschickt.")
+      Text("Domain word lists for suggestions and automatic correction. They stay on this Mac and are never sent to the speech model.")
         .font(.caption)
         .foregroundStyle(.secondary)
 
       if store.packs.isEmpty {
-        Text("Noch keine Wortpakete installiert. Importiere die JSON-Dateien aus „06-wortlisten/packs“.")
+        Text("No word packs installed yet. Import word pack JSON files.")
           .font(.callout)
           .foregroundStyle(.secondary)
           .padding(.vertical, 8)
@@ -149,7 +149,7 @@ struct LexiconView: View {
               )) {
                 VStack(alignment: .leading, spacing: 2) {
                   Text(Self.packName(pack.id)).fontWeight(.medium)
-                  Text("\(pack.entryCount.formatted()) Begriffe · \(ByteCountFormatter.string(fromByteCount: Int64(pack.fileBytes), countStyle: .file))\(pack.license.map { " · \($0)" } ?? "")")
+                  Text("\(pack.entryCount.formatted()) terms · \(ByteCountFormatter.string(fromByteCount: Int64(pack.fileBytes), countStyle: .file))\(pack.license.map { " · \($0)" } ?? "")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
@@ -176,12 +176,12 @@ struct LexiconView: View {
 
   private var behaviourSection: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text("Korrektur").font(.headline)
-      Toggle("Fachwörter im Literal-Modus automatisch ersetzen", isOn: Binding(
+      Text("Correction").font(.headline)
+      Toggle("Automatically correct domain terms in Literal mode", isOn: Binding(
         get: { store.hexSettings.autoReplaceTermsLiteral },
         set: { value in store.$hexSettings.withLock { $0.autoReplaceTermsLiteral = value } }
       ))
-      Text("Ersetzt nur Wörter, die kein normales deutsches oder englisches Wort sind, bei sehr hoher Ähnlichkeit und nie zwischen bekannten Verwechslungspaaren (z. B. Nervus ↔ Nävus). Alle Ersetzungen sind in der Diktierbox markiert.")
+      Text("Only replaces words that are not ordinary German or English words, only at very high similarity, and never between known confusable pairs. Every replacement is underlined in the dictation box.")
         .font(.caption)
         .foregroundStyle(.secondary)
     }
@@ -189,18 +189,18 @@ struct LexiconView: View {
 
   static func profileName(_ profile: ASRProfile) -> String {
     switch profile {
-    case .general: "Allgemein"
-    case .medical: "Medizin"
-    case .technical: "Technik"
+    case .general: "General"
+    case .medical: "Medical"
+    case .technical: "Technical"
     }
   }
 
   static func packName(_ id: String) -> String {
     switch id {
-    case "medical-de": "Medizin Deutsch"
-    case "medical-en": "Medizin Englisch"
+    case "medical-de": "Medical (German)"
+    case "medical-en": "Medical (English)"
     case "anatomy-la": "Anatomie Latein"
-    case "technical": "Technik & Software"
+    case "technical": "Technology & software"
     default: id
     }
   }

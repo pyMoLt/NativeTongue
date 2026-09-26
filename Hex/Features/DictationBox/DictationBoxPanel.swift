@@ -26,8 +26,8 @@ final class DictationBoxPanel: NSPanel {
     minSize = NSSize(width: 480, height: 260)
     let hosting = NSHostingView(rootView: content)
     contentView = hosting
-    title = "Diktierbox"
-    setAccessibilityTitle("Diktierbox")
+    title = "Dictation Box"
+    setAccessibilityTitle("Dictation Box")
     if !setFrameUsingName("LocalASRDictationBox") {
       placeAboveDock()
     }

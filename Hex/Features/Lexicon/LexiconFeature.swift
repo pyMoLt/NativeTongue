@@ -109,7 +109,7 @@ struct LexiconFeature {
             do {
               imported.append(try await lexicon.importPack(url).id)
             } catch {
-              await send(.failed("„\(url.lastPathComponent)“ ist kein gültiges Wortpaket."))
+              await send(.failed("“\(url.lastPathComponent)“ is not a valid word pack."))
             }
           }
           await send(.importFinished(imported.first))
@@ -144,7 +144,7 @@ struct LexiconFeature {
         try await operation()
         await send(.loaded(await lexicon.userLexicon(), await lexicon.installedPacks()))
       } catch {
-        await send(.failed("Speichern fehlgeschlagen: \(error.localizedDescription)"))
+        await send(.failed("Saving failed: \(error.localizedDescription)"))
       }
     }
   }

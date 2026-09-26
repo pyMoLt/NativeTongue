@@ -291,7 +291,7 @@ actor ParakeetClient {
     throw NSError(
       domain: "Parakeet",
       code: -2,
-      userInfo: [NSLocalizedDescriptionKey: "Parakeet support not linked. Add Swift Package: https://github.com/FluidInference/FluidAudio.git and link FluidAudio to Hex."]
+      userInfo: [NSLocalizedDescriptionKey: "Parakeet support not linked. Add Swift Package: https://github.com/FluidInference/FluidAudio.git and link FluidAudio to the app."]
     )
   }
   func loadInstalled(modelName: String, progress: @escaping (Progress) -> Void) async throws {

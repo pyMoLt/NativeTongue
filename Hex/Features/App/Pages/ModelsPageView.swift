@@ -18,7 +18,7 @@ struct ModelsPageView: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 20) {
-        PageHeader(title: "Modelle", subtitle: "Alles läuft lokal. Es ist immer nur ein Modell geladen.", symbol: "cpu")
+        PageHeader(title: "Models", subtitle: "Everything runs on this Mac. Only one model is loaded at a time.", symbol: "cpu")
         if let error = store.downloadError {
           Label(error, systemImage: "exclamationmark.triangle.fill")
             .font(.callout)
@@ -54,7 +54,7 @@ struct ModelsPageView: View {
           }
         }
         if let benchmarks {
-          Text("Messwerte: eine Sprecherin/ein Sprecher, \(benchmarks.literalCommandReferenceCount) Literal-Befehle, \(benchmarks.terminologyReferenceCount) Fachwörter, gemessen am \(benchmarks.measuredAt). Speicher = Spitzenwert des Prozesses; Core-ML-/Neural-Engine-Speicher ist evtl. nicht vollständig enthalten.")
+          Text("Measurements: one speaker, \(benchmarks.literalCommandReferenceCount) literal commands, \(benchmarks.terminologyReferenceCount) domain terms, measured \(benchmarks.measuredAt). Memory = peak process memory; Core ML / Neural Engine memory may not be fully included.")
             .font(.caption)
             .foregroundStyle(.secondary)
         }
@@ -109,16 +109,16 @@ private struct ModelCard: View {
           FlowBadges(model: model)
           if let measurement, let benchmarks {
             HStack(spacing: 14) {
-              metric("Befehle", "\(measurement.literalCommandsRecognized)/\(benchmarks.literalCommandReferenceCount)")
-              metric("Fachwörter", "\(measurement.terminologyCorrect)/\(benchmarks.terminologyReferenceCount)")
+              metric("Commands", "\(measurement.literalCommandsRecognized)/\(benchmarks.literalCommandReferenceCount)")
+              metric("Terms", "\(measurement.terminologyCorrect)/\(benchmarks.terminologyReferenceCount)")
               metric("WER", "\(Self.decimal(measurement.wordErrorRatePercent)) %")
               metric("RAM", "\(Self.decimal(measurement.peakProcessRSSGB)) GB")
-              metric("Zeit für \(benchmarks.terminologyAudioSeconds) s Audio", "\(Self.decimal(measurement.transcriptionSeconds)) s")
+              metric("Time for \(benchmarks.terminologyAudioSeconds) s audio", "\(Self.decimal(measurement.transcriptionSeconds)) s")
             }
             .padding(.top, 2)
           }
           if supportsBiasing {
-            Toggle("Kontext-Biasing mit deinem Wortschatz (experimentell)", isOn: Binding(get: { biasingEnabled }, set: onBiasing))
+            Toggle("Context biasing with your vocabulary (experimental)", isOn: Binding(get: { biasingEnabled }, set: onBiasing))
               .toggleStyle(.switch)
               .controlSize(.small)
               .font(.callout)
@@ -129,7 +129,7 @@ private struct ModelCard: View {
       }
     }
     .confirmationDialog("\(model.displayName) entfernen?", isPresented: $confirmDelete) {
-      Button("Entfernen", role: .destructive, action: onDelete)
+      Button("Remove", role: .destructive, action: onDelete)
     } message: {
       Text("Gibt \(model.storageSize) frei. Du kannst es jederzeit neu installieren.")
     }
@@ -141,24 +141,24 @@ private struct ModelCard: View {
       if isDownloading {
         ProgressView(value: progress)
           .frame(width: 120)
-        Button("Abbrechen", action: onCancel).buttonStyle(.glass).controlSize(.small)
+        Button("Cancel", action: onCancel).buttonStyle(.glass).controlSize(.small)
       } else if isInstalled {
-        Button(isNormalModel ? "Normal-Modell ✓" : "Für Normal", action: onUseNormal)
+        Button(isNormalModel ? "Normal model ✓" : "Use for Normal", action: onUseNormal)
           .buttonStyle(.glass)
           .disabled(isNormalModel)
-        Button(isLiteralModel ? "Literal-Modell ✓" : "Für Literal", action: onUseLiteral)
+        Button(isLiteralModel ? "Literal model ✓" : "Use for Literal", action: onUseLiteral)
           .buttonStyle(.glass)
           .disabled(isLiteralModel)
         Button(role: .destructive) { confirmDelete = true } label: {
           Image(systemName: "trash")
         }
         .buttonStyle(.borderless)
-        .help("Modell entfernen")
+        .help("Remove model")
       } else {
         Button {
           onInstall()
         } label: {
-          Label("Installieren", systemImage: "arrow.down.circle")
+          Label("Install", systemImage: "arrow.down.circle")
         }
         .buttonStyle(.glassProminent)
       }
@@ -184,8 +184,8 @@ private struct FlowBadges: View {
   var body: some View {
     HStack(spacing: 6) {
       model.literalRating.badge
-      if model.capabilities.wordTimings { Badge(text: "Zeitstempel", systemImage: "clock") }
-      if model.capabilities.supportsAutoLanguage { Badge(text: "Sprache automatisch", systemImage: "globe") }
+      if model.capabilities.wordTimings { Badge(text: "Timestamps", systemImage: "clock") }
+      if model.capabilities.supportsAutoLanguage { Badge(text: "Auto language", systemImage: "globe") }
       if model.capabilities.contextPrompt || !model.capabilities.biasing.isEmpty { Badge(text: "Biasing", systemImage: "text.book.closed") }
       let codes = model.languages.filter { $0.count <= 3 }.map { $0.uppercased() }
       let extra = model.languages.count - codes.count

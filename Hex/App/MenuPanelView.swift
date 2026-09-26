@@ -9,7 +9,7 @@ struct MenuBarIcon: View {
   var body: some View {
     Image(imageName)
       .renderingMode(.template)
-      .accessibilityLabel("Local ASR")
+      .accessibilityLabel(AppBrand.name)
   }
 
   private var imageName: String {
@@ -30,7 +30,7 @@ struct MenuPanelView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       header
-      Picker("Modus", selection: Binding(
+      Picker("Mode", selection: Binding(
         get: { settings.dictationMode },
         set: { store.send(.settings(.setDictationMode($0))) }
       )) {
@@ -42,24 +42,24 @@ struct MenuPanelView: View {
 
       Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
         GridRow {
-          Text("Profil").foregroundStyle(.secondary)
-          Picker("Profil", selection: Binding(
+          Text("Profile").foregroundStyle(.secondary)
+          Picker("Profile", selection: Binding(
             get: { settings.asrProfile },
             set: { store.send(.settings(.setASRProfile($0))) }
           )) {
-            ForEach(ASRProfile.allCases, id: \.self) { Text($0.germanName).tag($0) }
+            ForEach(ASRProfile.allCases, id: \.self) { Text($0.displayName).tag($0) }
           }
           .labelsHidden()
         }
         GridRow {
-          Text("Sprache").foregroundStyle(.secondary)
-          Picker("Sprache", selection: Binding(
+          Text("Language").foregroundStyle(.secondary)
+          Picker("Language", selection: Binding(
             get: { settings.outputLanguage ?? "auto" },
             set: { value in store.$hexSettings.withLock { $0.outputLanguage = value == "auto" ? nil : value } }
           )) {
-            Text("Automatisch").tag("auto")
-            Text("Deutsch").tag("de")
-            Text("Englisch").tag("en")
+            Text("Automatic").tag("auto")
+            Text("German").tag("de")
+            Text("English").tag("en")
           }
           .labelsHidden()
         }
@@ -80,21 +80,21 @@ struct MenuPanelView: View {
             mode: settings.dictationMode
           )))
         } label: {
-          Label("Diktierbox", systemImage: "text.below.photo").frame(maxWidth: .infinity)
+          Label("Dictation Box", systemImage: "text.below.photo").frame(maxWidth: .infinity)
         }
         .buttonStyle(.glass)
         Button {
           store.send(.setActiveTab(.audioImport))
           openSettings()
         } label: {
-          Label("Datei…", systemImage: "doc.badge.waveform").frame(maxWidth: .infinity)
+          Label("File…", systemImage: "doc.badge.waveform").frame(maxWidth: .infinity)
         }
         .buttonStyle(.glass)
       }
 
       if settings.saveTranscriptionHistory, !history.history.isEmpty {
         VStack(alignment: .leading, spacing: 4) {
-          Text("Letzte Diktate").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+          Text("Recent dictations").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
           ForEach(history.history.prefix(3)) { transcript in
             HStack {
               Text(transcript.text).lineLimit(1).truncationMode(.tail).font(.callout)
@@ -106,7 +106,7 @@ struct MenuPanelView: View {
                 Image(systemName: "doc.on.doc")
               }
               .buttonStyle(.borderless)
-              .help("Kopieren")
+              .help("Copy")
             }
           }
         }
@@ -115,11 +115,11 @@ struct MenuPanelView: View {
       Divider()
 
       HStack {
-        Button("Einstellungen …") { openSettings() }
+        Button("Settings …") { openSettings() }
           .buttonStyle(.borderless)
           .keyboardShortcut(",")
         Spacer()
-        Button("Beenden") { NSApplication.shared.terminate(nil) }
+        Button("Quit") { NSApplication.shared.terminate(nil) }
           .buttonStyle(.borderless)
           .keyboardShortcut("q")
       }
@@ -137,10 +137,10 @@ struct MenuPanelView: View {
         .resizable()
         .frame(width: 20, height: 20)
         .foregroundStyle(.tint)
-      Text("Local ASR").font(.headline)
+      Text(AppBrand.name).font(.headline)
       Spacer()
       if store.transcription.isRecording {
-        Label("Aufnahme", systemImage: "record.circle").foregroundStyle(.red).font(.caption.weight(.semibold))
+        Label("Recording", systemImage: "record.circle").foregroundStyle(.red).font(.caption.weight(.semibold))
       } else if store.transcription.isTranscribing {
         ProgressView().controlSize(.small)
       }
@@ -148,7 +148,7 @@ struct MenuPanelView: View {
         Image(systemName: "gearshape")
       }
       .buttonStyle(.glass)
-      .help("Einstellungen")
+      .help("Settings")
     }
   }
 
@@ -157,18 +157,18 @@ struct MenuPanelView: View {
     return HStack(spacing: 8) {
       Image(systemName: "cpu").foregroundStyle(.secondary)
       VStack(alignment: .leading, spacing: 1) {
-        Text(descriptor?.displayName ?? (settings.activeModel.isEmpty ? "Kein Modell" : settings.activeModel))
+        Text(descriptor?.displayName ?? (settings.activeModel.isEmpty ? "No model" : settings.activeModel))
           .font(.callout.weight(.medium))
           .lineLimit(1)
         Text(store.modelStatus.loadedModel == nil
-          ? "nicht geladen"
-          : "geladen\(store.modelStatus.footprintMB.map { " · App \($0) MB" } ?? "")")
+          ? "not loaded"
+          : "loaded\(store.modelStatus.footprintMB.map { " · App \($0) MB" } ?? "")")
           .font(.caption)
           .foregroundStyle(.secondary)
       }
       Spacer()
       if store.modelStatus.loadedModel != nil {
-        Button("Entladen") { store.send(.unloadModel) }
+        Button("Unload") { store.send(.unloadModel) }
           .buttonStyle(.glass)
           .controlSize(.small)
       }

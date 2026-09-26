@@ -11,16 +11,16 @@ struct BoxSettingsPageView: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 18) {
-        PageHeader(title: "Diktierbox", subtitle: "Diktate sammeln, korrigieren und erst mit ✓ einfügen", symbol: "text.below.photo")
-        Card(title: "Wann öffnet die Box?", systemImage: "rectangle.on.rectangle") {
-          toggle("Im Literal-Modus", \.dictationBoxEnabledLiteral, "Standard: an – für Befunde und längere Texte.")
-          toggle("Im Normal-Modus", \.dictationBoxEnabledNormal, "Standard: aus – Text wird direkt eingefügt.")
-          Text("Die Box öffnet sich beim Drücken der Diktat-Taste. Weitere Diktate hängen an; markierter Text wird durch das nächste Diktat ersetzt. Eingabe und Esc lösen nichts aus – nur ✓ und ✕.")
+        PageHeader(title: "Dictation Box", subtitle: "Collect and correct dictations, insert only with ✓", symbol: "text.below.photo")
+        Card(title: "When does the box open?", systemImage: "rectangle.on.rectangle") {
+          toggle("In Literal mode", \.dictationBoxEnabledLiteral, "Default: on – for long or demanding texts.")
+          toggle("In Normal mode", \.dictationBoxEnabledNormal, "Default: off – text is inserted directly.")
+          Text("The box opens when you press the dictation key. Further dictations are appended; selected text is replaced by the next dictation. Return and Esc never confirm or discard – only ✓ and ✕.")
             .font(.caption)
             .foregroundStyle(.secondary)
         }
-        Card(title: "Darstellung", systemImage: "textformat") {
-          Picker("Schrift", selection: Binding(
+        Card(title: "Appearance", systemImage: "textformat") {
+          Picker("Font", selection: Binding(
             get: { settings.boxFontName },
             set: { value in store.$hexSettings.withLock { $0.boxFontName = value } }
           )) {
@@ -29,7 +29,7 @@ struct BoxSettingsPageView: View {
             }
           }
           HStack {
-            Text("Größe")
+            Text("Size")
             Slider(
               value: Binding(get: { settings.boxFontSize }, set: { value in store.$hexSettings.withLock { $0.boxFontSize = value.rounded() } }),
               in: 11 ... 28,
@@ -37,20 +37,20 @@ struct BoxSettingsPageView: View {
             )
             Text("\(Int(settings.boxFontSize)) pt").monospacedDigit().frame(width: 44, alignment: .trailing)
           }
-          Picker("Einfügen als", selection: Binding(
+          Picker("Insert as", selection: Binding(
             get: { settings.boxOutputFormat },
             set: { value in store.$hexSettings.withLock { $0.boxOutputFormat = value } }
           )) {
             Text("Rich Text (Word, Pages, Mail)").tag(OutputFormat.richText)
             Text("Markdown").tag(OutputFormat.markdown)
-            Text("Klartext").tag(OutputFormat.plainText)
+            Text("Plain text").tag(OutputFormat.plainText)
           }
-          Text("Befund unauffällig. Kein Hinweis auf Thrombose.")
+          Text("The quick brown fox jumps over the lazy dog.")
             .font(Font(BoxTextStyle.baseFont(name: settings.boxFontName, size: settings.boxFontSize)))
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-          Button("Position der Box zurücksetzen") {
+          Button("Reset box position") {
             NotificationCenter.default.post(name: .resetDictationBoxPosition, object: nil)
           }
           .buttonStyle(.glass)

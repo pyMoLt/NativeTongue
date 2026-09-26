@@ -15,27 +15,27 @@ struct AppView: View {
   }
 
   private let primary: [Item] = [
-    Item(tab: .dictation, title: "Diktat", symbol: "mic.fill"),
-    Item(tab: .models, title: "Modelle", symbol: "cpu"),
-    Item(tab: .vocabulary, title: "Wortschatz", symbol: "character.book.closed"),
-    Item(tab: .commands, title: "Befehle", symbol: "command"),
-    Item(tab: .dictationBox, title: "Diktierbox", symbol: "text.below.photo"),
+    Item(tab: .dictation, title: "Dictation", symbol: "mic.fill"),
+    Item(tab: .models, title: "Models", symbol: "cpu"),
+    Item(tab: .vocabulary, title: "Vocabulary", symbol: "character.book.closed"),
+    Item(tab: .commands, title: "Commands", symbol: "command"),
+    Item(tab: .dictationBox, title: "Dictation Box", symbol: "text.below.photo"),
   ]
   private let secondary: [Item] = [
-    Item(tab: .audioImport, title: "Dateien", symbol: "doc.badge.waveform"),
-    Item(tab: .history, title: "Verlauf", symbol: "clock"),
+    Item(tab: .audioImport, title: "Files", symbol: "doc.badge.waveform"),
+    Item(tab: .history, title: "History", symbol: "clock"),
   ]
   private let footer: [Item] = [
-    Item(tab: .settings, title: "Einstellungen", symbol: "gearshape"),
-    Item(tab: .remappings, title: "Nachbearbeitung", symbol: "text.badge.minus"),
-    Item(tab: .about, title: "Über", symbol: "info.circle"),
+    Item(tab: .settings, title: "Settings", symbol: "gearshape"),
+    Item(tab: .remappings, title: "Post-processing", symbol: "text.badge.minus"),
+    Item(tab: .about, title: "About", symbol: "info.circle"),
   ]
 
   var body: some View {
     NavigationSplitView(columnVisibility: $columnVisibility) {
       List(selection: Binding(get: { store.activeTab }, set: { if let tab = $0 { store.send(.setActiveTab(tab)) } })) {
         Section { rows(primary) } header: { brand }
-        Section("Werkzeuge") { rows(secondary) }
+        Section("Tools") { rows(secondary) }
         Section("App") { rows(footer) }
       }
       .listStyle(.sidebar)
@@ -61,7 +61,7 @@ struct AppView: View {
       Image("MenuBarIdle")
         .renderingMode(.template)
         .foregroundStyle(.tint)
-      Text("Local ASR").font(.headline)
+      Text(AppBrand.name).font(.headline)
       Spacer()
       Text(store.hexSettings.dictationMode == .literal ? "¶ Literal" : "Normal")
         .font(.caption.weight(.semibold))

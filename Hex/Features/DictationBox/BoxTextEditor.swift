@@ -191,7 +191,7 @@ struct SuggestionPopoverView: View {
         if suggestion.isLoading {
           ProgressView().controlSize(.small).padding(8)
         } else if suggestion.suggestions.isEmpty {
-          Text("Keine ähnlichen Fachwörter")
+          Text("No similar terms")
             .font(.callout)
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
@@ -226,8 +226,8 @@ struct SuggestionPopoverView: View {
         if let original = suggestion.original {
           menuButton("arrow.uturn.backward", "Original: \(original)") { store.send(.revertCorrection) }
         }
-        menuButton("mic", "Neu einsprechen") { store.send(.prepareRedictation) }
-        menuButton("character.cursor.ibeam", "Buchstabieren") { store.send(.spellSelection) }
+        menuButton("mic", "Re-dictate") { store.send(.prepareRedictation) }
+        menuButton("character.cursor.ibeam", "Spell") { store.send(.spellSelection) }
         menuButton("text.book.closed", "„\(suggestion.word)“ ins Lexikon") { store.send(.addHoveredWordToLexicon) }
       }
     }

@@ -33,38 +33,38 @@ struct SettingsView: View {
 
 			Section {
 				Toggle(
-					"Transkript nach dem Einfügen in der Zwischenablage behalten",
+					"Keep the transcript on the clipboard after inserting",
 					isOn: Binding(
 						get: { store.hexSettings.copyToClipboard },
 						set: { value in store.$hexSettings.withLock { $0.copyToClipboard = value } }
 					)
 				)
-				Text("Aus (Standard): Nach jedem Diktat wird deine vorherige Zwischenablage vollständig wiederhergestellt – auch Bilder und Dateien.")
+				Text("Off (default): after every dictation your previous clipboard is fully restored – including images and files.")
 					.font(.caption)
 					.foregroundStyle(.secondary)
 			} header: {
-				Text("Einfügen")
+				Text("Insert")
 			}
 
 			Section {
 				Picker(
-					"Modell nach Leerlauf entladen",
+					"Unload idle model",
 					selection: Binding(
 						get: { store.hexSettings.idleUnloadMinutes },
 						set: { store.send(.setIdleUnloadMinutes($0)) }
 					)
 				) {
-					Text("Nie").tag(0)
-					Text("nach 2 Minuten").tag(2)
-					Text("nach 5 Minuten").tag(5)
-					Text("nach 10 Minuten").tag(10)
-					Text("nach 30 Minuten").tag(30)
+					Text("Never").tag(0)
+					Text("after 2 minutes").tag(2)
+					Text("after 5 minutes").tag(5)
+					Text("after 10 minutes").tag(10)
+					Text("after 30 minutes").tag(30)
 				}
-				Text("Spart Arbeitsspeicher. Beim nächsten Drücken der Diktat-Taste wird das Modell vorgeladen.")
+				Text("Saves memory. The model preloads the next time you press the dictation key.")
 					.font(.caption)
 					.foregroundStyle(.secondary)
 			} header: {
-				Text("Arbeitsspeicher")
+				Text("Memory")
 			}
 
 			SoundSectionView(store: store)

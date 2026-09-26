@@ -83,7 +83,7 @@ struct WordRemappingsView: View {
 				removalsSection
 			case .remappings:
 				GroupBox {
-					Text("Ersetzungen gehören jetzt in den Wortschatz: Schreibweise + Varianten. Bestehende Ersetzungen wurden beim ersten Start dorthin übernommen.")
+					Text("Replacements now live in Vocabulary (spelling + variants). Existing replacements were moved there on first launch.")
 						.settingsCaption()
 						.padding(.vertical, 4)
 				}

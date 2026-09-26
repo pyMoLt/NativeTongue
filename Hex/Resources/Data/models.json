@@ -365,7 +365,7 @@
     "experimental": false
   },
   {
-    "displayName": "Whisper Turbo · legacy Hex artifact · precision unverified",
+    "displayName": "Whisper Turbo · legacy artifact · precision unverified",
     "internalName": "openai_whisper-large-v3-v20240930",
     "backend": "whisperKitCoreML",
     "group": "experimental",

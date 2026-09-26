@@ -35,16 +35,16 @@ struct CommandsPageView: View {
     }
     func value<T>(for item: T) -> String { String(describing: item) }
     return [
-      Group(id: "structure", title: "Struktur", note: "Normal + Literal · als eigene Äußerung mit Pause davor und danach", rows:
-        rows(CommandGrammar.structural + CommandGrammar.structuralIsolatedOnly, modes: "N · L") { $0 == .newLine ? "Neue Zeile ↵" : "Neuer Absatz ¶" }),
-      Group(id: "edit", title: "Korrigieren", note: "Normal + Literal · als eigene Äußerung", rows:
+      Group(id: "structure", title: "Structure", note: "Normal + Literal · as a separate utterance with a pause before and after", rows:
+        rows(CommandGrammar.structural + CommandGrammar.structuralIsolatedOnly, modes: "N · L") { $0 == .newLine ? "New line ↵" : "New paragraph ¶" }),
+      Group(id: "edit", title: "Editing", note: "Normal + Literal · as a separate utterance", rows:
         rows(CommandGrammar.edit, modes: "N · L") { Self.editName($0) }),
-      Group(id: "punctuation", title: "Satzzeichen", note: "nur Literal · überall im Satz", rows:
+      Group(id: "punctuation", title: "Punctuation", note: "Literal only · anywhere in a sentence", rows:
         rows(CommandGrammar.punctuation, modes: "L") { "\($0.glyph(language: "de"))  \(Self.punctuationName($0))" }),
-      Group(id: "format", title: "Format", note: "Literal · in der Diktierbox auch über die Symbolleiste", rows:
+      Group(id: "format", title: "Format", note: "Literal · also available in the dictation box toolbar", rows:
         rows(CommandGrammar.formatIsolated + CommandGrammar.formatInline + CommandGrammar.formatPrefix, modes: "L") { Self.formatName($0) }),
-      Group(id: "box", title: "Diktierbox", note: "nur bei offener Box · als eigene Äußerung", rows:
-        rows(CommandGrammar.box, modes: "Box") { $0 == .transfer ? "Text einfügen & schließen" : "Buchstabiermodus" }),
+      Group(id: "box", title: "Dictation Box", note: "only while the box is open · as a separate utterance", rows:
+        rows(CommandGrammar.box, modes: "Box") { $0 == .transfer ? "Insert text & close" : "Spelling mode" }),
     ]
   }
 
@@ -59,9 +59,9 @@ struct CommandsPageView: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 18) {
-        PageHeader(title: "Befehle", subtitle: "Was du sagen kannst – und wann es als Befehl zählt", symbol: "command")
+        PageHeader(title: "Commands", subtitle: "What you can say – and when it counts as a command", symbol: "command")
         switches
-        TextField("Befehl suchen", text: $search)
+        TextField("Search commands", text: $search)
           .textFieldStyle(.roundedBorder)
           .frame(maxWidth: 280)
         ForEach(groups) { group in
@@ -71,9 +71,9 @@ struct CommandsPageView: View {
               Text(group.note).font(.caption).foregroundStyle(.secondary)
               Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 16, verticalSpacing: 7) {
                 GridRow {
-                  Text("Aktion").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                  Text("Deutsch").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                  Text("Englisch").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                  Text("Action").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                  Text("German").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                  Text("English").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 }
                 Divider().gridCellColumns(3)
                 ForEach(rows) { row in
@@ -95,10 +95,10 @@ struct CommandsPageView: View {
   }
 
   private var switches: some View {
-    Card(title: "Verhalten", systemImage: "slider.horizontal.3") {
+    Card(title: "Behavior", systemImage: "slider.horizontal.3") {
       VStack(alignment: .leading, spacing: 6) {
         HStack {
-          Text("Befehlspause")
+          Text("Command pause")
           Slider(
             value: Binding(
               get: { store.hexSettings.spokenCommandPauseSeconds },
@@ -111,17 +111,17 @@ struct CommandsPageView: View {
             .monospacedDigit()
             .frame(width: 64, alignment: .trailing)
         }
-        Text("So lange musst du vor und nach „neuer Absatz“, „streich das“ usw. schweigen, damit es als Befehl gilt. Mitten im Satz bleibt es normaler Text.")
+        Text("How long you pause before and after “new paragraph”, “scratch that” etc. for it to count as a command. Inside a sentence it stays text.")
           .font(.caption)
           .foregroundStyle(.secondary)
       }
       Divider()
-      toggle("Formatierung für KI-Agenten & Code (Normal)", \.agentFormattingEnabled,
-             "Dateinamen (ContentView Punkt swift), camelCase/snake_case, Backticks, /Befehle.")
-      toggle("Zahlen und Einheiten formatieren", \.numberFormattingEnabled,
-             "„zwei Komma fünf Milligramm“ → 2,5 mg, Datumsangaben, Prozent.")
-      toggle("Englische Befehle erkennen", \.englishCommandsEnabled,
-             "Zusätzlich „new paragraph“, „period“, „scratch that“ …")
+      toggle("Formatting for AI agents & code (Normal)", \.agentFormattingEnabled,
+             "File names (“ContentView dot swift”), camelCase/snake_case, backticks, /commands.")
+      toggle("Format numbers and units", \.numberFormattingEnabled,
+             "“two point five milligrams” → 2.5 mg, dates, percentages.")
+      toggle("Recognize English commands", \.englishCommandsEnabled,
+             "Also “new paragraph”, “period”, “scratch that” …")
     }
   }
 
@@ -138,32 +138,32 @@ struct CommandsPageView: View {
 
   static func editName(_ command: EditCommand) -> String {
     switch command {
-    case .deleteLastUtterance: "Letzte Äußerung streichen"
-    case .deleteLastSentence: "Letzten Satz löschen"
-    case .deleteLastWord: "Letztes Wort löschen"
-    case .undo: "Rückgängig"
-    case .clearAll: "Alles löschen"
+    case .deleteLastUtterance: "Delete last utterance"
+    case .deleteLastSentence: "Delete last sentence"
+    case .deleteLastWord: "Delete last word"
+    case .undo: "Undo"
+    case .clearAll: "Clear all"
     }
   }
 
   static func formatName(_ command: FormatCommand) -> String {
     switch command {
-    case .capitalizeNext: "Nächstes Wort groß"
-    case .allCapsNext: "Nächstes Wort in GROSSBUCHSTABEN"
-    case .lowercaseNext: "Nächstes Wort klein"
-    case .bullet: "Aufzählungspunkt"
-    case .numberedItem: "Nummerierter Punkt"
-    case .heading: "Überschrift"
-    case .boldStart: "Fett an"
-    case .boldEnd: "Fett aus"
-    case .italicStart: "Kursiv an"
-    case .italicEnd: "Kursiv aus"
+    case .capitalizeNext: "Capitalize next word"
+    case .allCapsNext: "Next word in ALL CAPS"
+    case .lowercaseNext: "Lowercase next word"
+    case .bullet: "Bullet point"
+    case .numberedItem: "Numbered item"
+    case .heading: "Heading"
+    case .boldStart: "Bold on"
+    case .boldEnd: "Bold off"
+    case .italicStart: "Italic on"
+    case .italicEnd: "Italic off"
     }
   }
 
   static func punctuationName(_ mark: PunctuationMark) -> String {
     switch mark {
-    case .period: "Punkt"
+    case .period: "Period"
     case .comma: "Komma"
     case .colon: "Doppelpunkt"
     case .semicolon: "Semikolon"
@@ -171,7 +171,7 @@ struct CommandsPageView: View {
     case .exclamation: "Ausrufezeichen"
     case .hyphen: "Bindestrich"
     case .dash: "Gedankenstrich"
-    case .slash: "Schrägstrich"
+    case .slash: "Slash"
     case .backslash: "Backslash"
     case .underscore: "Unterstrich"
     case .at: "At-Zeichen"
@@ -183,10 +183,10 @@ struct CommandsPageView: View {
     case .bracketClose: "Eckige Klammer zu"
     case .braceOpen: "Geschweifte Klammer auf"
     case .braceClose: "Geschweifte Klammer zu"
-    case .quoteOpen: "Anführungszeichen auf"
-    case .quoteClose: "Anführungszeichen zu"
-    case .singleQuoteOpen: "Einfaches Anführungszeichen auf"
-    case .singleQuoteClose: "Einfaches Anführungszeichen zu"
+    case .quoteOpen: "Open quote"
+    case .quoteClose: "Close quote"
+    case .singleQuoteOpen: "Open single quote"
+    case .singleQuoteClose: "Close single quote"
     case .ellipsis: "Auslassungspunkte"
     case .space: "Leerzeichen"
     }
