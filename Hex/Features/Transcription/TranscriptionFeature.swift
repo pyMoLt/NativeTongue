@@ -11,7 +11,6 @@ import CoreGraphics
 import Foundation
 import HexCore
 import Inject
-import FluidAudio
 import SwiftUI
 import WhisperKit
 
@@ -59,10 +58,6 @@ struct TranscriptionFeature {
     var meter: Meter = .init(averagePower: 0, peakPower: 0)
     var sourceAppBundleID: String?
     var sourceAppName: String?
-    var liveSessionActive = false
-    var liveSessionFailed = false
-    var liveUtterances: [AlignedUtterance] = []
-    var pendingFinalTranscription: CapturedDictationRequest?
     @Shared(.hexSettings) var hexSettings: HexSettings
     @Shared(.isRemappingScratchpadFocused) var isRemappingScratchpadFocused: Bool = false
     @Shared(.modelBootstrapState) var modelBootstrapState: ModelBootstrapState
@@ -80,7 +75,6 @@ struct TranscriptionFeature {
     // Recording flow
     case startRecording
     case stopRecording
-    case captureStarted
 
     // Cancel/discard flow
     case cancel   // Explicit cancellation with sound
@@ -90,9 +84,6 @@ struct TranscriptionFeature {
     case transcriptionResult(TranscriptionOutput, URL, TimeInterval)
     case sessionTranscriptionResult(String, URL, TimeInterval, isRecovery: Bool)
     case recoverRecording(URL)
-    case liveUtteranceResult(AlignedUtterance)
-    case livePauseAfterKnown(id: Int, milliseconds: Int)
-    case liveSessionFinished(failed: Bool)
     case capturedRecording(CapturedDictationRequest)
     case transcriptionError(Error, URL?)
     case prewarmCompleted(String?)
@@ -107,7 +98,6 @@ struct TranscriptionFeature {
     case recordingCleanup
     case transcription
     case prewarm
-    case liveSession
   }
 
   @Dependency(\.transcription) var transcription
@@ -161,38 +151,11 @@ struct TranscriptionFeature {
       case .stopRecording:
         return handleStopRecording(&state)
 
-      case .captureStarted:
-        return handleCaptureStarted(&state)
-
       case let .recoverRecording(audioURL):
         return handleRecoveredRecording(&state, audioURL: audioURL)
 
-      case let .liveUtteranceResult(utterance):
-        state.liveUtterances.append(utterance)
-        return .none
-
-      case let .livePauseAfterKnown(id, milliseconds):
-        guard let index = state.liveUtterances.firstIndex(where: { $0.utterance.id == id }) else {
-          return .none
-        }
-        let aligned = state.liveUtterances[index]
-        var utterance = aligned.utterance
-        utterance.pauseAfterMs = milliseconds
-        state.liveUtterances[index] = AlignedUtterance(
-          utterance: utterance,
-          text: aligned.text,
-          language: aligned.language
-        )
-        return .none
-
-      case let .liveSessionFinished(failed):
-        state.liveSessionActive = false
-        state.liveSessionFailed = failed
-        return startPendingFinalTranscription(&state)
-
       case let .capturedRecording(request):
-        state.pendingFinalTranscription = request
-        return startPendingFinalTranscription(&state)
+        return startFinalTranscription(request)
 
       // MARK: - Transcription Results
 
@@ -392,7 +355,7 @@ private extension TranscriptionFeature {
         let audioFile = try AVAudioFile(forReading: audioURL)
         let sampleRate = audioFile.processingFormat.sampleRate
         let duration = sampleRate > 0 ? Double(audioFile.length) / sampleRate : 0
-        let text = try await transcribeCapturedSession(
+        let text = try await DictationSessionRunner(transcribeSamples: transcription.transcribeSamples).run(
           audioURL,
           model: model,
           mode: mode,
@@ -420,10 +383,6 @@ private extension TranscriptionFeature {
       )
     }
     state.isRecording = true
-    state.liveSessionActive = false
-    state.liveSessionFailed = false
-    state.liveUtterances.removeAll(keepingCapacity: true)
-    state.pendingFinalTranscription = nil
     let model = state.hexSettings.selectedModel
     state.isPrewarming = !model.isEmpty
     let startTime = wallClock.now()
@@ -439,8 +398,7 @@ private extension TranscriptionFeature {
     // Prevent system sleep during recording
     return .merge(
       .cancel(id: CancelID.recordingCleanup),
-      .cancel(id: CancelID.liveSession),
-      .run { [sleepManagement, preventSleep = state.hexSettings.preventSystemSleep] send in
+      .run { [sleepManagement, preventSleep = state.hexSettings.preventSystemSleep] _ in
         // Play sound immediately for instant feedback
         soundEffect.play(.startRecording)
 
@@ -454,8 +412,6 @@ private extension TranscriptionFeature {
           return
         }
         await recording.startRecording()
-        guard !Task.isCancelled else { return }
-        await send(.captureStarted)
       }
       .cancellable(id: CancelID.recordingStart, cancelInFlight: true),
       model.isEmpty ? .none : .run { send in
@@ -470,83 +426,6 @@ private extension TranscriptionFeature {
       }
       .cancellable(id: CancelID.prewarm, cancelInFlight: true)
     )
-  }
-
-  func handleCaptureStarted(_ state: inout State) -> Effect<Action> {
-    guard state.isRecording else { return .none }
-    let model = state.hexSettings.selectedModel
-    guard !model.isEmpty else { return .none }
-
-    state.liveSessionActive = true
-    state.liveSessionFailed = false
-    let mode = state.hexSettings.dictationMode
-    let commandPauseMs = Int((state.hexSettings.spokenCommandPauseSeconds * 1_000).rounded())
-    let language = state.hexSettings.outputLanguage
-    let activeVocabulary = state.hexSettings.activeVocabulary
-    let bypassFormatting = state.isRemappingScratchpadFocused
-    let biasTerms = activeVocabulary
-      .components(separatedBy: CharacterSet.newlines.union(CharacterSet(charactersIn: ",;")))
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-    let options = RequestOptions(
-      language: language,
-      punctuation: mode == .literal && !bypassFormatting ? .suppressed : .natural,
-      biasTerms: Array(biasTerms.prefix(50))
-    )
-    let config = SegmenterConfig(minPauseMs: commandPauseMs)
-
-    return .run { [recording, transcription] send in
-      let scheduler = LiveTranscriptionScheduler(config: config)
-      let audioStream = await recording.liveAudio()
-      var failed = false
-
-      for await chunk in audioStream {
-        guard !Task.isCancelled else { return }
-        guard !failed else { continue }
-        do {
-          let events = try await scheduler.append(chunk) { samples in
-            try await transcription.transcribeSamples(samples, model, options)
-          }
-          for event in events {
-            switch event {
-            case let .utteranceTranscribed(utterance):
-              await send(.liveUtteranceResult(utterance))
-            case let .pauseAfterKnown(id, milliseconds):
-              await send(.livePauseAfterKnown(id: id, milliseconds: milliseconds))
-            }
-          }
-        } catch {
-          failed = true
-          transcriptionFeatureLogger.warning(
-            "Live utterance processing stopped; final full-recording pass remains enabled: \(error.localizedDescription, privacy: .private)"
-          )
-        }
-      }
-
-      guard !Task.isCancelled else { return }
-      if !failed {
-        do {
-          let events = try await scheduler.finish { samples in
-            try await transcription.transcribeSamples(samples, model, options)
-          }
-          for event in events {
-            switch event {
-            case let .utteranceTranscribed(utterance):
-              await send(.liveUtteranceResult(utterance))
-            case let .pauseAfterKnown(id, milliseconds):
-              await send(.livePauseAfterKnown(id: id, milliseconds: milliseconds))
-            }
-          }
-        } catch {
-          failed = true
-          transcriptionFeatureLogger.warning(
-            "Final live utterance processing stopped; full-recording pass remains enabled: \(error.localizedDescription, privacy: .private)"
-          )
-        }
-      }
-      await send(.liveSessionFinished(failed: failed))
-    }
-    .cancellable(id: CancelID.liveSession, cancelInFlight: true)
   }
 
   func handleStopRecording(_ state: inout State) -> Effect<Action> {
@@ -648,18 +527,16 @@ private extension TranscriptionFeature {
     )
   }
 
-  func startPendingFinalTranscription(_ state: inout State) -> Effect<Action> {
-    guard !state.liveSessionActive,
-          let request = state.pendingFinalTranscription
-    else { return .none }
-
-    state.pendingFinalTranscription = nil
-    return .run { send in
+  /// Quality before latency: the whole recording is decoded once after stop
+  /// (Whisper keeps its acoustic context, e.g. Turbo 14/14 command words vs.
+  /// 12/14 on isolated clips) and the text is aligned to the audio pauses.
+  func startFinalTranscription(_ request: CapturedDictationRequest) -> Effect<Action> {
+    .run { send in
       do {
         let audioFile = try AVAudioFile(forReading: request.audioURL)
         let sampleRate = audioFile.processingFormat.sampleRate
         let duration = sampleRate > 0 ? Double(audioFile.length) / sampleRate : request.duration
-        let text = try await transcribeCapturedSession(
+        let text = try await DictationSessionRunner(transcribeSamples: transcription.transcribeSamples).run(
           request.audioURL,
           model: request.model,
           mode: request.mode,
@@ -680,104 +557,6 @@ private extension TranscriptionFeature {
     .cancellable(id: CancelID.transcription)
   }
 
-  func transcribeCapturedSession(
-    _ audioURL: URL,
-    model: String,
-    mode: DictationMode,
-    commandPauseMs: Int,
-    language: String?,
-    activeVocabulary: String,
-    bypassFormatting: Bool
-  ) async throws -> String {
-    let samples = try AudioConverter(sampleRate: 16_000).resampleAudioFile(audioURL)
-    guard !samples.isEmpty else { return "" }
-
-    let descriptor = try LocalASRModelCatalog.descriptor(named: model)
-    let utterances = UtteranceSegmenter.segment(
-      samples,
-      config: SegmenterConfig(minPauseMs: commandPauseMs)
-    )
-    let biasTerms = activeVocabulary
-      .components(separatedBy: CharacterSet.newlines.union(CharacterSet(charactersIn: ",;")))
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-    let request = RequestOptions(
-      language: language,
-      punctuation: mode == .literal && !bypassFormatting ? .suppressed : .natural,
-      biasTerms: Array(biasTerms.prefix(50))
-    )
-
-    if bypassFormatting {
-      return try await transcription.transcribeSamples(samples, model, request).text
-    }
-
-    var fullRecordingResult: EngineResult?
-    var aligned: [AlignedUtterance]?
-    if utterances.isEmpty || descriptor.capabilities.wordTimings {
-      let result = try await transcription.transcribeSamples(samples, model, request)
-      fullRecordingResult = result
-      if !utterances.isEmpty {
-        aligned = DictationSessionProcessor.align(result, to: utterances)
-        if aligned == nil {
-          transcriptionFeatureLogger.notice("Full-recording word timings could not be aligned; using sequential utterance decoding")
-        }
-      }
-    }
-
-    if aligned == nil {
-      if utterances.isEmpty {
-        guard let result = fullRecordingResult else {
-          throw NSError(domain: "DictationSession", code: 1, userInfo: [
-            NSLocalizedDescriptionKey: "The recording contained no usable speech segments.",
-          ])
-        }
-        let unsegmented = Utterance(
-          id: 0,
-          range: 0 ..< samples.count,
-          pauseBeforeMs: 0,
-          pauseAfterMs: 0
-        )
-        aligned = [AlignedUtterance(
-          utterance: unsegmented,
-          text: result.text,
-          language: result.detectedLanguage
-        )]
-      } else {
-        var sequentialResults: [AlignedUtterance] = []
-        sequentialResults.reserveCapacity(utterances.count)
-        for utterance in utterances {
-          try Task.checkCancellation()
-          let lower = max(0, utterance.range.lowerBound)
-          let upper = min(samples.count, utterance.range.upperBound)
-          guard lower < upper else { continue }
-          let result = try await transcription.transcribeSamples(
-            Array(samples[lower ..< upper]),
-            model,
-            request
-          )
-          sequentialResults.append(AlignedUtterance(
-            utterance: utterance,
-            text: result.text,
-            language: result.detectedLanguage
-          ))
-        }
-        aligned = sequentialResults
-      }
-    }
-
-    let sessionLanguage = language ?? aligned?.first(where: { $0.language != nil })?.language ?? "de"
-    let document = DictationSessionProcessor.makeDocument(
-      from: aligned ?? [],
-      options: DictationSessionOptions(
-        mode: mode,
-        commandPauseMs: commandPauseMs,
-        language: sessionLanguage,
-        formatNumbers: true,
-        agentFormatting: mode == .normal
-      )
-    )
-    return document.render(AssemblerOptions(language: sessionLanguage, mode: mode))
-  }
 }
 
 // MARK: - Transcription Handlers
@@ -909,7 +688,9 @@ private extension TranscriptionFeature {
     }
 
     let modifiedResult: String
-    if state.isRemappingScratchpadFocused {
+    // Literal output is final: legacy lowercase/remove-punctuation/remapping
+    // settings would destroy spoken punctuation and capitalization.
+    if state.isRemappingScratchpadFocused || state.hexSettings.dictationMode == .literal {
       modifiedResult = text
     } else {
       var output = text
@@ -1023,16 +804,11 @@ private extension TranscriptionFeature {
     state.isTranscribing = false
     state.isRecording = false
     state.isPrewarming = false
-    state.liveSessionActive = false
-    state.liveSessionFailed = false
-    state.liveUtterances.removeAll(keepingCapacity: true)
-    state.pendingFinalTranscription = nil
 
     return .merge(
       .cancel(id: CancelID.transcription),
       .cancel(id: CancelID.recordingStart),
       .cancel(id: CancelID.prewarm),
-      .cancel(id: CancelID.liveSession),
       .run { [sleepManagement] _ in
         // Allow system to sleep again
         await sleepManagement.allowSleep()
@@ -1055,16 +831,11 @@ private extension TranscriptionFeature {
   func handleDiscard(_ state: inout State) -> Effect<Action> {
     state.isRecording = false
     state.isPrewarming = false
-    state.liveSessionActive = false
-    state.liveSessionFailed = false
-    state.liveUtterances.removeAll(keepingCapacity: true)
-    state.pendingFinalTranscription = nil
 
     // Silently discard - no sound effect
     return .merge(
       .cancel(id: CancelID.recordingStart),
       .cancel(id: CancelID.prewarm),
-      .cancel(id: CancelID.liveSession),
       .run { [sleepManagement] _ in
         // Allow system to sleep again
         await sleepManagement.allowSleep()

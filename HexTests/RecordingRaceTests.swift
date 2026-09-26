@@ -42,7 +42,6 @@ final class RecordingRaceTests: XCTestCase {
       $0.sourceAppBundleID = activeApp?.bundleIdentifier
       $0.sourceAppName = activeApp?.localizedName
     }
-    await store.receive(\.captureStarted)
     await store.send(.discard) {
       $0.isRecording = false
       $0.isPrewarming = false
@@ -56,7 +55,6 @@ final class RecordingRaceTests: XCTestCase {
       $0.sourceAppBundleID = activeApp?.bundleIdentifier
       $0.sourceAppName = activeApp?.localizedName
     }
-    await store.receive(\.captureStarted)
 
     await probe.resumePendingStop()
     await store.finish()
@@ -169,7 +167,6 @@ final class RecordingRaceTests: XCTestCase {
       $0.sourceAppBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
       $0.sourceAppName = NSWorkspace.shared.frontmostApplication?.localizedName
     }
-    await store.receive(\.captureStarted)
     await store.send(.stopRecording) {
       $0.isRecording = false
     }
@@ -317,14 +314,13 @@ final class RecordingRaceTests: XCTestCase {
     XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL.path))
   }
 
-  func testFinalTranscriptionWaitsUntilLiveSessionFinishes() async throws {
+  func testCapturedRecordingIsTranscribedOnceAndPasted() async throws {
     let audioURL = try Self.makeSilenceWav()
     defer { try? FileManager.default.removeItem(at: audioURL) }
 
     let probe = LiveFinalTranscriptionProbe()
     var state = Self.makeState()
     state.isTranscribing = true
-    state.liveSessionActive = true
     state.$hexSettings.withLock { settings in
       settings.selectedModel = "parakeet-tdt-0.6b-v3-coreml"
       settings.outputLanguage = "en"
@@ -350,17 +346,7 @@ final class RecordingRaceTests: XCTestCase {
       $0.soundEffects.play = { _ in }
     }
 
-    await store.send(.capturedRecording(request)) {
-      $0.pendingFinalTranscription = request
-    }
-    let callsBeforeLiveFinish = await probe.transcriptionCount()
-    XCTAssertEqual(callsBeforeLiveFinish, 0)
-
-    await store.send(.liveSessionFinished(failed: false)) {
-      $0.liveSessionActive = false
-      $0.liveSessionFailed = false
-      $0.pendingFinalTranscription = nil
-    }
+    await store.send(.capturedRecording(request))
     await store.receive(\.sessionTranscriptionResult) {
       $0.isTranscribing = false
       $0.isPrewarming = false

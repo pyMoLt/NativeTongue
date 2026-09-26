@@ -77,6 +77,31 @@ final class EngineSmokeTests: XCTestCase {
 		XCTAssertEqual(wholePunctuation, 0)
 	}
 
+	/// Plan 5.4 acceptance on real audio through the production session path:
+	/// full-recording decode → word/pause alignment → classifier → document.
+	func testWhisperTurboLiteralSessionRendersExpectedDocument() async throws {
+		let samples = try loadFixture("Literal-controls.m4a")
+		let client = TranscriptionClient.liveValue
+		guard await client.isModelDownloaded(turbo) else { throw XCTSkip("Whisper Turbo not installed") }
+		let runner = DictationSessionRunner(transcribeSamples: client.transcribeSamples)
+		let output = try await runner.run(
+			samples: samples,
+			request: .init(model: turbo, mode: .literal, commandPauseMs: 450, language: "de")
+		)
+		await client.unloadModel()
+		let expected = """
+		Dies ist ein kurzer Test für Satzzeichen und Absätze.
+
+		Erster Abschnitt: Alpha, Beta.
+		Zweiter Abschnitt (Alpha-Beta)?
+
+		Dritter Abschnitt; Abschluss, Ende.
+		"""
+		let paragraphs = output.text.components(separatedBy: "\n\n").count
+		print("SESSION_LITERAL paragraphs=\(paragraphs) exact=\(output.text == expected) characters=\(output.text.count)")
+		XCTAssertEqual(output.text, expected)
+	}
+
 	func testIdleUnloadFiresAndInvalidatesPreviousTimer() async throws {
 		let client = TranscriptionClientLive(idleUnloadDelayForTesting: .milliseconds(500))
 		guard await client.isModelDownloaded(turbo) else { throw XCTSkip("Whisper Turbo not installed") }

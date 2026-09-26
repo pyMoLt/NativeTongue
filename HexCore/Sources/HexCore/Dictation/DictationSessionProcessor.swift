@@ -32,6 +32,7 @@ public struct DictationSessionOptions: Sendable, Equatable {
 	public var formatNumbers: Bool
 	public var agentFormatting: Bool
 	public var boxOpen: Bool
+	public var sampleRate: Int
 
 	public init(
 		mode: DictationMode,
@@ -40,7 +41,8 @@ public struct DictationSessionOptions: Sendable, Equatable {
 		language: String = "de",
 		formatNumbers: Bool = true,
 		agentFormatting: Bool = true,
-		boxOpen: Bool = false
+		boxOpen: Bool = false,
+		sampleRate: Int = 16_000
 	) {
 		self.mode = mode
 		self.commandPauseMs = commandPauseMs
@@ -49,6 +51,7 @@ public struct DictationSessionOptions: Sendable, Equatable {
 		self.formatNumbers = formatNumbers
 		self.agentFormatting = agentFormatting
 		self.boxOpen = boxOpen
+		self.sampleRate = sampleRate
 	}
 }
 
@@ -62,45 +65,35 @@ public enum DictationSessionProcessor {
 		capabilities.wordTimings ? .fullRecordingThenAlign : .transcribeUtterancesSequentially
 	}
 
-	/// Align word-level ASR output to VAD utterances using the word midpoint. A
-	/// small outside-range tolerance accommodates backends that stretch a word's
-	/// timestamp over trailing silence (observed in Parakeet/TDT). Returns `nil`
-	/// when timing coverage is too poor, signalling the caller to transcribe the
-	/// utterances individually rather than silently dropping transcript text.
+	/// Align word-level ASR output to VAD utterances using the word midpoint.
+	/// No word is ever dropped: a word outside every utterance (e.g. a TDT
+	/// timestamp stretched over trailing silence, or quiet speech below the VAD
+	/// threshold) goes to the nearest utterance, and a word without usable timing
+	/// follows its predecessor. Returns `nil` only when fewer than half of the
+	/// words carry usable timings; callers then decode utterance by utterance.
 	public static func align(
 		_ result: EngineResult,
 		to utterances: [Utterance],
 		sampleRate: Int = 16_000,
-		maximumDistanceSeconds: Double = 0.9,
-		minimumWordCoverage: Double = 0.75
+		minimumTimedFraction: Double = 0.5
 	) -> [AlignedUtterance]? {
 		guard sampleRate > 0, !utterances.isEmpty, !result.words.isEmpty else { return nil }
-		let validWords = result.words.filter {
-			$0.start.isFinite && $0.end.isFinite && $0.start >= 0 && $0.end >= $0.start && !$0.text.isEmpty
+		let words = result.words.filter { !$0.text.isEmpty }
+		func isTimed(_ word: EngineWord) -> Bool {
+			word.start.isFinite && word.end.isFinite && word.start >= 0 && word.end >= word.start
 		}
-		guard !validWords.isEmpty else { return nil }
+		let timedCount = words.filter(isTimed).count
+		guard !words.isEmpty, Double(timedCount) / Double(words.count) >= minimumTimedFraction else { return nil }
 
 		var grouped = Array(repeating: [String](), count: utterances.count)
-		var assignedCount = 0
-		for word in validWords {
-			let midpoint = (word.start + word.end) / 2
-			let best = utterances.indices.min { lhs, rhs in
-				let leftDistance = distance(midpoint, to: utterances[lhs].range, sampleRate: sampleRate)
-				let rightDistance = distance(midpoint, to: utterances[rhs].range, sampleRate: sampleRate)
-				if leftDistance == rightDistance {
-					return centerDistance(midpoint, to: utterances[lhs].range, sampleRate: sampleRate)
-						< centerDistance(midpoint, to: utterances[rhs].range, sampleRate: sampleRate)
-				}
-				return leftDistance < rightDistance
+		var current = 0
+		for word in words {
+			if isTimed(word) {
+				let midpoint = (word.start + word.end) / 2
+				current = nearestUtterance(to: midpoint, in: utterances, sampleRate: sampleRate, notBefore: current)
 			}
-			guard let best,
-			      distance(midpoint, to: utterances[best].range, sampleRate: sampleRate) <= maximumDistanceSeconds
-			else { continue }
-			grouped[best].append(word.text)
-			assignedCount += 1
+			grouped[current].append(word.text)
 		}
-
-		guard Double(assignedCount) / Double(validWords.count) >= minimumWordCoverage else { return nil }
 		return zip(utterances, grouped).map { utterance, words in
 			AlignedUtterance(
 				utterance: utterance,
@@ -108,6 +101,23 @@ public enum DictationSessionProcessor {
 				language: result.detectedLanguage
 			)
 		}
+	}
+
+	/// Words arrive in spoken order, so the search never goes back before the
+	/// previous word's utterance (keeps text order stable with jittery timings).
+	private static func nearestUtterance(to seconds: Double, in utterances: [Utterance], sampleRate: Int, notBefore: Int) -> Int {
+		var best = notBefore
+		var bestDistance = Double.infinity
+		for index in notBefore ..< utterances.count {
+			let value = distance(seconds, to: utterances[index].range, sampleRate: sampleRate)
+			let center = centerDistance(seconds, to: utterances[index].range, sampleRate: sampleRate)
+			let bestCenter = centerDistance(seconds, to: utterances[best].range, sampleRate: sampleRate)
+			if value < bestDistance || (value == bestDistance && center < bestCenter) {
+				best = index
+				bestDistance = value
+			}
+		}
+		return best
 	}
 
 	public static func makeDocument(
@@ -122,6 +132,8 @@ public enum DictationSessionProcessor {
 			boxOpen: options.boxOpen
 		)
 		for item in alignedUtterances {
+			let durationMs = item.utterance.range.count * 1_000 / max(options.sampleRate, 1)
+			if HallucinationFilter.shouldDrop(text: item.text, utteranceDurationMs: durationMs) { continue }
 			let classification = UtteranceClassifier.classify(
 				text: item.text,
 				pauseBeforeMs: item.utterance.pauseBeforeMs,
