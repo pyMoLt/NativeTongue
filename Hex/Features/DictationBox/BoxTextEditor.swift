@@ -113,6 +113,8 @@ struct BoxTextEditor: NSViewRepresentable {
     private var isApplying = false
     private var popover: NSPopover?
     private var popoverRange: NSRange?
+    private var dismissalTimer: Timer?
+    private var pointerLeftAt: TimeInterval?
 
     init(store: StoreOf<DictationBoxFeature>) {
       self.store = store
@@ -154,6 +156,7 @@ struct BoxTextEditor: NSViewRepresentable {
 
     private func updatePopover(_ suggestion: DictationBoxFeature.SuggestionState?) {
       guard let suggestion, let textView else {
+        stopDismissalTimer()
         if popover?.isShown == true { popover?.performClose(nil) }
         popover = nil
         popoverRange = nil
@@ -164,19 +167,55 @@ struct BoxTextEditor: NSViewRepresentable {
       guard let rect = textView.rect(for: suggestion.range) else { return }
       let popover = NSPopover()
       popover.behavior = .semitransient
-      popover.animates = true
+      popover.animates = false
       popover.delegate = self
       popover.contentViewController = NSHostingController(rootView: SuggestionPopoverView(store: store))
       popover.show(relativeTo: rect, of: textView, preferredEdge: .maxY)
       self.popover = popover
       popoverRange = suggestion.range
+      startDismissalTimer()
     }
 
     func popoverDidClose(_ notification: Notification) {
       guard (notification.object as? NSPopover) === popover else { return }
+      stopDismissalTimer()
       popover = nil
       popoverRange = nil
       if store.suggestion != nil { store.send(.dismissSuggestions) }
+    }
+
+    private func startDismissalTimer() {
+      stopDismissalTimer()
+      dismissalTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] timer in
+        guard let self else { timer.invalidate(); return }
+        MainActor.assumeIsolated { self.dismissIfPointerLeft() }
+      }
+    }
+
+    private func stopDismissalTimer() {
+      dismissalTimer?.invalidate()
+      dismissalTimer = nil
+      pointerLeftAt = nil
+    }
+
+    private func dismissIfPointerLeft() {
+      guard let popover, popover.isShown, let textView, let popoverRange else {
+        stopDismissalTimer()
+        return
+      }
+      let pointer = NSEvent.mouseLocation
+      let wordRect = textView.firstRect(forCharacterRange: popoverRange, actualRange: nil)
+        .insetBy(dx: -4, dy: -4)
+      let panelRect = popover.contentViewController?.view.window?.frame.insetBy(dx: -4, dy: -4)
+      if wordRect.contains(pointer) || panelRect?.contains(pointer) == true {
+        pointerLeftAt = nil
+      } else if let pointerLeftAt {
+        if ProcessInfo.processInfo.systemUptime - pointerLeftAt >= 0.15 {
+          store.send(.dismissSuggestions)
+        }
+      } else {
+        pointerLeftAt = ProcessInfo.processInfo.systemUptime
+      }
     }
   }
 }
@@ -217,12 +256,12 @@ struct SuggestionPopoverView: View {
               }
             }
             .contentShape(Rectangle())
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
           }
           .buttonStyle(.plain)
         }
-        Divider().padding(.vertical, 3)
+        Divider().padding(.vertical, 1)
         if let original = suggestion.original {
           menuButton("arrow.uturn.backward", "Original: \(original)") { store.send(.revertCorrection) }
         }
@@ -231,18 +270,18 @@ struct SuggestionPopoverView: View {
         menuButton("text.book.closed", "„\(suggestion.word)“ ins Lexikon") { store.send(.addHoveredWordToLexicon) }
       }
     }
-    .padding(6)
-    .frame(minWidth: 240)
+    .padding(4)
+    .frame(minWidth: 190, maxWidth: 250)
   }
 
   private func menuButton(_ symbol: String, _ title: String, action: @escaping () -> Void) -> some View {
     Button(action: action) {
       Label(title, systemImage: symbol)
-        .font(.callout)
+        .font(.subheadline)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
     }
     .buttonStyle(.plain)
   }

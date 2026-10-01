@@ -2,8 +2,8 @@ import AppKit
 import ComposableArchitecture
 import SwiftUI
 
-/// Floating, typeable panel for the dictation box. Opens without stealing
-/// focus from the target app; becomes key when the user clicks into it.
+/// Floating, typeable panel for the dictation box. Recording leaves the target
+/// app focused; after transcription the editor becomes the active typing target.
 /// Escape and the window close button never discard the dictation.
 final class DictationBoxPanel: NSPanel {
   init(content: some View) {
@@ -64,6 +64,9 @@ final class DictationBoxPanelController {
     observers.append(center.addObserver(forName: .dismissDictationBox, object: nil, queue: .main) { [weak self] _ in
       MainActor.assumeIsolated { self?.panel?.orderOut(nil) }
     })
+    observers.append(center.addObserver(forName: .focusDictationBox, object: nil, queue: .main) { [weak self] _ in
+      MainActor.assumeIsolated { self?.focusEditor() }
+    })
     observers.append(center.addObserver(forName: .resetDictationBoxPosition, object: nil, queue: .main) { [weak self] _ in
       MainActor.assumeIsolated {
         self?.panel?.setContentSize(NSSize(width: 640, height: 360))
@@ -80,5 +83,23 @@ final class DictationBoxPanelController {
       ))
     }
     panel?.orderFrontRegardless()
+  }
+
+  private func focusEditor() {
+    guard let panel else { return }
+    NSApp.activate(ignoringOtherApps: true)
+    panel.makeKeyAndOrderFront(nil)
+    if let editor = findEditor(in: panel.contentView) {
+      panel.makeFirstResponder(editor)
+    }
+  }
+
+  private func findEditor(in view: NSView?) -> BoxTextView? {
+    guard let view else { return nil }
+    if let editor = view as? BoxTextView { return editor }
+    for child in view.subviews {
+      if let editor = findEditor(in: child) { return editor }
+    }
+    return nil
   }
 }

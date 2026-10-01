@@ -383,6 +383,11 @@ struct DictationBoxFeature {
       state.lastAction = "Spelling: press the dictation key"
     }
     effects.append(saveDraft(state))
+    if !transfer {
+      effects.append(.run { _ in
+        await MainActor.run { NotificationCenter.default.post(name: .focusDictationBox, object: nil) }
+      })
+    }
     if transfer { effects.append(.send(.confirmTapped)) }
     return .merge(effects)
   }
@@ -531,6 +536,7 @@ struct DictationBoxFeature {
 
 extension Notification.Name {
   static let presentDictationBox = Notification.Name("LocalASR.presentDictationBox")
+  static let focusDictationBox = Notification.Name("LocalASR.focusDictationBox")
   static let dismissDictationBox = Notification.Name("LocalASR.dismissDictationBox")
   static let dictationBoxWillPaste = Notification.Name("LocalASR.dictationBoxWillPaste")
 }

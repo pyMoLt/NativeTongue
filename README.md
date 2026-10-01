@@ -1,54 +1,75 @@
-# Hex Has Moved
+# NativeTongue
 
-I rewrote Hex in Rust. **[Try the new beta](https://hex.kitlangton.com)** and tell me what you think.
+**Private, on-device dictation for macOS.** NativeTongue is a Swift and SwiftUI menu-bar app for German and English dictation, spoken text commands, terminology, and audio or video transcription. It is the continuation of the Local ASR project and a fork of the legacy Swift app from Hex.
 
-The new source lives at **[anomalyco/hex](https://github.com/anomalyco/hex)**.
-This repository preserves the original Swift app, its history, and its releases.
+The app is under active development. Its current target is Apple Silicon on macOS 26 or newer. Development and hands-on checks have focused on an M5 Pro with 48 GB of unified memory.
 
-## Legacy Swift App
+## What it does
 
-Press-and-hold a hotkey to transcribe your voice and paste the result wherever you're typing.
+- **Normal and Literal dictation.** Normal mode is designed for everyday text and code. Literal mode turns explicitly spoken punctuation and commands into formatted text.
+- **Dictation Box.** Review and edit a transcript before inserting it. Format text, inspect terminology suggestions, spell words aloud, or add corrections to your lexicon.
+- **Local speech models.** Choose among Whisper, Parakeet, Qwen3-ASR, Canary, Cohere and Apple SpeechAnalyzer options in the model catalog. Model support and language coverage vary; the catalog shows each model's backend, size, precision, license and capabilities.
+- **Terminology tools.** Keep personal vocabulary and optionally install word packs for medical, Latin-anatomy and technical terms.
+- **Audio and video files.** Queue supported media for transcription, optionally separate speakers, review the result, and export text, Markdown, SRT or VTT.
+- **Menu-bar controls and history.** Switch modes, inspect the current state and copy recent text. Saving dictation history is optional.
 
-**[Download the legacy Swift version](https://hex-updates.s3.us-east-1.amazonaws.com/hex-latest.dmg)**
+## Privacy and network use
 
-> **Note:** Hex is currently only available for **Apple Silicon** Macs.
+Speech recognition and text processing run on the Mac with the selected local model. NativeTongue has no cloud speech-recognition service, telemetry or automatic updater.
 
-Or download via homebrew:
-```bash
-brew install --cask kitlangton-hex
-```
+Network access is used only when you explicitly start an installation, such as downloading a model, a word pack, Apple speech assets or speaker-separation models. Those downloads are stored locally and used for on-device processing. During inference, the app does not send audio or transcripts to a server.
 
-The Swift version supports [Parakeet TDT v3](https://github.com/FluidInference/FluidAudio)
-through [FluidAudio](https://github.com/FluidInference/FluidAudio) and
-[WhisperKit](https://github.com/argmaxinc/WhisperKit) for on-device transcription.
-It uses the [Swift Composable Architecture](https://github.com/pointfreeco/swift-composable-architecture).
+The app can save local recovery audio while recording. Transcript history is off by default and can be enabled in Settings. File transcription exports are written only when you choose a destination.
 
-## Instructions
+## Requirements
 
-Once you open Hex, you'll need to grant it microphone and accessibility permissions—so it can record your voice and paste the transcribed text into any application, respectively.
+- Apple Silicon Mac
+- macOS 26 or newer
+- Full Xcode.app for development and building
+- Microphone permission for dictation
+- Accessibility permission for system-wide text insertion
+- Additional disk space for the model and optional word packs you install
 
-Once you've configured a global hotkey, there are **two recording modes**:
+Models are not included in the app bundle. Download only the models you want from the in-app model screen.
 
-1. **Press-and-hold** the hotkey to begin recording, say whatever you want, and then release the hotkey to start the transcription process. 
-2. **Double-tap** the hotkey to *lock recording*, say whatever you want, and then **tap** the hotkey once more to start the transcription process.
+## Build and test
 
-## Contributing
+Open Hex.xcodeproj in Xcode and build the **Hex** scheme. The app's displayed name is **NativeTongue**; the scheme and module retain their legacy Hex names.
 
-For the Rust beta, new features, and current development, use
-**[anomalyco/hex](https://github.com/anomalyco/hex)**.
-Issues specific to the legacy Swift app can still be reported
-[here](https://github.com/kitlangton/Hex/issues). Please discuss substantial legacy
-changes before opening a pull request.
+The verified commands used for development are:
 
-### Changelog workflow
+~~~bash
+# Debug app build
+xcodebuild -scheme Hex -configuration Debug \
+  -destination 'platform=macOS,arch=arm64' \
+  -derivedDataPath /private/tmp/LocalASR-DD \
+  -skipMacroValidation -skipPackagePluginValidation \
+  CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CODE_SIGN_STYLE=Manual build
 
-- **For AI agents:** Run `bun run changeset:add-ai <type> "summary"` (e.g., `bun run changeset:add-ai patch "Fix clipboard timing"`) to create a changeset non-interactively.
-- **For humans:** Run `bunx changeset` when your PR needs release notes. Pick `patch`, `minor`, or `major` and write a short summary—this creates a `.changeset/*.md` fragment.
-- Check what will ship with `bunx changeset status --verbose`.
-- `npm run sync-changelog` (or `bun run tools/scripts/sync-changelog.ts`) mirrors the root `CHANGELOG.md` into `Hex/Resources/changelog.md` so the in-app sheet always matches GitHub releases.
-- The release tool consumes the pending fragments, bumps `package.json` + `Info.plist`, regenerates `CHANGELOG.md`, and feeds the resulting section to GitHub + Sparkle automatically. Releases fail fast if no changesets are queued, so you can't forget.
-- If you truly need to ship without pending Changesets (for example, re-running a failed publish), the release script will now prompt you to confirm and choose a `patch`/`minor`/`major` bump interactively before continuing.
+# HexCore tests
+swift test --package-path HexCore --scratch-path /private/tmp/LocalASR-HexCore
+~~~
 
-## License
+To run one app test suite, replace SuiteName with the XCTest suite name:
 
-This project is licensed under the MIT License. See `LICENSE` for details.
+~~~bash
+xcodebuild test -scheme Hex \
+  -destination 'platform=macOS,arch=arm64' \
+  -derivedDataPath /private/tmp/LocalASR-DD \
+  -skipMacroValidation CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CODE_SIGN_STYLE=Manual \
+  -only-testing:HexTests/SuiteName
+~~~
+
+## Current validation
+
+The app has been built and run on Apple Silicon. Recent checks include the dictation pipeline, Dictation Box, terminology, file transcription and several installed model engines. The full test suite still has environment-related failures and skipped model-backed tests; a complete microphone, permission and text-insertion check depends on the permissions granted on the Mac. Treat this repository as an actively developed project rather than a finished, broadly validated release.
+
+## Project layout
+
+- Hex/ — macOS app and UI
+- HexCore/ — reusable dictation logic and tests
+- Packages/LocalASRSpeech/ — vendored Qwen3-ASR runtime
+- Hex/Resources/Data/models.json — model catalog
+- LICENSE — project license
+
+Model weights and their terms are provided by their respective authors. Check each model's license in the in-app catalog before installing or using it.
