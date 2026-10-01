@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import ComposableArchitecture
 import Foundation
 import HexCore
@@ -123,7 +124,7 @@ final class RecordingRaceTests: XCTestCase {
       $0.isRecording = false
       $0.isTranscribing = true
       $0.error = nil
-      $0.isPrewarming = true
+      $0.isPrewarming = false
     }
     await stopProbe.waitUntilPending()
     await stopProbe.resume()
@@ -285,6 +286,78 @@ final class RecordingRaceTests: XCTestCase {
     XCTAssertEqual(storedDuration, duration)
   }
 
+  func testRecoveryAudioRemainsWhenHistoryPersistenceFails() async throws {
+    let audioURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent("recovery-persistence-\(UUID().uuidString).wav")
+    XCTAssertTrue(FileManager.default.createFile(atPath: audioURL.path, contents: Data("recovery".utf8)))
+    defer { try? FileManager.default.removeItem(at: audioURL) }
+
+    let state = Self.makeState()
+    state.$hexSettings.withLock { $0.saveTranscriptionHistory = true }
+    let persistenceError = NSError(
+      domain: "RecordingRaceTests.Persistence",
+      code: 1,
+      userInfo: [NSLocalizedDescriptionKey: "History persistence failed"]
+    )
+    let store = TestStore(initialState: state) {
+      TranscriptionFeature()
+    } withDependencies: {
+      $0.transcriptPersistence.save = { _, _, _, _, _ in throw persistenceError }
+    }
+
+    await store.send(.sessionTranscriptionResult(DictationSessionOutput(document: DictationDocument(), language: "de", text: "Recovered text"), audioURL, 1.0, isRecovery: true)) {
+      $0.$lastTranscript.withLock { $0 = LastTranscript(text: "Recovered text", date: Date(timeIntervalSince1970: 1_234), appName: nil) }
+    }
+    await store.receive(\.transcriptionError) {
+      $0.error = "History persistence failed"
+    }
+    await store.finish()
+
+    XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL.path))
+  }
+
+  func testCapturedRecordingIsTranscribedOnceAndPasted() async throws {
+    let audioURL = try Self.makeSilenceWav()
+    defer { try? FileManager.default.removeItem(at: audioURL) }
+
+    let probe = LiveFinalTranscriptionProbe()
+    var state = Self.makeState()
+    state.isTranscribing = true
+    state.$hexSettings.withLock { settings in
+      settings.selectedModel = "parakeet-tdt-0.6b-v3-coreml"
+      settings.outputLanguage = "en"
+    }
+    let request = CapturedDictationRequest(
+      audioURL: audioURL,
+      duration: 1,
+      session: .init(model: "parakeet-tdt-0.6b-v3-coreml", mode: .normal, commandPauseMs: 450, language: "en")
+    )
+    let store = TestStore(initialState: state) {
+      TranscriptionFeature()
+    } withDependencies: {
+      $0.transcription.transcribeSamples = { _, _, _ in
+        await probe.recordTranscription()
+        return EngineResult(text: "ready to paste", detectedLanguage: "en")
+      }
+      $0.pasteboard.paste = { text in await probe.recordPaste(text) }
+      $0.soundEffects.play = { _ in }
+    }
+
+    await store.send(.capturedRecording(request))
+    await store.receive(\.sessionTranscriptionResult) {
+      $0.isTranscribing = false
+      $0.isPrewarming = false
+      $0.$lastTranscript.withLock { $0 = LastTranscript(text: "ready to paste", date: Date(timeIntervalSince1970: 1_234), appName: nil) }
+    }
+    await store.finish()
+
+    let transcriptionCount = await probe.transcriptionCount()
+    let pastedTexts = await probe.pastedTexts()
+    XCTAssertEqual(transcriptionCount, 1)
+    XCTAssertEqual(pastedTexts, ["ready to paste"])
+    XCTAssertFalse(FileManager.default.fileExists(atPath: audioURL.path))
+  }
+
   private static func makeState() -> TranscriptionFeature.State {
     TranscriptionFeature.State(
       hexSettings: Shared(value: .init()),
@@ -293,6 +366,40 @@ final class RecordingRaceTests: XCTestCase {
       transcriptionHistory: Shared(value: .init())
     )
   }
+
+  private static func makeSilenceWav() throws -> URL {
+    let format = try XCTUnwrap(AVAudioFormat(
+      commonFormat: .pcmFormatFloat32,
+      sampleRate: 16_000,
+      channels: 1,
+      interleaved: false
+    ))
+    let frameCount = AVAudioFrameCount(16_000)
+    let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount))
+    buffer.frameLength = frameCount
+    buffer.floatChannelData?[0].initialize(repeating: 0, count: Int(frameCount))
+
+    let url = FileManager.default.temporaryDirectory
+      .appendingPathComponent("live-session-final-\(UUID().uuidString).wav")
+    let audioFile = try AVAudioFile(
+      forWriting: url,
+      settings: format.settings,
+      commonFormat: .pcmFormatFloat32,
+      interleaved: false
+    )
+    try audioFile.write(from: buffer)
+    return url
+  }
+}
+
+private actor LiveFinalTranscriptionProbe {
+  private var count = 0
+  private var pasted = [String]()
+
+  func recordTranscription() { count += 1 }
+  func recordPaste(_ text: String) { pasted.append(text) }
+  func transcriptionCount() -> Int { count }
+  func pastedTexts() -> [String] { pasted }
 }
 
 private actor RecordingProbe {

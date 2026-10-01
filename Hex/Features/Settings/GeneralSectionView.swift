@@ -46,19 +46,6 @@ struct GeneralSectionView: View {
 
 			Label {
 				Toggle(
-					"Copy to clipboard",
-					isOn: Binding(
-						get: { store.hexSettings.copyToClipboard },
-						set: { store.send(.setCopyToClipboard($0)) }
-					)
-				)
-				Text("Copy transcription text to clipboard in addition to pasting it")
-			} icon: {
-				Image(systemName: "doc.on.clipboard")
-			}
-
-			Label {
-				Toggle(
 					"Prevent System Sleep while Recording",
 					isOn: Binding(
 						get: { store.hexSettings.preventSystemSleep },

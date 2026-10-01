@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "HexCore",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("26.0")],
     products: [
         .library(name: "HexCore", targets: ["HexCore"]),
     ],
@@ -11,6 +11,7 @@ let package = Package(
         .package(url: "https://github.com/Clipy/Sauce", branch: "master"),
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.11.0"),
         .package(url: "https://github.com/apple/swift-log", from: "1.9.1"),
+        .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.4.0"),
     ],
     targets: [
 	    .target(
@@ -20,6 +21,9 @@ let package = Package(
 	            .product(name: "Dependencies", package: "swift-dependencies"),
 	            .product(name: "DependenciesMacros", package: "swift-dependencies"),
 	            .product(name: "Logging", package: "swift-log"),
+	            // Explicit so the dynamic HexCore product used by Xcode test hosts links the
+	            // symbols emitted by @DependencyClient macros.
+	            .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
 	        ],
 	        path: "Sources/HexCore",
 	        linkerSettings: [

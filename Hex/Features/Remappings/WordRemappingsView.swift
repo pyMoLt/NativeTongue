@@ -82,7 +82,11 @@ struct WordRemappingsView: View {
 			case .removals:
 				removalsSection
 			case .remappings:
-				remappingsSection
+				GroupBox {
+					Text("Replacements now live in Vocabulary (spelling + variants). Existing replacements were moved there on first launch.")
+						.settingsCaption()
+						.padding(.vertical, 4)
+				}
 			}
 		}
 	}

@@ -120,6 +120,9 @@ final class SuperFastCaptureController {
   private var converter: AVAudioConverter?
   private var configurationChangeObserver: NSObjectProtocol?
   private var activeRecording: ActiveRecording?
+  private var liveAudioStream: AsyncStream<AudioChunk>?
+  private var liveAudioContinuation: AsyncStream<AudioChunk>.Continuation?
+  private var liveAudioChunker = AudioChunker(chunkSize: Int(SuperFastCaptureConstants.tapBufferSize))
   private var captureGeneration = 0
   private var recordingFailure: RecordingFailure?
   private var keepWarmBuffer = false
@@ -272,6 +275,7 @@ final class SuperFastCaptureController {
       captureGeneration += 1
       converter = nil
       if clearingRecordingState {
+        finishLiveAudioStream()
         activeRecording = nil
         recordingFailure = nil
         ringBuffer.clear()
@@ -306,6 +310,7 @@ final class SuperFastCaptureController {
     var startError: Error?
     processingQueue.sync {
       do {
+        finishLiveAudioStream()
         recordingFailure = nil
         let file = try AVAudioFile(
           forWriting: url,
@@ -333,6 +338,10 @@ final class SuperFastCaptureController {
         logger.notice(
           "Capture engine recording file opened prepended=\(String(format: "%.3f", prependedDuration))s requestedPreRoll=\(String(format: "%.3f", preRollDuration))s"
         )
+        let stream = AsyncStream<AudioChunk>.makeStream(bufferingPolicy: .bufferingNewest(128))
+        liveAudioStream = stream.stream
+        liveAudioContinuation = stream.continuation
+        liveAudioChunker.reset()
         activeRecording = ActiveRecording(
           url: url,
           file: file,
@@ -340,6 +349,7 @@ final class SuperFastCaptureController {
           prependedDuration: prependedDuration,
           didLogFirstBuffer: false
         )
+        publishLiveAudio(preRollSamples)
       } catch {
         startError = error
       }
@@ -352,6 +362,7 @@ final class SuperFastCaptureController {
 
   func finishRecording(clearBuffer: Bool = true) -> FinishRecordingResult {
     processingQueue.sync {
+      finishLiveAudioStream()
       let result: FinishRecordingResult
       if let recordingFailure {
         result = .failed(recordingFailure)
@@ -366,6 +377,12 @@ final class SuperFastCaptureController {
         ringBuffer.clear()
       }
       return result
+    }
+  }
+
+  func liveAudio() -> AsyncStream<AudioChunk> {
+    processingQueue.sync {
+      liveAudioStream ?? AsyncStream { continuation in continuation.finish() }
     }
   }
 
@@ -415,12 +432,51 @@ final class SuperFastCaptureController {
 
     do {
       try recording.file.write(from: converted)
+      publishLiveAudio(UnsafeBufferPointer(start: samples, count: sampleCount))
     } catch {
       logger.error("Failed to write capture engine audio: \(error.localizedDescription)")
       activeRecording = nil
       recordingFailure = .captureWriteFailed(error.localizedDescription)
+      finishLiveAudioStream()
       FileManager.default.removeItemIfExists(at: recording.url)
     }
+  }
+
+  /// Called only on `processingQueue`; at most 128 fixed-size chunks are retained for a
+  /// consumer that starts just after the recording action. On overflow the optional live
+  /// stream is disabled rather than silently dropping a middle section of audio.
+  private func publishLiveAudio<S: Collection>(_ samples: S) where S.Element == Float {
+    guard liveAudioContinuation != nil else { return }
+    for chunk in liveAudioChunker.append(samples) {
+      guard let continuation = liveAudioContinuation else { return }
+      switch continuation.yield(chunk) {
+      case .enqueued:
+        break
+      case .dropped, .terminated:
+        logger.error("Live audio stream stopped after its bounded buffer became unavailable")
+        finishLiveAudioStream()
+        return
+      @unknown default:
+        finishLiveAudioStream()
+        return
+      }
+    }
+  }
+
+  /// Called only on `processingQueue`, after the final tap callback has drained.
+  private func finishLiveAudioStream() {
+    guard let continuation = liveAudioContinuation else {
+      liveAudioStream = nil
+      liveAudioChunker.reset()
+      return
+    }
+    for chunk in liveAudioChunker.finish() {
+      _ = continuation.yield(chunk)
+    }
+    continuation.finish()
+    liveAudioContinuation = nil
+    liveAudioStream = nil
+    liveAudioChunker.reset()
   }
 
   private func convert(_ inputBuffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {

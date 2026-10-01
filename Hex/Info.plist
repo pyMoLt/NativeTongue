@@ -4,21 +4,37 @@
 <dict>
 	<key>AudioHardwarePowerHint</key>
 	<string>None</string>
+	<key>CFBundleDisplayName</key>
+	<string>NativeTongue</string>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Audio or video</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.audio</string>
+				<string>public.movie</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIconName</key>
 	<string>AppIcon</string>
 	<key>CFBundleName</key>
-	<string>Local ASR</string>
-	<key>CFBundleDisplayName</key>
-	<string>Local ASR</string>
+	<string>NativeTongue</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.8.5</string>
+	<string>2.0.0</string>
 	<key>CFBundleVersion</key>
-	<string>92</string>
+	<string>200</string>
 	<key>NSAccessibilityUsageDescription</key>
-	<string>Local ASR needs accessibility access to detect the global dictation shortcut and insert transcribed text.</string>
+	<string>NativeTongue needs accessibility access to detect the global dictation shortcut and insert transcribed text.</string>
 	<key>NSInputMonitoringUsageDescription</key>
-	<string>Local ASR needs Input Monitoring permission so your global dictation shortcut works in every app.</string>
+	<string>NativeTongue needs Input Monitoring permission so your global dictation shortcut works in every app.</string>
 </dict>
 </plist>

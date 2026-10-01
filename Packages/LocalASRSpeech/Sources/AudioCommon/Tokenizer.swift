@@ -112,6 +112,18 @@ public class Qwen3Tokenizer {
         }
     }
 
+    /// IDs of vocabulary entries whose decoded text consists only of the given
+    /// punctuation characters (plus whitespace). Local ASR uses this to mask
+    /// automatic punctuation in literal dictation.
+    public func punctuationTokenIDs(characters: Set<Character> = [".", ",", ";", ":", "!", "?"]) -> Set<Int32> {
+        var ids = Set<Int32>()
+        for id in idToToken.keys {
+            let text = decode(tokens: [id]).trimmingCharacters(in: .whitespaces)
+            if !text.isEmpty, text.allSatisfy({ characters.contains($0) }) { ids.insert(Int32(id)) }
+        }
+        return ids
+    }
+
     /// Decode token IDs to text using a unified byte buffer.
     /// Collects all bytes before converting to UTF-8, so multi-byte characters
     /// split across BPE tokens (e.g. CJK) decode correctly.

@@ -15,9 +15,18 @@ import SwiftUI
 
 private let pasteboardLogger = HexLog.pasteboard
 
+/// Text for the dictation box: plain text always, RTF when the box format is Rich Text.
+struct RichPastePayload: Equatable, Sendable {
+    var plain: String
+    var rtf: Data?
+    /// App that was frontmost when the box opened; activated before ⌘V.
+    var targetBundleID: String?
+}
+
 @DependencyClient
 struct PasteboardClient {
     var paste: @Sendable (String) async -> Void
+    var pasteRich: @Sendable (RichPastePayload) async -> Void
     var copy: @Sendable (String) async -> Void
     var sendKeyboardCommand: @Sendable (KeyboardCommand) async -> Void
 }
@@ -28,6 +37,9 @@ extension PasteboardClient: DependencyKey {
         return .init(
             paste: { text in
                 await live.paste(text: text)
+            },
+            pasteRich: { payload in
+                await live.pasteRich(payload)
             },
             copy: { text in
                 await live.copy(text: text)
@@ -49,16 +61,26 @@ extension DependencyValues {
 struct PasteboardClientLive {
     @Shared(.hexSettings) var hexSettings: HexSettings
     
-    private struct PasteboardSnapshot {
-        let items: [[String: Any]]
+    struct PasteboardSnapshot {
+        enum Value {
+            case data(Data)
+            case string(String)
+            case propertyList(Any)
+        }
+
+        let items: [[String: Value]]
         
         init(pasteboard: NSPasteboard) {
-            var saved: [[String: Any]] = []
+            var saved: [[String: Value]] = []
             for item in pasteboard.pasteboardItems ?? [] {
-                var itemDict: [String: Any] = [:]
+                var itemDict: [String: Value] = [:]
                 for type in item.types {
                     if let data = item.data(forType: type) {
-                        itemDict[type.rawValue] = data
+                        itemDict[type.rawValue] = .data(data)
+                    } else if let string = item.string(forType: type) {
+                        itemDict[type.rawValue] = .string(string)
+                    } else if let propertyList = item.propertyList(forType: type) {
+                        itemDict[type.rawValue] = .propertyList(propertyList)
                     }
                 }
                 saved.append(itemDict)
@@ -68,14 +90,23 @@ struct PasteboardClientLive {
         
         func restore(to pasteboard: NSPasteboard) {
             pasteboard.clearContents()
+            var restoredItems: [NSPasteboardItem] = []
             for itemDict in items {
                 let item = NSPasteboardItem()
-                for (type, data) in itemDict {
-                    if let data = data as? Data {
+                for (type, value) in itemDict {
+                    switch value {
+                    case let .data(data):
                         item.setData(data, forType: NSPasteboard.PasteboardType(rawValue: type))
+                    case let .string(string):
+                        item.setString(string, forType: NSPasteboard.PasteboardType(rawValue: type))
+                    case let .propertyList(propertyList):
+                        item.setPropertyList(propertyList, forType: NSPasteboard.PasteboardType(rawValue: type))
                     }
                 }
-                pasteboard.writeObjects([item])
+                restoredItems.append(item)
+            }
+            if !restoredItems.isEmpty {
+                pasteboard.writeObjects(restoredItems)
             }
         }
     }
@@ -200,26 +231,45 @@ struct PasteboardClientLive {
         return false
     }
 
+    /// Activates the target app, writes RTF + plain text, sends ⌘V and restores
+    /// the previous clipboard exactly like the plain path (plan 5.9).
+    @MainActor
+    func pasteRich(_ payload: RichPastePayload) async {
+        if let bundleID = payload.targetBundleID,
+           let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
+            app.activate()
+            let deadline = ContinuousClock.now + .milliseconds(800)
+            while NSWorkspace.shared.frontmostApplication?.bundleIdentifier != bundleID, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            try? await Task.sleep(for: .milliseconds(80))
+        }
+        let pasteboard = NSPasteboard.general
+        let snapshot = PasteboardSnapshot(pasteboard: pasteboard)
+        let before = pasteboard.changeCount
+        pasteboard.clearContents()
+        let item = NSPasteboardItem()
+        if let rtf = payload.rtf { item.setData(rtf, forType: .rtf) }
+        item.setString(payload.plain, forType: .string)
+        pasteboard.writeObjects([item])
+        _ = await waitForPasteboardCommit(targetChangeCount: max(pasteboard.changeCount, before + 1))
+        let dictationChangeCount = pasteboard.changeCount
+        let pasteSucceeded = await performPaste(payload.plain)
+        guard !hexSettings.copyToClipboard else { return }
+        await Self.scheduleRestore(snapshot, dictationChangeCount: dictationChangeCount, pasteSucceeded: pasteSucceeded)
+    }
+
     @MainActor
     func pasteWithClipboard(_ text: String) async {
         let pasteboard = NSPasteboard.general
         let snapshot = PasteboardSnapshot(pasteboard: pasteboard)
         let targetChangeCount = writeAndTrackChangeCount(pasteboard: pasteboard, text: text)
         _ = await waitForPasteboardCommit(targetChangeCount: targetChangeCount)
+        let dictationChangeCount = pasteboard.changeCount
         let pasteSucceeded = await performPaste(text)
         
-        // Only restore original pasteboard contents if:
-        // 1. Copying to clipboard is disabled AND
-        // 2. The paste operation succeeded
-        if !hexSettings.copyToClipboard && pasteSucceeded {
-            let savedSnapshot = snapshot
-            Task { @MainActor in
-                // Give slower apps a short window to read the plain-text entry
-                // before we repopulate the clipboard with the user's previous rich data.
-                try? await Task.sleep(for: .milliseconds(500))
-                pasteboard.clearContents()
-                savedSnapshot.restore(to: pasteboard)
-            }
+        if !hexSettings.copyToClipboard {
+            await Self.scheduleRestore(snapshot, dictationChangeCount: dictationChangeCount, pasteSucceeded: pasteSucceeded)
         }
         
         // If we failed to paste AND user doesn't want clipboard retention,
@@ -231,6 +281,32 @@ struct PasteboardClientLive {
             // TODO: Could add a notification here to inform user
             // that text is available in clipboard
         }
+    }
+
+    /// Success: wait 300 ms for the target app to read the text, then restore.
+    /// Failure: leave the text on the clipboard for manual ⌘V for 10 s, restoring
+    /// in the background so the dictation flow is not blocked.
+    @MainActor
+    static func scheduleRestore(_ snapshot: PasteboardSnapshot, dictationChangeCount: Int, pasteSucceeded: Bool) async {
+        func restore() {
+            let pasteboard = NSPasteboard.general
+            // Do not overwrite a new clipboard value copied by the user or target app.
+            guard shouldRestoreSnapshot(currentChangeCount: pasteboard.changeCount, dictationChangeCount: dictationChangeCount) else { return }
+            snapshot.restore(to: pasteboard)
+        }
+        if pasteSucceeded {
+            try? await Task.sleep(for: .milliseconds(300))
+            restore()
+        } else {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(10))
+                restore()
+            }
+        }
+    }
+
+    static func shouldRestoreSnapshot(currentChangeCount: Int, dictationChangeCount: Int) -> Bool {
+        currentChangeCount == dictationChangeCount
     }
 
     @MainActor

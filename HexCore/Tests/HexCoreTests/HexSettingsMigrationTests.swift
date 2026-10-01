@@ -12,6 +12,7 @@ final class HexSettingsMigrationTests: XCTestCase {
 		XCTAssertEqual(decoded.openOnLogin, true)
 		XCTAssertEqual(decoded.showDockIcon, false)
 		XCTAssertEqual(decoded.selectedModel, "whisper-large-v3")
+		XCTAssertEqual(decoded.idleUnloadMinutes, 10)
 		XCTAssertEqual(decoded.asrProfile, .general)
 		XCTAssertEqual(decoded.profileModelSelections[.general], "whisper-large-v3")
 		XCTAssertEqual(decoded.spokenCommandPauseSeconds, 0.45)
@@ -30,6 +31,18 @@ final class HexSettingsMigrationTests: XCTestCase {
 		XCTAssertEqual(decoded.hasCompletedStorageMigration, true)
 		XCTAssertFalse(decoded.lowercaseTranscripts)
 		XCTAssertFalse(decoded.removePunctuation)
+		// V2 fields default when absent from older files.
+		XCTAssertTrue(decoded.autoReplaceTermsLiteral)
+		XCTAssertEqual(decoded.activeLexiconPacks, [])
+		XCTAssertFalse(decoded.hasMigratedLexicon)
+		XCTAssertFalse(decoded.dictationBoxEnabledNormal)
+		XCTAssertTrue(decoded.dictationBoxEnabledLiteral)
+		XCTAssertEqual(decoded.boxFontSize, 15)
+		XCTAssertEqual(decoded.boxOutputFormat, .richText)
+		XCTAssertTrue(decoded.englishCommandsEnabled)
+		XCTAssertTrue(decoded.agentFormattingEnabled)
+		XCTAssertTrue(decoded.numberFormattingEnabled)
+		XCTAssertFalse(decoded.hasCompletedV2Onboarding)
 	}
 
 	func testEncodeDecodeRoundTripPreservesDefaults() throws {
@@ -49,6 +62,15 @@ final class HexSettingsMigrationTests: XCTestCase {
 
 	func testNewSettingsDoNotChooseAnASRModelBeforeTheUserDoes() {
 		XCTAssertTrue(HexSettings().selectedModel.isEmpty)
+	}
+
+	func testIdleUnloadSettingMigratesAndRejectsUnsupportedValues() throws {
+		let legacy = try JSONDecoder().decode(HexSettings.self, from: Data("{}".utf8))
+		XCTAssertEqual(legacy.idleUnloadMinutes, 10)
+		let invalid = try JSONDecoder().decode(HexSettings.self, from: Data("{\"idleUnloadMinutes\":7}".utf8))
+		XCTAssertEqual(invalid.idleUnloadMinutes, 10)
+		let disabled = try JSONDecoder().decode(HexSettings.self, from: Data("{\"idleUnloadMinutes\":0}".utf8))
+		XCTAssertEqual(disabled.idleUnloadMinutes, 0)
 	}
 
 	func testDictationModeDefaultsToNormalAndPersists() throws {
@@ -79,7 +101,7 @@ final class HexSettingsMigrationTests: XCTestCase {
 		let high = try JSONDecoder().decode(HexSettings.self, from: Data("{\"spokenCommandPauseSeconds\":4}".utf8))
 
 		XCTAssertEqual(low.spokenCommandPauseSeconds, 0.25)
-		XCTAssertEqual(high.spokenCommandPauseSeconds, 1.0)
+		XCTAssertEqual(high.spokenCommandPauseSeconds, 1.2)
 	}
 
 	func testTerminologyContextIsDeduplicatedAndBounded() {
@@ -89,15 +111,6 @@ final class HexSettingsMigrationTests: XCTestCase {
 		XCTAssertNotNil(prompt)
 		XCTAssertLessThanOrEqual(prompt?.count ?? .max, ASRTerminologyContext.maximumCharacters)
 		XCTAssertEqual(prompt?.components(separatedBy: "Apixaban").count, 2)
-	}
-
-	func testRustBetaBannerDismissalDefaultsToVisibleAndPersists() throws {
-		var settings = try JSONDecoder().decode(HexSettings.self, from: Data("{}".utf8))
-		XCTAssertFalse(settings.hasDismissedRustBetaBanner)
-		settings.hasDismissedRustBetaBanner = true
-		let decoded = try JSONDecoder().decode(HexSettings.self, from: JSONEncoder().encode(settings))
-		XCTAssertTrue(decoded.hasDismissedRustBetaBanner)
-		XCTAssertEqual(decoded, settings)
 	}
 
 	func testInitNormalizesDoubleTapOnlyWhenLockDisabled() {

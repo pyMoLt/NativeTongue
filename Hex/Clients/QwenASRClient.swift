@@ -261,6 +261,9 @@ actor QwenASRClient {
 			progress(mapped)
 		}
 		loadedModelName = descriptor.internalName
+		// 1 GB MLX scratch cache instead of the library's 4 GB: the decoder
+		// working set is far smaller; measured peak was 8.6 GB with the default.
+		MLXMemoryControl.setCacheLimit(1 << 30)
 		progress(completedProgress())
 	}
 
@@ -295,6 +298,45 @@ actor QwenASRClient {
 		)
 	}
 
+	/// Cached per loaded model: token IDs that decode to pure punctuation.
+	private var punctuationIDs: Set<Int32>?
+
+	/// Samples-based transcription for one utterance.
+	/// - Literal mode masks punctuation tokens in the decoder.
+	/// - Optional context biasing (experimental) is guarded against the model
+	///   copying the bias list into the transcript; on a leak the utterance is
+	///   decoded again without context.
+	func transcribe(samples: [Float], options: RequestOptions) throws -> EngineResult {
+		guard let model else {
+			throw NSError(domain: "QwenASR", code: 2, userInfo: [NSLocalizedDescriptionKey: "Qwen3-ASR is not loaded."])
+		}
+		guard !samples.isEmpty else { return EngineResult(text: "") }
+		var decoding = Qwen3DecodingOptions(language: options.language)
+		// Repeated phrases ("neuer Absatz" twice) are legitimate in dictation.
+		decoding.longInputThresholdSeconds = .infinity
+		if options.punctuation == .suppressed {
+			if punctuationIDs == nil { punctuationIDs = model.punctuationTokenIDs() }
+			decoding.suppressedTokenIDs = punctuationIDs ?? []
+		}
+		func run(context: String?) -> String {
+			var withContext = decoding
+			withContext.context = context
+			return model.transcribe(audio: samples, sampleRate: 16_000, options: withContext)
+				.trimmingCharacters(in: .whitespacesAndNewlines)
+		}
+		let terms = Array(options.biasTerms.prefix(50))
+		var text = run(context: terms.isEmpty ? nil : terms.joined(separator: ", "))
+		if !terms.isEmpty, BiasLeakGuard.leakedRange(in: text, biasTerms: terms) != nil {
+			HexLog.transcription.notice("Qwen3-ASR context leak detected; re-decoding without context")
+			text = run(context: nil)
+		}
+		return EngineResult(
+			text: text,
+			detectedLanguage: options.language,
+			punctuationWasSuppressed: options.punctuation == .suppressed
+		)
+	}
+
 	func deleteModel(_ descriptor: LocalASRModelDescriptor) throws {
 		if loadedModelName == descriptor.internalName { unload() }
 		integrityValidated.remove(descriptor.internalName)
@@ -305,9 +347,12 @@ actor QwenASRClient {
 	}
 
 	func unload() {
+		punctuationIDs = nil
 		model?.unload()
 		model = nil
 		loadedModelName = nil
+		// Without this, ~2.5 GB of MLX buffers stayed resident after unloading.
+		MLXMemoryControl.clearCache()
 	}
 
 	func modelDirectory(for descriptor: LocalASRModelDescriptor) -> URL {

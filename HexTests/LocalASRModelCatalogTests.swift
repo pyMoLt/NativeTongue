@@ -45,19 +45,75 @@ final class LocalASRModelCatalogTests: XCTestCase {
     XCTAssertEqual(ultra.revision, ParakeetModel.multilingualUltra.revision)
   }
 
-  func testCanaryAndCohereExperimentalCoreMLEntriesArePinned() throws {
+  func testCanaryExperimentalCoreMLEntryIsPinned() throws {
 		let entries = try LocalASRModelCatalog.load()
 		let canary = try XCTUnwrap(entries.first { $0.internalName == "canary-1b-v2-int4-coreml" })
-		let cohere = try XCTUnwrap(entries.first { $0.internalName == "cohere-transcribe-q8-coreml" })
 		XCTAssertEqual(canary.backend, .canaryFluidAudioCoreML)
 		XCTAssertEqual(canary.revision?.count, 40)
 		XCTAssertTrue(canary.experimental)
 		XCTAssertTrue(canary.languages.contains("de"))
-		XCTAssertEqual(cohere.backend, .cohereFluidAudioCoreML)
-		XCTAssertEqual(cohere.revision?.count, 40)
-		XCTAssertTrue(cohere.experimental)
-		XCTAssertTrue(cohere.license.contains("conflicting"))
-  }
+		XCTAssertFalse(entries.contains { $0.internalName.contains("mediform") || $0.backend.rawValue == "cohereFluidAudioCoreML" })
+	}
+
+	func testCohereMLXAndAppleSpeechAreSelectableWithHonestCapabilities() throws {
+		let entries = try LocalASRModelCatalog.load()
+		let cohere = try XCTUnwrap(entries.first { $0.internalName == CohereMLXASRClient.modelName })
+		XCTAssertEqual(cohere.backend, .cohereMLX)
+		XCTAssertEqual(cohere.revision, CohereMLXASRClient.revision)
+		XCTAssertEqual(cohere.group, .experimental)
+		XCTAssertEqual(cohere.literalRating, .limited)
+		XCTAssertFalse(cohere.engineCapabilities.wordTimings)
+		XCTAssertEqual(cohere.engineCapabilities.punctuationControl, .stripOnly)
+		XCTAssertFalse(cohere.engineCapabilities.supportsAutoLanguage)
+
+		let apple = try XCTUnwrap(entries.first { $0.internalName == AppleSpeechASRClient.modelName })
+		XCTAssertEqual(apple.backend, .appleSpeechAnalyzer)
+		XCTAssertEqual(apple.literalRating, .unverified)
+		XCTAssertTrue(apple.engineCapabilities.wordTimings)
+		XCTAssertTrue(apple.engineCapabilities.biasing.contains(.contextualStrings))
+	}
+
+	func testV2CatalogMetadataDistinguishesMeasuredAndUnmeasuredWhisperVariants() throws {
+		let entries = try LocalASRModelCatalog.load()
+		let turbo = try XCTUnwrap(entries.first { $0.internalName == "openai_whisper-large-v3-v20240930_turbo" })
+		let compressed = try XCTUnwrap(entries.first { $0.internalName == "openai_whisper-large-v3-v20240930_turbo_632MB" })
+		XCTAssertEqual(turbo.group, .recommended)
+		XCTAssertEqual(turbo.literalRating, .reliable)
+		XCTAssertEqual(turbo.recommendedFor, [.literal, .normal])
+		XCTAssertEqual(turbo.engineCapabilities.punctuationControl, .decoderSuppression)
+		XCTAssertEqual(compressed.literalRating, .unverified)
+		XCTAssertTrue(entries.allSatisfy { !$0.languages.isEmpty })
+	}
+
+	func testCatalogStillDecodesOlderEntriesWithoutV2Fields() throws {
+		let data = Data("""
+		[{"displayName":"Legacy","internalName":"legacy","backend":"whisperKitCoreML","repository":"local","precision":"unknown","license":"unknown","languages":["de"],"size":"small","storageSize":"unknown","capabilities":{"wordTimings":true,"contextPrompt":false,"languageHint":true},"experimental":false}]
+		""".utf8)
+		let entry = try XCTUnwrap(LocalASRModelCatalog.decode(data).first)
+		XCTAssertEqual(entry.group, .general)
+		XCTAssertEqual(entry.literalRating, .unverified)
+		XCTAssertEqual(entry.capabilities.punctuationControl, .stripOnly)
+		XCTAssertTrue(entry.recommendedFor.isEmpty)
+	}
+
+	func testBundledBenchmarksMatchCatalogAndDistinguishDecoderModes() throws {
+		let catalog = try LocalASRModelCatalog.load()
+		let benchmarks = try ModelBenchmarkCatalog.load()
+		XCTAssertEqual(benchmarks.speakerCount, 1)
+		XCTAssertEqual(benchmarks.literalCommandReferenceCount, 14)
+		XCTAssertEqual(benchmarks.terminologyReferenceCount, 47)
+		XCTAssertTrue(benchmarks.measurements.allSatisfy { item in
+			catalog.contains { $0.internalName == item.internalName }
+				&& item.terminologyCorrect == item.medicalTermsCorrect + item.technicalTermsCorrect
+		})
+		let turbo = try XCTUnwrap(benchmarks.measurement(
+			for: "openai_whisper-large-v3-v20240930_turbo",
+			configuration: .punctuationSuppressed
+		))
+		XCTAssertEqual(turbo.literalCommandsRecognized, 14)
+		XCTAssertEqual(turbo.automaticPunctuationCount, 0)
+		XCTAssertNil(benchmarks.measurement(for: "apple-speechanalyzer-dictation", configuration: .natural))
+	}
 
   func testCanaryPromptUsesExplicitGermanAndEnglishLanguageTokens() throws {
 		let vocabulary: [Int: String] = [
@@ -73,57 +129,6 @@ final class LocalASRModelCatalogTests: XCTestCase {
 		let vocabulary = [16053: "▁"]
 		XCTAssertThrowsError(try CanaryPromptFactory.prompt(language: nil, vocabulary: vocabulary))
 		XCTAssertThrowsError(try CanaryPromptFactory.prompt(language: "it", vocabulary: vocabulary))
-	}
-
-	func testMediformMedicalGermanCheckpointIsExplicitlyPinnedAndExperimental() throws {
-		let mediform = try XCTUnwrap(LocalASRModelCatalog.load().first {
-			$0.internalName == MediformInstallationValidator.modelName
-		})
-		XCTAssertEqual(mediform.backend, .mediformParakeetCoreML)
-		XCTAssertEqual(mediform.repository, MediformInstallationValidator.repository)
-		XCTAssertEqual(mediform.revision, MediformInstallationValidator.revision)
-		XCTAssertEqual(mediform.precision, "FP16 encoder · FluidAudio-compatible Core ML")
-		XCTAssertEqual(MediformInstallationValidator.archiveSize, 1_128_173_433)
-		XCTAssertEqual(MediformInstallationValidator.archiveSHA256.count, 64)
-		XCTAssertTrue(mediform.experimental)
-		XCTAssertEqual(mediform.languages.first, "de")
-	}
-
-	func testMediformInstallManifestRequiresAllCoreMLComponents() throws {
-		let root = FileManager.default.temporaryDirectory
-			.appendingPathComponent("LocalASR-MediformTest-\(UUID().uuidString)", isDirectory: true)
-		defer { try? FileManager.default.removeItem(at: root) }
-		try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-
-		for name in MediformInstallationValidator.requiredComponents {
-			let url = root.appendingPathComponent(name)
-			if name.hasSuffix(".mlmodelc") {
-				try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-				try Data([0x01]).write(to: url.appendingPathComponent("model.bin"))
-			} else {
-				try Data("vocabulary".utf8).write(to: url)
-			}
-		}
-
-		try MediformInstallationValidator.createManifest(at: root)
-		XCTAssertTrue(MediformInstallationValidator.isInstalled(at: root))
-
-		try FileManager.default.removeItem(at: root.appendingPathComponent("JointDecisionv3.mlmodelc"))
-		XCTAssertFalse(MediformInstallationValidator.isInstalled(at: root))
-	}
-
-	func testMediformRejectsEnglishBeforeLoadingGermanOnlyWeights() async throws {
-		let mediform = try XCTUnwrap(LocalASRModelCatalog.load().first {
-			$0.internalName == MediformInstallationValidator.modelName
-		})
-		let adapter = AdditionalFluidAudioASRClient()
-		do {
-			try await adapter.validateLanguage(mediform, language: "en")
-			XCTFail("The German-only medical model must reject English before model loading.")
-		} catch {
-			XCTAssertTrue(error.localizedDescription.contains("de"))
-		}
-		try await adapter.validateLanguage(mediform, language: "de")
 	}
 
 	func testOmiMedicalEnglishCheckpointHasPinnedFP16CoreMLArtifacts() throws {

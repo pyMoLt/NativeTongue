@@ -4,11 +4,12 @@ import PackageDescription
 let package = Package(
   name: "LocalASRSpeech",
   platforms: [
-    .macOS("15.0"),
+    .macOS("26.0"),
   ],
   products: [
     .library(name: "Qwen3ASR", targets: ["Qwen3ASR"]),
     .library(name: "AudioCommon", targets: ["AudioCommon"]),
+    .library(name: "CohereTranscribeASR", targets: ["CohereTranscribeASR"]),
   ],
   dependencies: [
     .package(
@@ -45,6 +46,16 @@ let package = Package(
         .product(name: "MLX", package: "mlx-swift"),
         .product(name: "MLXNN", package: "mlx-swift"),
         .product(name: "MLXFast", package: "mlx-swift"),
+      ]
+    ),
+    .target(
+      name: "CohereTranscribeASR",
+      dependencies: [
+        "AudioCommon",
+        .product(name: "MLX", package: "mlx-swift"),
+        .product(name: "MLXNN", package: "mlx-swift"),
+        .product(name: "MLXFast", package: "mlx-swift"),
+        .product(name: "MLXFFT", package: "mlx-swift"),
       ]
     ),
   ]

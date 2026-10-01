@@ -29,6 +29,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var openOnLogin: Bool
 	public var showDockIcon: Bool
 	public var selectedModel: String
+	public var idleUnloadMinutes: Int
 	public var dictationMode: DictationMode
 	public var asrProfile: ASRProfile
 	public var profileModelSelections: [ASRProfile: String]
@@ -51,18 +52,37 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var pasteLastTranscriptHotkey: HotKey?
 	public var hasCompletedModelBootstrap: Bool
 	public var hasCompletedStorageMigration: Bool
-	public var hasDismissedRustBetaBanner: Bool
 	public var wordRemovalsEnabled: Bool
 	public var wordRemovals: [WordRemoval]
 	public var wordRemappings: [WordRemapping]
 	public var lowercaseTranscripts: Bool
 	public var removePunctuation: Bool
+	public var autoReplaceTermsLiteral: Bool
+	public var activeLexiconPacks: [String]
+	public var hasMigratedLexicon: Bool
+	public var dictationBoxEnabledNormal: Bool
+	public var dictationBoxEnabledLiteral: Bool
+	public var boxFontName: String
+	public var boxFontSize: Double
+	public var boxOutputFormat: OutputFormat
+	public var englishCommandsEnabled: Bool
+	public var agentFormattingEnabled: Bool
+	public var numberFormattingEnabled: Bool
+	public var hasCompletedV2Onboarding: Bool
+	/// Per-model „Kontext-Biasing (experimentell)“; missing = model default.
+	public var modelBiasing: [String: Bool]
+	/// Model for literal mode; empty = same as `selectedModel` (plan 5.12).
+	public var literalModel: String
+	/// Optional local, content-free metrics file (About → Diagnostics).
+	public var diagnosticsEnabled: Bool
 
 	private mutating func normalizeSettings() {
 		if !doubleTapLockEnabled {
 			useDoubleTapOnly = false
 		}
-		spokenCommandPauseSeconds = min(max(spokenCommandPauseSeconds, 0.25), 1.0)
+		spokenCommandPauseSeconds = min(max(spokenCommandPauseSeconds, 0.25), 1.2)
+		if ![0, 2, 5, 10, 30].contains(idleUnloadMinutes) { idleUnloadMinutes = 10 }
+		boxFontSize = min(max(boxFontSize, 11), 28)
 		if !selectedModel.isEmpty, profileModelSelections[asrProfile] == nil {
 			profileModelSelections[asrProfile] = selectedModel
 		}
@@ -75,6 +95,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		openOnLogin: Bool = false,
 		showDockIcon: Bool = true,
 		selectedModel: String = "",
+		idleUnloadMinutes: Int = 10,
 		dictationMode: DictationMode = .normal,
 		asrProfile: ASRProfile = .general,
 		profileModelSelections: [ASRProfile: String] = [:],
@@ -97,12 +118,26 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		pasteLastTranscriptHotkey: HotKey? = HexSettings.defaultPasteLastTranscriptHotkey,
 		hasCompletedModelBootstrap: Bool = false,
 		hasCompletedStorageMigration: Bool = false,
-		hasDismissedRustBetaBanner: Bool = false,
 		wordRemovalsEnabled: Bool = false,
 		wordRemovals: [WordRemoval] = HexSettings.defaultWordRemovals,
 		wordRemappings: [WordRemapping] = [],
 		lowercaseTranscripts: Bool = false,
-		removePunctuation: Bool = false
+		removePunctuation: Bool = false,
+		autoReplaceTermsLiteral: Bool = true,
+		activeLexiconPacks: [String] = [],
+		hasMigratedLexicon: Bool = false,
+		dictationBoxEnabledNormal: Bool = false,
+		dictationBoxEnabledLiteral: Bool = true,
+		boxFontName: String = "",
+		boxFontSize: Double = 15,
+		boxOutputFormat: OutputFormat = .richText,
+		englishCommandsEnabled: Bool = true,
+		agentFormattingEnabled: Bool = true,
+		numberFormattingEnabled: Bool = true,
+		hasCompletedV2Onboarding: Bool = false,
+		modelBiasing: [String: Bool] = [:],
+		literalModel: String = "",
+		diagnosticsEnabled: Bool = false
 	) {
 		self.soundEffectsEnabled = soundEffectsEnabled
 		self.soundEffectsVolume = soundEffectsVolume
@@ -110,10 +145,11 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.openOnLogin = openOnLogin
 		self.showDockIcon = showDockIcon
 		self.selectedModel = selectedModel
+		self.idleUnloadMinutes = idleUnloadMinutes
 		self.dictationMode = dictationMode
 		self.asrProfile = asrProfile
 		self.profileModelSelections = profileModelSelections
-		self.spokenCommandPauseSeconds = min(max(spokenCommandPauseSeconds, 0.25), 1.0)
+		self.spokenCommandPauseSeconds = min(max(spokenCommandPauseSeconds, 0.25), 1.2)
 		self.generalVocabulary = generalVocabulary
 		self.medicalVocabulary = medicalVocabulary
 		self.technicalVocabulary = technicalVocabulary
@@ -132,12 +168,26 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.pasteLastTranscriptHotkey = pasteLastTranscriptHotkey
 		self.hasCompletedModelBootstrap = hasCompletedModelBootstrap
 		self.hasCompletedStorageMigration = hasCompletedStorageMigration
-		self.hasDismissedRustBetaBanner = hasDismissedRustBetaBanner
 		self.wordRemovalsEnabled = wordRemovalsEnabled
 		self.wordRemovals = wordRemovals
 		self.wordRemappings = wordRemappings
 		self.lowercaseTranscripts = lowercaseTranscripts
 		self.removePunctuation = removePunctuation
+		self.autoReplaceTermsLiteral = autoReplaceTermsLiteral
+		self.activeLexiconPacks = activeLexiconPacks
+		self.hasMigratedLexicon = hasMigratedLexicon
+		self.dictationBoxEnabledNormal = dictationBoxEnabledNormal
+		self.dictationBoxEnabledLiteral = dictationBoxEnabledLiteral
+		self.boxFontName = boxFontName
+		self.boxFontSize = boxFontSize
+		self.boxOutputFormat = boxOutputFormat
+		self.englishCommandsEnabled = englishCommandsEnabled
+		self.agentFormattingEnabled = agentFormattingEnabled
+		self.numberFormattingEnabled = numberFormattingEnabled
+		self.hasCompletedV2Onboarding = hasCompletedV2Onboarding
+		self.modelBiasing = modelBiasing
+		self.literalModel = literalModel
+		self.diagnosticsEnabled = diagnosticsEnabled
 		normalizeSettings()
 	}
 
@@ -167,6 +217,26 @@ public extension HexSettings {
 		}
 	}
 
+	/// Lexicon terms are sent as model context only where this is enabled.
+	/// Default on for Qwen/Apple (robust, with leak guard), off for Whisper
+	/// (prompts dropped passages in the 2026-09-26 benchmark) and others.
+	func isBiasingEnabled(for model: String) -> Bool {
+		if let value = modelBiasing[model] { return value }
+		return model.hasPrefix("qwen3-asr") || model.hasPrefix("apple-speechanalyzer")
+	}
+
+	/// Model used for a dictation in `mode` (literal may use its own model).
+	func model(for mode: DictationMode) -> String {
+		mode == .literal && !literalModel.isEmpty ? literalModel : selectedModel
+	}
+
+	/// Model for the currently selected mode.
+	var activeModel: String { model(for: dictationMode) }
+
+	func dictationBoxEnabled(for mode: DictationMode) -> Bool {
+		mode == .literal ? dictationBoxEnabledLiteral : dictationBoxEnabledNormal
+	}
+
 	var activeTerminologyPrompt: String? {
 		ASRTerminologyContext.prompt(profile: asrProfile, additionalTerms: activeVocabulary)
 	}
@@ -181,6 +251,7 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case openOnLogin
 	case showDockIcon
 	case selectedModel
+	case idleUnloadMinutes
 	case dictationMode
 	case asrProfile
 	case profileModelSelections
@@ -204,12 +275,26 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case pasteLastTranscriptHotkey
 	case hasCompletedModelBootstrap
 	case hasCompletedStorageMigration
-	case hasDismissedRustBetaBanner
 	case wordRemovalsEnabled
 	case wordRemovals
 	case wordRemappings
 	case lowercaseTranscripts
 	case removePunctuation
+	case autoReplaceTermsLiteral
+	case activeLexiconPacks
+	case hasMigratedLexicon
+	case dictationBoxEnabledNormal
+	case dictationBoxEnabledLiteral
+	case boxFontName
+	case boxFontSize
+	case boxOutputFormat
+	case englishCommandsEnabled
+	case agentFormattingEnabled
+	case numberFormattingEnabled
+	case hasCompletedV2Onboarding
+	case modelBiasing
+	case literalModel
+	case diagnosticsEnabled
 }
 
 private struct SettingsField<Value: Codable & Sendable> {
@@ -276,6 +361,7 @@ private enum HexSettingsSchema {
 		SettingsField(.openOnLogin, keyPath: \.openOnLogin, default: defaults.openOnLogin).eraseToAny(),
 		SettingsField(.showDockIcon, keyPath: \.showDockIcon, default: defaults.showDockIcon).eraseToAny(),
 		SettingsField(.selectedModel, keyPath: \.selectedModel, default: defaults.selectedModel).eraseToAny(),
+		SettingsField(.idleUnloadMinutes, keyPath: \.idleUnloadMinutes, default: defaults.idleUnloadMinutes).eraseToAny(),
 		SettingsField(.dictationMode, keyPath: \.dictationMode, default: defaults.dictationMode).eraseToAny(),
 		SettingsField(.asrProfile, keyPath: \.asrProfile, default: defaults.asrProfile).eraseToAny(),
 		SettingsField(.profileModelSelections, keyPath: \.profileModelSelections, default: defaults.profileModelSelections).eraseToAny(),
@@ -339,7 +425,6 @@ private enum HexSettingsSchema {
 		).eraseToAny(),
 		SettingsField(.hasCompletedModelBootstrap, keyPath: \.hasCompletedModelBootstrap, default: defaults.hasCompletedModelBootstrap).eraseToAny(),
 		SettingsField(.hasCompletedStorageMigration, keyPath: \.hasCompletedStorageMigration, default: defaults.hasCompletedStorageMigration).eraseToAny(),
-		SettingsField(.hasDismissedRustBetaBanner, keyPath: \.hasDismissedRustBetaBanner, default: defaults.hasDismissedRustBetaBanner).eraseToAny(),
 		SettingsField(.wordRemovalsEnabled, keyPath: \.wordRemovalsEnabled, default: defaults.wordRemovalsEnabled).eraseToAny(),
 		SettingsField(
 			.wordRemovals,
@@ -352,6 +437,21 @@ private enum HexSettingsSchema {
 			default: defaults.wordRemappings
 		).eraseToAny(),
 		SettingsField(.lowercaseTranscripts, keyPath: \.lowercaseTranscripts, default: defaults.lowercaseTranscripts).eraseToAny(),
-		SettingsField(.removePunctuation, keyPath: \.removePunctuation, default: defaults.removePunctuation).eraseToAny()
+		SettingsField(.removePunctuation, keyPath: \.removePunctuation, default: defaults.removePunctuation).eraseToAny(),
+		SettingsField(.autoReplaceTermsLiteral, keyPath: \.autoReplaceTermsLiteral, default: defaults.autoReplaceTermsLiteral).eraseToAny(),
+		SettingsField(.activeLexiconPacks, keyPath: \.activeLexiconPacks, default: defaults.activeLexiconPacks).eraseToAny(),
+		SettingsField(.hasMigratedLexicon, keyPath: \.hasMigratedLexicon, default: defaults.hasMigratedLexicon).eraseToAny(),
+		SettingsField(.dictationBoxEnabledNormal, keyPath: \.dictationBoxEnabledNormal, default: defaults.dictationBoxEnabledNormal).eraseToAny(),
+		SettingsField(.dictationBoxEnabledLiteral, keyPath: \.dictationBoxEnabledLiteral, default: defaults.dictationBoxEnabledLiteral).eraseToAny(),
+		SettingsField(.boxFontName, keyPath: \.boxFontName, default: defaults.boxFontName).eraseToAny(),
+		SettingsField(.boxFontSize, keyPath: \.boxFontSize, default: defaults.boxFontSize).eraseToAny(),
+		SettingsField(.boxOutputFormat, keyPath: \.boxOutputFormat, default: defaults.boxOutputFormat).eraseToAny(),
+		SettingsField(.englishCommandsEnabled, keyPath: \.englishCommandsEnabled, default: defaults.englishCommandsEnabled).eraseToAny(),
+		SettingsField(.agentFormattingEnabled, keyPath: \.agentFormattingEnabled, default: defaults.agentFormattingEnabled).eraseToAny(),
+		SettingsField(.numberFormattingEnabled, keyPath: \.numberFormattingEnabled, default: defaults.numberFormattingEnabled).eraseToAny(),
+		SettingsField(.hasCompletedV2Onboarding, keyPath: \.hasCompletedV2Onboarding, default: defaults.hasCompletedV2Onboarding).eraseToAny(),
+		SettingsField(.modelBiasing, keyPath: \.modelBiasing, default: defaults.modelBiasing).eraseToAny(),
+		SettingsField(.literalModel, keyPath: \.literalModel, default: defaults.literalModel).eraseToAny(),
+		SettingsField(.diagnosticsEnabled, keyPath: \.diagnosticsEnabled, default: defaults.diagnosticsEnabled).eraseToAny()
 	]
 }

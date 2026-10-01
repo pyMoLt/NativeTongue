@@ -17,21 +17,35 @@ struct AppFeature {
 		case modelMissingFlash
 	}
 
-  enum ActiveTab: Equatable {
-    case settings
-    case audioImport
-    case remappings
+  enum ActiveTab: Equatable, CaseIterable {
+    case dictation
+    case models
+    case vocabulary
+    case commands
+    case dictationBox
+    case files
     case history
+    case settings
+    case remappings
     case about
+  }
+
+  struct ModelStatus: Equatable {
+    var loadedModel: String?
+    var footprintMB: Int?
   }
 
 	@ObservableState
 	struct State {
 		var transcription: TranscriptionFeature.State = .init()
-		var audioImport: AudioImportFeature.State = .init()
+		var files: FileTranscriptionFeature.State = .init()
 		var settings: SettingsFeature.State = .init()
 		var history: HistoryFeature.State = .init()
-		var activeTab: ActiveTab = .settings
+		var lexicon: LexiconFeature.State = .init()
+		var dictationBox: DictationBoxFeature.State = .init()
+		var activeTab: ActiveTab = .dictation
+		var modelStatus = ModelStatus()
+		var isOnboardingPresented = false
 		@Shared(.hexSettings) var hexSettings: HexSettings
 		@Shared(.modelBootstrapState) var modelBootstrapState: ModelBootstrapState
 
@@ -44,10 +58,23 @@ struct AppFeature {
   enum Action: BindableAction {
     case binding(BindingAction<State>)
     case transcription(TranscriptionFeature.Action)
-    case audioImport(AudioImportFeature.Action)
+    case files(FileTranscriptionFeature.Action)
     case settings(SettingsFeature.Action)
     case history(HistoryFeature.Action)
+    case lexicon(LexiconFeature.Action)
+    case dictationBox(DictationBoxFeature.Action)
     case setActiveTab(ActiveTab)
+    case refreshModelStatus
+    case modelStatusLoaded(String?, Int?)
+    case unloadModel
+    case presentOnboarding(Bool)
+    case finishOnboarding
+    case lexiconMigrated
+    case openFiles([URL])
+    case exportSettings
+    case importSettings
+    case settingsImported(SettingsTransfer)
+    case settingsTransferFailed(String)
     case task
     case pasteLastTranscript
 
@@ -62,6 +89,7 @@ struct AppFeature {
   @Dependency(\.pasteboard) var pasteboard
   @Dependency(\.transcription) var transcription
   @Dependency(\.permissions) var permissions
+  @Dependency(\.lexicon) var lexicon
 
   var body: some ReducerOf<Self> {
     BindingReducer()
@@ -70,8 +98,8 @@ struct AppFeature {
       TranscriptionFeature()
     }
 
-    Scope(state: \.audioImport, action: \.audioImport) {
-      AudioImportFeature()
+    Scope(state: \.files, action: \.files) {
+      FileTranscriptionFeature()
     }
 
     Scope(state: \.settings, action: \.settings) {
@@ -80,6 +108,14 @@ struct AppFeature {
 
     Scope(state: \.history, action: \.history) {
       HistoryFeature()
+    }
+
+    Scope(state: \.lexicon, action: \.lexicon) {
+      LexiconFeature()
+    }
+
+    Scope(state: \.dictationBox, action: \.dictationBox) {
+      DictationBoxFeature()
     }
 
     Reduce { state, action in
@@ -91,7 +127,9 @@ struct AppFeature {
         return .merge(
           startPasteLastTranscriptMonitoring(),
           ensureSelectedModelReadiness(),
-          startPermissionMonitoring()
+          startPermissionMonitoring(),
+          promptForPendingRecordingRecovery(),
+          prepareLexicon(state: state)
         )
         
       case .pasteLastTranscript:
@@ -104,8 +142,8 @@ struct AppFeature {
         }
         
       case .transcription(.modelMissing):
-        HexLog.app.notice("Model missing - activating app and switching to settings")
-        state.activeTab = .settings
+        HexLog.app.notice("Model missing - activating app and switching to models")
+        state.activeTab = .models
         state.settings.shouldFlashModelSection = true
         return .run { send in
           await MainActor.run {
@@ -117,13 +155,35 @@ struct AppFeature {
         }
 		.cancellable(id: CancelID.modelMissingFlash, cancelInFlight: true)
 
+      case .transcription(.startRecording):
+        // Open the dictation box on the first hotkey of a box session (plan 5.8).
+        guard state.transcription.isRecording else { return .none }
+        let mode = state.hexSettings.dictationMode
+        var effects: [Effect<Action>] = []
+        if !state.dictationBox.isPresented, state.hexSettings.dictationBoxEnabled(for: mode) {
+          let frontmost = NSWorkspace.shared.frontmostApplication
+          let isSelf = frontmost?.bundleIdentifier == Bundle.main.bundleIdentifier
+          effects.append(.send(.dictationBox(.present(
+            targetBundleID: isSelf ? nil : frontmost?.bundleIdentifier,
+            targetAppName: isSelf ? nil : frontmost?.localizedName,
+            mode: mode
+          ))))
+        }
+        if state.dictationBox.isPresented || state.hexSettings.dictationBoxEnabled(for: mode) {
+          effects.append(.send(.dictationBox(.recordingStarted)))
+        }
+        return .concatenate(effects)
+
+      case let .transcription(.boxDictationFinished(output, audioURL)):
+        return .send(.dictationBox(.dictationFinished(output, audioURL)))
+
       case .transcription:
         return .none
 
-      case .audioImport(.openModelSettings):
-        state.activeTab = .settings
+      case .dictationBox:
         return .none
-      case .audioImport:
+
+      case .files:
         return .none
 
       case .settings(.requestMicrophone):
@@ -159,9 +219,95 @@ struct AppFeature {
         return .none
       case .history:
         return .none
+      case .lexicon:
+        return .none
 		case let .setActiveTab(tab):
 			state.activeTab = tab
 			return .none
+
+      case .refreshModelStatus:
+        return .run { [transcription] send in
+          let loaded = await transcription.loadedModel()
+          let bytes = await transcription.processFootprintBytes()
+          await send(.modelStatusLoaded(loaded, bytes.map { Int($0 / 1_048_576) }))
+        }
+
+      case let .modelStatusLoaded(loaded, megabytes):
+        state.modelStatus = ModelStatus(loadedModel: loaded, footprintMB: megabytes)
+        return .none
+
+      case .unloadModel:
+        return .run { [transcription] send in
+          await transcription.unloadModel()
+          await send(.refreshModelStatus)
+        }
+
+      case let .presentOnboarding(presented):
+        state.isOnboardingPresented = presented
+        return .none
+
+      case .exportSettings:
+        let settings = state.hexSettings
+        return .run { [lexicon] _ in
+          let transfer = SettingsTransfer(settings: settings, userLexicon: await lexicon.userLexicon())
+          guard let data = try? transfer.encoded() else { return }
+          await MainActor.run {
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = "\(AppBrand.name) Settings.json"
+            panel.allowedContentTypes = [.json]
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            try? data.write(to: url, options: .atomic)
+          }
+        }
+
+      case .importSettings:
+        return .run { send in
+          let url = await MainActor.run { () -> URL? in
+            let panel = NSOpenPanel()
+            panel.allowedContentTypes = [.json]
+            panel.allowsMultipleSelection = false
+            return panel.runModal() == .OK ? panel.url : nil
+          }
+          guard let url else { return }
+          do {
+            await send(.settingsImported(try SettingsTransfer.decode(Data(contentsOf: url))))
+          } catch {
+            await send(.settingsTransferFailed(error.localizedDescription))
+          }
+        }
+
+      case let .settingsImported(transfer):
+        let applied = transfer.settingsToApply(onto: state.hexSettings)
+        state.$hexSettings.withLock { $0 = applied }
+        let lexiconValue = transfer.userLexicon
+        return .run { [lexicon] send in
+          try? await lexicon.saveUserLexicon(lexiconValue)
+          await lexicon.warmUp(applied.activeLexiconPacks)
+          await send(.lexicon(.task))
+        }
+
+      case let .settingsTransferFailed(message):
+        return .run { _ in
+          await MainActor.run {
+            let alert = NSAlert()
+            alert.messageText = "Import failed"
+            alert.informativeText = message
+            alert.runModal()
+          }
+        }
+
+      case let .openFiles(urls):
+        state.activeTab = .files
+        return .send(.files(.addFiles(urls)))
+
+      case .lexiconMigrated:
+        state.$hexSettings.withLock { $0.hasMigratedLexicon = true }
+        return .none
+
+      case .finishOnboarding:
+        state.isOnboardingPresented = false
+        state.$hexSettings.withLock { $0.hasCompletedV2Onboarding = true }
+        return .none
 
       // Permission handling
       case .checkPermissions:
@@ -253,6 +399,85 @@ struct AppFeature {
     }
   }
 
+  /// One-time migration of V1 vocabulary/remappings into the user lexicon,
+  /// then build the pack index in the background.
+  private func prepareLexicon(state: State) -> Effect<Action> {
+    // Plain values only: no `withLock` on shared settings from a background effect
+    // (lock-order deadlock with dependency initialization, see HexAppDelegate).
+    let settings = state.hexSettings
+    return .run { [lexicon] send in
+      if !settings.hasMigratedLexicon {
+        do {
+          try await lexicon.migrate(settings)
+          await send(.lexiconMigrated)
+        } catch {
+          HexLog.app.error("Lexicon migration failed: \(error.localizedDescription, privacy: .private)")
+        }
+      }
+      await lexicon.warmUp(settings.activeLexiconPacks)
+    }
+  }
+
+  private func promptForPendingRecordingRecovery() -> Effect<Action> {
+    .run { send in
+      guard !isTesting else { return }
+      do {
+        let store = try RecordingRecoveryStore()
+        let pending = try store.pendingRecordings()
+        // An unconfirmed dictation box wins: its text already contains all dictations.
+        if let draft = DictationBoxDraftStore.load() {
+          let restore = await MainActor.run { () -> Bool in
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            alert.messageText = "Restore unsent dictation?"
+            alert.informativeText = "The dictation box was neither inserted nor discarded (\(BoxTextEditing.wordCount(draft.string)) words). The text is stored only on this Mac."
+            alert.addButton(withTitle: "Restore")
+            alert.addButton(withTitle: "Discard")
+            return alert.runModal() == .alertFirstButtonReturn
+          }
+          for recording in pending { try? store.remove(recording) }
+          if restore {
+            await send(.dictationBox(.restoreDraft(draft)))
+          } else {
+            DictationBoxDraftStore.remove()
+          }
+          return
+        }
+        guard let newest = pending.first else { return }
+
+        let response = await MainActor.run { () -> NSApplication.ModalResponse in
+          NSApp.activate(ignoringOtherApps: true)
+          let alert = NSAlert()
+          alert.alertStyle = .warning
+          alert.messageText = "Unfinished local dictation found"
+          let countDescription = pending.count == 1
+            ? "One interrupted recording is still stored on this Mac."
+            : "\(pending.count) interrupted recordings are still stored on this Mac."
+          let dateString = DateFormatter.localizedString(from: newest.createdAt, dateStyle: .medium, timeStyle: .short)
+          alert.informativeText = "\(countDescription) The newest is from \(dateString). Recovering will transcribe it locally."
+          alert.addButton(withTitle: "Recover newest")
+          alert.addButton(withTitle: "Later")
+          alert.addButton(withTitle: "Discard all")
+          return alert.runModal()
+        }
+
+        switch response {
+        case .alertFirstButtonReturn:
+          await send(.transcription(.recoverRecording(newest.url)))
+        case .alertThirdButtonReturn:
+          for recording in pending {
+            try store.remove(recording)
+          }
+          HexLog.app.notice("Discarded pending local recordings count=\(pending.count)")
+        default:
+          break
+        }
+      } catch {
+        HexLog.app.error("Failed to inspect recording recovery items: \(error.localizedDescription, privacy: .private)")
+      }
+    }
+  }
+
   private func startPermissionMonitoring() -> Effect<Action> {
     .run { send in
       // Initial check on app launch
@@ -268,79 +493,4 @@ struct AppFeature {
     }
   }
 
-}
-
-struct AppView: View {
-  @Bindable var store: StoreOf<AppFeature>
-  @State private var columnVisibility = NavigationSplitViewVisibility.automatic
-
-  var body: some View {
-    NavigationSplitView(columnVisibility: $columnVisibility) {
-      List(selection: $store.activeTab) {
-        Button {
-          store.send(.setActiveTab(.settings))
-        } label: {
-          Label("Settings", systemImage: "gearshape")
-        }
-        .buttonStyle(.plain)
-        .tag(AppFeature.ActiveTab.settings)
-
-        Button {
-          store.send(.setActiveTab(.audioImport))
-        } label: {
-          Label("Import Audio", systemImage: "waveform")
-        }
-        .buttonStyle(.plain)
-        .tag(AppFeature.ActiveTab.audioImport)
-
-        Button {
-          store.send(.setActiveTab(.remappings))
-        } label: {
-          Label("Transforms", systemImage: "text.badge.plus")
-        }
-        .buttonStyle(.plain)
-        .tag(AppFeature.ActiveTab.remappings)
-
-        Button {
-          store.send(.setActiveTab(.history))
-        } label: {
-          Label("History", systemImage: "clock")
-        }
-        .buttonStyle(.plain)
-        .tag(AppFeature.ActiveTab.history)
-
-        Button {
-          store.send(.setActiveTab(.about))
-        } label: {
-          Label("About", systemImage: "info.circle")
-        }
-        .buttonStyle(.plain)
-        .tag(AppFeature.ActiveTab.about)
-      }
-    } detail: {
-      switch store.state.activeTab {
-      case .settings:
-        SettingsView(
-          store: store.scope(state: \.settings, action: \.settings),
-          microphonePermission: store.microphonePermission,
-          accessibilityPermission: store.accessibilityPermission,
-          inputMonitoringPermission: store.inputMonitoringPermission
-        )
-        .navigationTitle("Settings")
-      case .audioImport:
-        AudioImportView(store: store.scope(state: \.audioImport, action: \.audioImport))
-          .navigationTitle("Import Audio")
-      case .remappings:
-        WordRemappingsView(store: store.scope(state: \.settings, action: \.settings))
-          .navigationTitle("Transforms")
-      case .history:
-        HistoryView(store: store.scope(state: \.history, action: \.history))
-          .navigationTitle("History")
-      case .about:
-        AboutView(store: store.scope(state: \.settings, action: \.settings))
-          .navigationTitle("About")
-      }
-    }
-    .enableInjection()
-  }
 }

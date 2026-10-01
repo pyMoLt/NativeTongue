@@ -12,6 +12,7 @@ import Foundation
 import HexCore
 import Hub
 import Tokenizers
+import AudioCommon
 import WhisperKit
 
 private let transcriptionLogger = HexLog.transcription
@@ -47,9 +48,46 @@ struct TranscriptionClient {
 
   /// Lists model variants from the app-bundled catalog. This must not access the network.
   var getAvailableModels: @Sendable () async throws -> [String]
+
+  /// V2: transcribes one pause-segmented utterance (16 kHz mono) with the
+  /// model-specific options (punctuation policy, language, optional biasing).
+  var transcribeSamples: @Sendable ([Float], String, RequestOptions) async throws -> EngineResult
+
+  /// Loads an installed model ahead of use (hotkey press). Never downloads.
+  var prewarm: @Sendable (String) async throws -> Void
+
+  /// Unloads whatever model is resident (idle timeout, memory pressure).
+  var unloadModel: @Sendable () async -> Void
+
+  /// Name of the resident model, if any.
+  var loadedModel: @Sendable () async -> String? = { nil }
+
+  /// Configures automatic unloading after 0, 2, 5, 10, or 30 idle minutes.
+  var configureIdleUnload: @Sendable (Int) async -> Void = { _ in }
+
+  /// Current process footprint. Core ML/ANE allocations may not all be included.
+  var processFootprintBytes: @Sendable () async -> UInt64? = { nil }
 }
 
 extension TranscriptionClient: DependencyKey {
+  /// Keep the XCTest app host side-effect free. Engine integration tests opt in
+  /// to `liveValue` explicitly, while feature tests override only what they use.
+  static var testValue: Self {
+    Self(
+      transcribe: { _, _, _, _ in throw NSError(domain: "TranscriptionClient.testValue", code: 1) },
+      downloadModel: { _, _ in throw NSError(domain: "TranscriptionClient.testValue", code: 1) },
+      deleteModel: { _ in throw NSError(domain: "TranscriptionClient.testValue", code: 1) },
+      isModelDownloaded: { _ in false },
+      getAvailableModels: { [] },
+      transcribeSamples: { _, _, _ in throw NSError(domain: "TranscriptionClient.testValue", code: 1) },
+      prewarm: { _ in throw NSError(domain: "TranscriptionClient.testValue", code: 1) },
+      unloadModel: {},
+      loadedModel: { nil },
+      configureIdleUnload: { _ in },
+      processFootprintBytes: { nil }
+    )
+  }
+
   static var liveValue: Self {
     let live = TranscriptionClientLive()
     return Self(
@@ -57,7 +95,13 @@ extension TranscriptionClient: DependencyKey {
       downloadModel: { try await live.downloadAndLoadModel(variant: $0, progressCallback: $1) },
       deleteModel: { try await live.deleteModel(variant: $0) },
       isModelDownloaded: { await live.isModelDownloaded($0) },
-      getAvailableModels: { try await live.getAvailableModels() }
+      getAvailableModels: { try await live.getAvailableModels() },
+      transcribeSamples: { try await live.transcribe(samples: $0, model: $1, options: $2) },
+      prewarm: { try await live.prewarm(model: $0) },
+      unloadModel: { await live.unloadModel() },
+      loadedModel: { await live.loadedModelName() },
+      configureIdleUnload: { await live.configureIdleUnload(minutes: $0) },
+      processFootprintBytes: { await live.processFootprintBytes() }
     )
   }
 }
@@ -80,8 +124,21 @@ actor TranscriptionClientLive {
   private var parakeet: ParakeetClient = ParakeetClient()
   private var qwen: QwenASRClient = QwenASRClient()
   private var additionalFluidAudio = AdditionalFluidAudioASRClient()
+  private var cohere = CohereMLXASRClient()
+  private var appleSpeech = AppleSpeechASRClient()
+  /// Punctuation-only token IDs per Whisper model (literal-mode decoder mask).
+  private var whisperPunctuationTokens: [String: [Int]] = [:]
   private var isInstallingModel = false
   private var activeTranscriptions = 0
+  private var prewarmTask: Task<Void, Error>?
+  private var idleUnloadMinutes = 10
+  private var idleUnloadTask: Task<Void, Never>?
+  private var idleUnloadGeneration: UInt64 = 0
+  private let idleUnloadDelayForTesting: Duration?
+
+  init(idleUnloadDelayForTesting: Duration? = nil) {
+    self.idleUnloadDelayForTesting = idleUnloadDelayForTesting
+  }
 
   /// The base folder under which we store model data (e.g., ~/Library/Application Support/...).
   private lazy var modelsBaseFolder: URL = {
@@ -97,11 +154,15 @@ actor TranscriptionClientLive {
   /// Installs (only when explicitly requested by the model UI) and loads a model.
   /// Inference uses `loadInstalledModel` instead and never downloads.
   func downloadAndLoadModel(variant: String, progressCallback: @escaping (Progress) -> Void) async throws {
-    guard !isInstallingModel, activeTranscriptions == 0 else {
+    guard !isInstallingModel, activeTranscriptions == 0, prewarmTask == nil else {
       throw operationBusyError()
     }
     isInstallingModel = true
-    defer { isInstallingModel = false }
+    cancelIdleUnload()
+    defer {
+      isInstallingModel = false
+      scheduleIdleUnload()
+    }
 
     // Resolve wildcard patterns (e.g., "distil*large-v3") to a concrete variant
     let variant = await resolveVariant(variant)
@@ -128,9 +189,20 @@ actor TranscriptionClientLive {
       try await qwen.ensureLoaded(descriptor, progress: progressCallback)
       currentModelName = variant
       return
-    case .canaryFluidAudioCoreML, .cohereFluidAudioCoreML, .mediformParakeetCoreML, .omiMedicalParakeetCoreML:
+    case .canaryFluidAudioCoreML, .omiMedicalParakeetCoreML:
       if currentModelName != variant { await unloadCurrentModel() }
       try await additionalFluidAudio.ensureLoaded(descriptor, progress: progressCallback)
+      currentModelName = variant
+      return
+    case .cohereMLX:
+      if currentModelName != variant { await unloadCurrentModel() }
+      try await cohere.install(progress: progressCallback)
+      try await cohere.load()
+      currentModelName = variant
+      return
+    case .appleSpeechAnalyzer:
+      if currentModelName != variant { await unloadCurrentModel() }
+      try await appleSpeech.install(progress: progressCallback)
       currentModelName = variant
       return
     case .whisperKitCoreML:
@@ -185,7 +257,7 @@ actor TranscriptionClientLive {
 
   /// Deletes a model from disk if it exists
   func deleteModel(variant: String) async throws {
-    guard !isInstallingModel, activeTranscriptions == 0 else {
+    guard !isInstallingModel, activeTranscriptions == 0, prewarmTask == nil else {
       throw operationBusyError()
     }
     let descriptor = try LocalASRModelCatalog.descriptor(named: variant)
@@ -199,9 +271,18 @@ actor TranscriptionClientLive {
       if currentModelName == variant { currentModelName = nil }
       return
     }
-    if descriptor.backend == .canaryFluidAudioCoreML || descriptor.backend == .cohereFluidAudioCoreML
-      || descriptor.backend == .mediformParakeetCoreML || descriptor.backend == .omiMedicalParakeetCoreML {
+    if descriptor.backend == .canaryFluidAudioCoreML || descriptor.backend == .omiMedicalParakeetCoreML {
       try await additionalFluidAudio.deleteModel(descriptor)
+      if currentModelName == variant { currentModelName = nil }
+      return
+    }
+    if descriptor.backend == .cohereMLX {
+      try await cohere.delete()
+      if currentModelName == variant { currentModelName = nil }
+      return
+    }
+    if descriptor.backend == .appleSpeechAnalyzer {
+      // System-managed assets; nothing app-owned to delete.
       if currentModelName == variant { currentModelName = nil }
       return
     }
@@ -236,9 +317,14 @@ actor TranscriptionClientLive {
     if descriptor.backend == .qwen3MLX {
       return await qwen.isModelAvailable(descriptor)
     }
-    if descriptor.backend == .canaryFluidAudioCoreML || descriptor.backend == .cohereFluidAudioCoreML
-      || descriptor.backend == .mediformParakeetCoreML || descriptor.backend == .omiMedicalParakeetCoreML {
+    if descriptor.backend == .canaryFluidAudioCoreML || descriptor.backend == .omiMedicalParakeetCoreML {
       return await additionalFluidAudio.isModelAvailable(descriptor)
+    }
+    if descriptor.backend == .cohereMLX {
+      return await cohere.isInstalled()
+    }
+    if descriptor.backend == .appleSpeechAnalyzer {
+      return await appleSpeech.isInstalled()
     }
     let modelFolderPath = modelPath(for: modelName).path
     let fileManager = FileManager.default
@@ -269,18 +355,35 @@ actor TranscriptionClientLive {
     options: ASRTranscriptionOptions,
     progressCallback: @escaping (Progress) -> Void
   ) async throws -> TranscriptionOutput {
+    if let prewarmTask { try await prewarmTask.value }
+    let model = await resolveVariant(model)
+    let descriptor = try LocalASRModelCatalog.descriptor(named: model)
+    if descriptor.backend == .cohereMLX || descriptor.backend == .appleSpeechAnalyzer {
+      let samples = try AudioFileLoader.load(url: url, targetSampleRate: 16_000)
+      let result = try await transcribe(
+        samples: samples,
+        model: model,
+        options: RequestOptions(language: options.decoding.language, punctuation: .natural)
+      )
+      return TranscriptionOutput(
+        text: result.text,
+        wordTimings: result.words.map { TranscriptWordTiming(word: $0.text, startTime: $0.start, endTime: $0.end) }
+      )
+    }
+
     guard !isInstallingModel, activeTranscriptions == 0 else {
       throw operationBusyError()
     }
     activeTranscriptions += 1
-    defer { activeTranscriptions -= 1 }
+    cancelIdleUnload()
+    defer {
+      activeTranscriptions -= 1
+      scheduleIdleUnload()
+    }
 
     let startAll = Date()
-    let model = await resolveVariant(model)
-    let descriptor = try LocalASRModelCatalog.descriptor(named: model)
-
     if descriptor.backend == .parakeetFluidAudioCoreML {
-      transcriptionLogger.notice("Transcribing with Parakeet model=\(model) file=\(url.lastPathComponent)")
+      transcriptionLogger.notice("Transcribing with Parakeet model=\(model)")
       let startLoad = Date()
       try await loadInstalledModel(variant: model, progressCallback: progressCallback)
       transcriptionLogger.info("Parakeet ensureLoaded took \(String(format: "%.2f", Date().timeIntervalSince(startLoad)))s")
@@ -294,7 +397,7 @@ actor TranscriptionClientLive {
     }
 
     if descriptor.backend == .qwen3MLX {
-      transcriptionLogger.notice("Transcribing with Qwen3-ASR model=\(model) file=\(url.lastPathComponent)")
+      transcriptionLogger.notice("Transcribing with Qwen3-ASR model=\(model)")
       let startLoad = Date()
       try await loadInstalledModel(variant: model, progressCallback: progressCallback)
       transcriptionLogger.info("Qwen3-ASR ensureLoaded took \(String(format: "%.2f", Date().timeIntervalSince(startLoad)))s")
@@ -309,8 +412,8 @@ actor TranscriptionClientLive {
       return output
     }
 
-    if descriptor.backend == .mediformParakeetCoreML || descriptor.backend == .omiMedicalParakeetCoreML {
-      transcriptionLogger.notice("Transcribing with \(descriptor.displayName) model=\(model) file=\(url.lastPathComponent)")
+    if descriptor.backend == .omiMedicalParakeetCoreML {
+      transcriptionLogger.notice("Transcribing with \(descriptor.displayName) model=\(model)")
       try await additionalFluidAudio.validateLanguage(descriptor, language: options.decoding.language)
       let startLoad = Date()
       try await loadInstalledModel(variant: model, progressCallback: progressCallback)
@@ -321,9 +424,9 @@ actor TranscriptionClientLive {
       return output
     }
 
-    if descriptor.backend == .canaryFluidAudioCoreML || descriptor.backend == .cohereFluidAudioCoreML {
+    if descriptor.backend == .canaryFluidAudioCoreML {
       try await additionalFluidAudio.validateLanguage(descriptor, language: options.decoding.language)
-      transcriptionLogger.notice("Transcribing with \(descriptor.displayName) model=\(model) file=\(url.lastPathComponent)")
+      transcriptionLogger.notice("Transcribing with \(descriptor.displayName) model=\(model)")
       let startLoad = Date()
       try await loadInstalledModel(variant: model, progressCallback: progressCallback)
       transcriptionLogger.info("\(descriptor.displayName) local load took \(String(format: "%.2f", Date().timeIntervalSince(startLoad)))s")
@@ -357,7 +460,7 @@ actor TranscriptionClientLive {
     }
 
     // Perform the transcription.
-    transcriptionLogger.notice("Transcribing with WhisperKit model=\(model) file=\(url.lastPathComponent)")
+    transcriptionLogger.notice("Transcribing with WhisperKit model=\(model)")
     let startTx = Date()
     var decodeOptions = options.decoding
     if let terminologyContext = options.terminologyContext,
@@ -377,6 +480,122 @@ actor TranscriptionClientLive {
       .map { TranscriptWordTiming(word: $0.word, startTime: Double($0.start), endTime: Double($0.end)) }
       .sorted { $0.startTime < $1.startTime }
     return TranscriptionOutput(text: text, wordTimings: wordTimings)
+  }
+
+  // MARK: - V2 samples API
+
+  func prewarm(model: String) async throws {
+    let model = await resolveVariant(model)
+    guard !model.isEmpty else { return }
+    if let prewarmTask { try await prewarmTask.value }
+    guard !isInstallingModel, activeTranscriptions == 0 else { throw operationBusyError() }
+    cancelIdleUnload()
+    let task = Task { [self] in
+      defer {
+        prewarmTask = nil
+        scheduleIdleUnload()
+      }
+      try await loadInstalledModel(variant: model) { _ in }
+    }
+    prewarmTask = task
+    try await task.value
+  }
+
+  func unloadModel() async {
+    guard !isInstallingModel, activeTranscriptions == 0, prewarmTask == nil else { return }
+    await unloadCurrentModel()
+  }
+
+  func loadedModelName() -> String? { currentModelName }
+
+  func configureIdleUnload(minutes: Int) {
+    idleUnloadMinutes = [0, 2, 5, 10, 30].contains(minutes) ? minutes : 10
+    scheduleIdleUnload()
+  }
+
+  func processFootprintBytes() -> UInt64? { ProcessMemoryMeter.currentFootprintBytes() }
+
+  func transcribe(samples: [Float], model: String, options: RequestOptions) async throws -> EngineResult {
+    if let prewarmTask { try await prewarmTask.value }
+    guard !isInstallingModel, activeTranscriptions == 0 else { throw operationBusyError() }
+    activeTranscriptions += 1
+    cancelIdleUnload()
+    defer {
+      activeTranscriptions -= 1
+      scheduleIdleUnload()
+    }
+
+    let model = await resolveVariant(model)
+    let descriptor = try LocalASRModelCatalog.descriptor(named: model)
+    try await loadInstalledModel(variant: model) { _ in }
+
+    let result: EngineResult
+    switch descriptor.backend {
+    case .parakeetFluidAudioCoreML:
+      result = try await parakeet.transcribe(samples: samples, language: options.language)
+    case .qwen3MLX:
+      result = try await qwen.transcribe(samples: samples, options: options)
+    case .canaryFluidAudioCoreML, .omiMedicalParakeetCoreML:
+      result = try await additionalFluidAudio.transcribe(descriptor, samples: samples, options: options)
+    case .cohereMLX:
+      result = try await cohere.transcribe(samples: samples, options: options)
+    case .appleSpeechAnalyzer:
+      result = try await appleSpeech.transcribe(samples: samples, options: options)
+    case .whisperKitCoreML:
+      result = try await transcribeWhisper(samples: samples, model: model, options: options)
+    }
+    return EngineResultNormalizer.apply(result, punctuation: options.punctuation)
+  }
+
+  private func transcribeWhisper(samples: [Float], model: String, options: RequestOptions) async throws -> EngineResult {
+    guard let whisperKit else {
+      throw NSError(domain: "TranscriptionClient", code: -1, userInfo: [
+        NSLocalizedDescriptionKey: "Failed to initialize WhisperKit for model: \(model)",
+      ])
+    }
+    guard !samples.isEmpty else { return EngineResult(text: "") }
+    var decode = DecodingOptions(
+      language: options.language,
+      temperatureFallbackCount: WhisperDecodingPolicy.temperatureFallbackCount,
+      detectLanguage: options.language == nil,
+      wordTimestamps: true,
+      chunkingStrategy: samples.count > 29 * 16_000 ? .vad : ChunkingStrategy.none
+    )
+    if options.punctuation == .suppressed, let tokenizer = whisperKit.tokenizer {
+      if whisperPunctuationTokens[model] == nil {
+        let punctuation = CharacterSet(charactersIn: ".,;:!?")
+        var ids: [Int] = []
+        for id in 0..<tokenizer.specialTokens.specialTokenBegin {
+          let piece = tokenizer.decode(tokens: [id]).trimmingCharacters(in: .whitespaces)
+          if !piece.isEmpty, piece.unicodeScalars.allSatisfy({ punctuation.contains($0) }) { ids.append(id) }
+        }
+        whisperPunctuationTokens[model] = ids
+      }
+      decode.supressTokens += whisperPunctuationTokens[model] ?? []
+    }
+    func run(_ options: DecodingOptions) async throws -> EngineResult {
+      let results = try await whisperKit.transcribe(audioArray: samples, decodeOptions: options)
+      let text = results.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespaces)
+      let words = results.flatMap(\.segments).flatMap { $0.words ?? [] }.map {
+        EngineWord(text: $0.word, start: Double($0.start), end: Double($0.end), confidence: $0.probability)
+      }
+      return EngineResult(
+        text: text,
+        words: words,
+        detectedLanguage: results.first?.language,
+        punctuationWasSuppressed: options.supressTokens.isEmpty == false
+      )
+    }
+    let terms = Array(options.biasTerms.prefix(30))
+    if !terms.isEmpty, let tokenizer = whisperKit.tokenizer {
+      // Experimental: Whisper prompts can drop whole passages (benchmark 2026-09-26).
+      var prompted = decode
+      prompted.promptTokens = tokenizer.encode(text: " " + terms.joined(separator: ", "))
+      let result = try await run(prompted)
+      if BiasLeakGuard.leakedRange(in: result.text, biasTerms: terms) == nil { return result }
+      transcriptionLogger.notice("Whisper prompt leak detected; re-decoding without prompt")
+    }
+    return try await run(decode)
   }
 
   // MARK: - Private Helpers
@@ -423,10 +642,22 @@ actor TranscriptionClientLive {
       return
     }
 
-    if descriptor.backend == .canaryFluidAudioCoreML || descriptor.backend == .cohereFluidAudioCoreML
-      || descriptor.backend == .mediformParakeetCoreML || descriptor.backend == .omiMedicalParakeetCoreML {
+    if descriptor.backend == .canaryFluidAudioCoreML || descriptor.backend == .omiMedicalParakeetCoreML {
       if currentModelName != variant { await unloadCurrentModel() }
       try await additionalFluidAudio.loadInstalled(descriptor, progress: progressCallback)
+      currentModelName = variant
+      return
+    }
+
+    if descriptor.backend == .cohereMLX {
+      if currentModelName != variant { await unloadCurrentModel() }
+      try await cohere.load()
+      currentModelName = variant
+      return
+    }
+
+    if descriptor.backend == .appleSpeechAnalyzer {
+      if currentModelName != variant { await unloadCurrentModel() }
       currentModelName = variant
       return
     }
@@ -512,7 +743,7 @@ actor TranscriptionClientLive {
         progressCallback(completed)
         return
       } catch {
-        modelsLogger.notice("Local Whisper tokenizer validation failed; refreshing tokenizer assets during explicit installation: \(error.localizedDescription)")
+        modelsLogger.notice("Local Whisper tokenizer validation failed; refreshing tokenizer assets during explicit installation: \(error.localizedDescription, privacy: .private)")
       }
     }
 
@@ -565,6 +796,7 @@ actor TranscriptionClientLive {
 
   // Releases both backend objects before another model is loaded.
   private func unloadCurrentModel() async {
+    cancelIdleUnload()
     if let whisperKit {
       await whisperKit.unloadModels()
     }
@@ -573,6 +805,44 @@ actor TranscriptionClientLive {
     await parakeet.unload()
     await qwen.unload()
     await additionalFluidAudio.unload()
+    await cohere.unload()
+  }
+
+  private func cancelIdleUnload() {
+    // A canceled timer may already have resumed and queued an actor call.
+    // Invalidate that call as well, not only the sleeping task.
+    idleUnloadGeneration &+= 1
+    idleUnloadTask?.cancel()
+    idleUnloadTask = nil
+  }
+
+  private func scheduleIdleUnload() {
+    cancelIdleUnload()
+    guard let modelName = currentModelName,
+          idleUnloadMinutes > 0,
+          !isInstallingModel,
+          prewarmTask == nil,
+          activeTranscriptions == 0 else { return }
+    let minutes = idleUnloadMinutes
+    let generation = idleUnloadGeneration
+    let delay = idleUnloadDelayForTesting ?? .seconds(minutes * 60)
+    idleUnloadTask = Task { [weak self] in
+      do { try await Task.sleep(for: delay) }
+      catch { return }
+      await self?.unloadIfStillIdle(modelName: modelName, generation: generation)
+    }
+  }
+
+  private func unloadIfStillIdle(modelName: String, generation: UInt64) async {
+    guard generation == idleUnloadGeneration,
+          currentModelName == modelName,
+          !isInstallingModel,
+          prewarmTask == nil,
+          activeTranscriptions == 0 else { return }
+    // Avoid canceling the timer task while it awaits the model unload.
+    idleUnloadTask = nil
+    await unloadCurrentModel()
+    modelsLogger.info("Unloaded idle ASR model")
   }
 
   /// Downloads the model to a temporary folder (if it isn't already on disk),
@@ -622,13 +892,13 @@ actor TranscriptionClientLive {
       // Move the downloaded snapshot to the final location
       try moveContents(of: tempFolder, to: modelFolder)
 
-      modelsLogger.info("Downloaded model to \(modelFolder.path)")
+      modelsLogger.info("Downloaded model assets")
     } catch {
       // Clean up any partial download if an error occurred
       FileManager.default.removeItemIfExists(at: modelFolder)
 
       // Rethrow the original error
-      modelsLogger.error("Error downloading model \(variant): \(error.localizedDescription)")
+      modelsLogger.error("Error downloading model \(variant): \(error.localizedDescription, privacy: .private)")
       throw error
     }
   }
@@ -692,4 +962,14 @@ actor TranscriptionClientLive {
       try fileManager.moveItem(at: src, to: dst)
     }
   }
+}
+
+/// Whisper decoding policy. WhisperKit's default (5 fallbacks) re-samples failed
+/// segments at rising temperatures with random top-k sampling, so the same audio
+/// gave a different transcript on every run. Measured 2026-09-26 on the
+/// terminology recording (Turbo, 3 runs each): fallback 5 → 3 different texts,
+/// fallback 0 → identical texts, same term score (32/47 natural, 31/47 literal)
+/// and WER. Greedy decoding is therefore the default.
+enum WhisperDecodingPolicy {
+  nonisolated(unsafe) static var temperatureFallbackCount = 0
 }

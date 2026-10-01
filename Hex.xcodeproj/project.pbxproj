@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C0DE00112F2B000000000011 /* CohereTranscribeASR in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE00122F2B000000000012 /* CohereTranscribeASR */; };
 		4F0D6A012F1A000100000001 /* HexCore in Frameworks */ = {isa = PBXBuildFile; productRef = 476316262E5FB31400913CDE /* HexCore */; };
 		4F0D6A022F1A000100000001 /* ComposableArchitecture in Frameworks */ = {isa = PBXBuildFile; productRef = 47E05E012D444EE900D26DA6 /* ComposableArchitecture */; };
 		4F0D6A042F1A000100000001 /* Sharing in Frameworks */ = {isa = PBXBuildFile; productRef = 4F0D6A072F1A000100000001 /* Sharing */; };
@@ -115,6 +116,7 @@
 				A17B00022F25092500000002 /* Tokenizers in Frameworks */,
 				A17B00212F25092500000021 /* Qwen3ASR in Frameworks */,
 				A17B00222F25092500000022 /* AudioCommon in Frameworks */,
+				C0DE00112F2B000000000011 /* CohereTranscribeASR in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -203,6 +205,7 @@
 			);
 			name = Hex;
 			packageProductDependencies = (
+				C0DE00122F2B000000000012 /* CohereTranscribeASR */,
 				47E05E012D444EE900D26DA6 /* ComposableArchitecture */,
 				47E05E042D444EF800D26DA6 /* Sauce */,
 				47E05E092D44525B00D26DA6 /* Dependencies */,
@@ -325,15 +328,15 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 92;
+				CURRENT_PROJECT_VERSION = 200;
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 0.8.5;
+				MARKETING_VERSION = 2.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.pymolt.NativeTongueTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Hex Debug.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Hex Debug";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/NativeTongue Debug.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/NativeTongue Debug";
 			};
 			name = Debug;
 		};
@@ -342,15 +345,15 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 92;
+				CURRENT_PROJECT_VERSION = 200;
 				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 0.8.5;
+				MARKETING_VERSION = 2.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.pymolt.NativeTongueTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Hex.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Hex";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/NativeTongue.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/NativeTongue";
 			};
 			name = Release;
 		};
@@ -409,7 +412,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -469,7 +472,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
@@ -489,7 +492,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 92;
+				CURRENT_PROJECT_VERSION = 200;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Hex/Preview Content\"";
 				DEVELOPMENT_TEAM = "";
@@ -508,23 +511,27 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Hex/Info.plist;
-				INFOPLIST_KEY_CFBundleName = "Local ASR";
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Local ASR needs to simulate paste so dictated text can be inserted into the active app.";
+				INFOPLIST_KEY_CFBundleName = NativeTongue;
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "NativeTongue needs to simulate paste so dictated text can be inserted into the active app.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Local ASR needs microphone access to transcribe your voice on this Mac.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "NativeTongue needs microphone access to transcribe your voice on this Mac.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 0.8.5;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 2.0.0;
 				OTHER_LDFLAGS = (
 					"-Xlinker",
 					"-interposable",
+					"-framework",
+					IssueReporting,
+					"-framework",
+					PerceptionCore,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.pymolt.NativeTongue.debug;
 				PRODUCT_MODULE_NAME = Hex;
-				PRODUCT_NAME = "Hex Debug";
+				PRODUCT_NAME = "NativeTongue Debug";
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
 				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
@@ -547,7 +554,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 92;
+				CURRENT_PROJECT_VERSION = 200;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Hex/Preview Content\"";
 				DEVELOPMENT_TEAM = "";
@@ -565,18 +572,19 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Hex/Info.plist;
-				INFOPLIST_KEY_CFBundleName = "Local ASR";
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Local ASR needs to simulate paste so dictated text can be inserted into the active app.";
+				INFOPLIST_KEY_CFBundleName = NativeTongue;
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "NativeTongue needs to simulate paste so dictated text can be inserted into the active app.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Local ASR needs microphone access to transcribe your voice on this Mac.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "NativeTongue needs microphone access to transcribe your voice on this Mac.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 0.8.5;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 2.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.pymolt.NativeTongue;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_MODULE_NAME = Hex;
+				PRODUCT_NAME = NativeTongue;
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
 				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
@@ -817,6 +825,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = B5045C952D78DED500D0A119 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
 			productName = MarkdownUI;
+		};
+		C0DE00122F2B000000000012 /* CohereTranscribeASR */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A17B00232F25092500000023 /* XCLocalSwiftPackageReference "LocalASRSpeech" */;
+			productName = CohereTranscribeASR;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

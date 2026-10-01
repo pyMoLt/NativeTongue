@@ -31,6 +31,12 @@ extension SharedReaderKey
   static var isRemappingScratchpadFocused: Self {
     Self[.inMemory("isRemappingScratchpadFocused"), default: false]
   }
+
+  /// The dictation box is open: results go into the box instead of being pasted,
+  /// and box voice commands („Text übertragen“, „buchstabieren“) are active.
+  static var isDictationBoxPresented: Self {
+    Self[.inMemory("isDictationBoxPresented"), default: false]
+  }
 }
 
 // MARK: - Settings Feature
@@ -66,7 +72,6 @@ struct SettingsFeature {
 
     // Existing
     case task
-    case dismissRustBetaBanner
     case startSettingHotKey
     case startSettingPasteLastTranscriptHotkey
     case clearPasteLastTranscriptHotkey
@@ -84,6 +89,7 @@ struct SettingsFeature {
     case setDictationMode(DictationMode)
 	case setASRProfile(ASRProfile)
 	case setSpokenCommandPause(Double)
+	case setIdleUnloadMinutes(Int)
 	case setProfileVocabulary(ASRProfile, String)
     case setOutputLanguage(String?)
     case setSelectedMicrophoneID(String?)
@@ -227,10 +233,6 @@ struct SettingsFeature {
 
     Reduce { state, action in
       switch action {
-      case .dismissRustBetaBanner:
-        state.$hexSettings.withLock { $0.hasDismissedRustBetaBanner = true }
-        return .none
-
       case .binding:
         let didNormalizeDoubleTapOnly = !state.hexSettings.doubleTapLockEnabled && state.hexSettings.useDoubleTapOnly
         if didNormalizeDoubleTapOnly {
@@ -252,7 +254,9 @@ struct SettingsFeature {
         }
 
         // Listen for key events and load microphones (existing + new)
+        let idleUnloadMinutes = state.hexSettings.idleUnloadMinutes
         return .run { send in
+          await transcription.configureIdleUnload(idleUnloadMinutes)
           func audioPropertyAddress(
             _ selector: AudioObjectPropertySelector,
             scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal,
@@ -520,6 +524,11 @@ struct SettingsFeature {
 		}
 		return .none
 
+	  case let .setIdleUnloadMinutes(minutes):
+		let normalized = [0, 2, 5, 10, 30].contains(minutes) ? minutes : 10
+		state.$hexSettings.withLock { $0.idleUnloadMinutes = normalized }
+		return .run { _ in await transcription.configureIdleUnload(normalized) }
+
 	  case let .setProfileVocabulary(profile, vocabulary):
 		state.$hexSettings.withLock { settings in
 			switch profile {
@@ -620,5 +629,18 @@ struct SettingsFeature {
 
       }
     }
+  }
+}
+
+struct LastTranscript: Equatable, Sendable {
+  var text: String
+  var date: Date
+  var appName: String?
+}
+
+extension SharedReaderKey where Self == InMemoryKey<LastTranscript?>.Default {
+  /// Last inserted dictation (menu bar „Last transcript“), kept in memory only.
+  static var lastTranscript: Self {
+    Self[.inMemory("lastTranscript"), default: nil]
   }
 }

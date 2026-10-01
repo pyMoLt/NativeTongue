@@ -31,6 +31,9 @@ struct RecordingClient {
   var stopRecording: @Sendable () async -> RecordingStopResult = { .ignored(.noActiveRecording) }
   var requestMicrophoneAccess: @Sendable () async -> Bool = { false }
   var observeAudioLevel: @Sendable () async -> AsyncStream<Meter> = { AsyncStream { _ in } }
+  var liveAudio: @Sendable () async -> AsyncStream<AudioChunk> = {
+    AsyncStream { continuation in continuation.finish() }
+  }
   var getAvailableInputDevices: @Sendable () async -> [AudioInputDevice] = { [] }
   var getDefaultInputDeviceName: @Sendable () async -> String? = { nil }
   var warmUpRecorder: @Sendable () async -> Void = {}
@@ -48,6 +51,7 @@ extension RecordingClient: DependencyKey {
       stopRecording: { await live.stopRecording() },
       requestMicrophoneAccess: { await live.requestMicrophoneAccess() },
       observeAudioLevel: { await live.observeAudioLevel() },
+      liveAudio: { await live.liveAudio() },
       getAvailableInputDevices: { await live.getAvailableInputDevices() },
       getDefaultInputDeviceName: { await live.getDefaultInputDeviceName() },
       warmUpRecorder: { await live.warmUpRecorder() },
@@ -1045,8 +1049,8 @@ actor RecordingClientLive {
     return getDefaultInputDevice()
   }
 
-  private func makeCaptureRecordingURL() -> URL {
-    FileManager.default.temporaryDirectory.appendingPathComponent("hex-capture-\(UUID().uuidString).wav")
+  private func makeCaptureRecordingURL() throws -> URL {
+    try RecordingRecoveryStore().makeCaptureURL()
   }
 
   nonisolated static func shouldIgnoreStopRequest(
@@ -1309,7 +1313,7 @@ actor RecordingClientLive {
 
     do {
       try ensureCaptureControllerReadyAfterDeferredRestart(for: activeInputDevice, reason: "startRecording")
-      let recordingURL = makeCaptureRecordingURL()
+      let recordingURL = try makeCaptureRecordingURL()
       try captureController.beginRecording(to: recordingURL, requestedAt: startRequestAt, mode: mode)
       let startedAt = Date()
       activeRecordingSession = ActiveRecordingSession(
@@ -1654,6 +1658,10 @@ actor RecordingClientLive {
 
   func observeAudioLevel() -> AsyncStream<Meter> {
     meterStream
+  }
+
+  func liveAudio() -> AsyncStream<AudioChunk> {
+    captureController.liveAudio()
   }
 
   func warmUpRecorder() async {

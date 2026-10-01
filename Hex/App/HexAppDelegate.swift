@@ -7,6 +7,7 @@ private let cacheLogger = HexLog.caches
 
 class HexAppDelegate: NSObject, NSApplicationDelegate {
 	var invisibleWindow: InvisibleWindow?
+	var dictationBoxController: DictationBoxPanelController?
 	var settingsWindow: NSWindow?
 	var statusItem: NSStatusItem!
 	private var launchedAtLogin = false
@@ -20,6 +21,7 @@ class HexAppDelegate: NSObject, NSApplicationDelegate {
 		}
 
 		DiagnosticsLogging.bootstrapIfNeeded()
+		resolveLiveDependenciesEagerly()
 		// Ensure Parakeet/FluidAudio caches live under Application Support, not ~/.cache
 		configureLocalCaches()
 
@@ -54,6 +56,7 @@ class HexAppDelegate: NSObject, NSApplicationDelegate {
 
 		// Then present main views
 		presentMainView()
+		dictationBoxController = DictationBoxPanelController(store: HexApp.appStore)
 
 		guard shouldOpenForegroundUIOnLaunch else {
 			appLogger.notice("Suppressing foreground windows for login launch")
@@ -79,6 +82,30 @@ class HexAppDelegate: NSObject, NSApplicationDelegate {
 
 		return event.eventID == AEEventID(kAEOpenApplication)
 			&& event.paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?.enumCodeValue == AEEventClass(keyAELaunchedAsLogInItem)
+	}
+
+	/// Several live clients create `@Shared(.hexSettings)` in their initializer.
+	/// If that first initialization happens on a background effect while another
+	/// thread mutates the settings (`withLock`), swift-dependencies' cache lock and
+	/// swift-sharing's reference lock are taken in opposite order → deadlock at
+	/// launch (hang report 2026-09-26 18:37). Resolve them once, on the main
+	/// thread, before any effect starts.
+	private func resolveLiveDependenciesEagerly() {
+		@Dependency(\.recording) var recording
+		@Dependency(\.pasteboard) var pasteboard
+		@Dependency(\.keyEventMonitor) var keyEventMonitor
+		@Dependency(\.soundEffects) var soundEffects
+		@Dependency(\.transcription) var transcription
+		@Dependency(\.lexicon) var lexicon
+		_ = (recording, pasteboard, keyEventMonitor, soundEffects, transcription, lexicon)
+	}
+
+	/// Audio/video files dropped on the Dock icon or opened with the app.
+	func application(_ application: NSApplication, open urls: [URL]) {
+		let files = urls.filter { AudioImportFileValidator.isSupportedAudioFile($0) }
+		guard !files.isEmpty else { return }
+		HexApp.appStore.send(.openFiles(files))
+		presentSettingsView()
 	}
 
 	private func startLifecycleTasksIfNeeded() {
