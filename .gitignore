@@ -9,7 +9,8 @@ updates/
 *.xcuserstate
 buildServer.json
 bin
-scripts
+scripts/*
+!scripts/build-dist.sh
 tools
 ExportOptions.plist
 HexCore/.build

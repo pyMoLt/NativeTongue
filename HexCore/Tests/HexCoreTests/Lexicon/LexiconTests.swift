@@ -66,6 +66,16 @@ final class LexiconCorrectorTests: XCTestCase {
 		}
 	}
 
+	func testFiveWordMedicalAliasAppliesInNormalAndLiteral() {
+		let entry = LexiconEntry(term: "ST-Hebungsinfarkt der Vorderwand", lang: "de", category: "user",
+			aliases: ["ST Hebungs Infarkt der Vorderwand"], autoReplace: true)
+		for mode in [DictationMode.normal, .literal] {
+			let corrector = corrector(mode: mode, user: [entry])
+			XCTAssertEqual(run("Verdacht auf ST Hebungs Infarkt der Vorderwand heute", corrector),
+				"Verdacht auf ST-Hebungsinfarkt der Vorderwand heute")
+		}
+	}
+
 	func testCasingForBrandsAndMultiWordTerms() {
 		let corrector = corrector()
 		XCTAssertEqual(run("auf Github und der Nervus Vagus", corrector), "auf GitHub und der Nervus vagus")

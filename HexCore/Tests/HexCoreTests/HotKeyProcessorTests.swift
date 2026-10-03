@@ -932,3 +932,19 @@ struct MouseClickTests {
         #expect(clickOutput == .discard)
     }
 }
+
+struct HotKeyProcessorAbandonTests {
+    @Test
+    func abandonedPressNeedsFullReleaseBeforeNextStart() {
+        withDependencies { $0.date.now = Date(timeIntervalSince1970: 0) } operation: {
+        var processor = HotKeyProcessor(hotkey: HotKey(key: .a, modifiers: [.command]))
+        #expect(processor.process(keyEvent: KeyEvent(key: .a, modifiers: [.command])) == .startRecording)
+        processor.abandonCurrentPress()
+        #expect(processor.isMatched == false)
+        // Still holding the chord: no new start until the chord is released.
+        #expect(processor.process(keyEvent: KeyEvent(key: .a, modifiers: [.command])) == nil)
+        _ = processor.process(keyEvent: KeyEvent(key: nil, modifiers: []))
+        #expect(processor.process(keyEvent: KeyEvent(key: .a, modifiers: [.command])) == .startRecording)
+        }
+    }
+}

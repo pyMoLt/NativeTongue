@@ -146,6 +146,20 @@ final class DictationBoxFeatureTests: XCTestCase {
     XCTAssertEqual(learned.value.first?.aliases, ["Gwen"])
   }
 
+  func testManualMultiwordReplacementOffersOptionalLexiconAlias() async throws {
+    let store = makeStore()
+    await store.send(.present(targetBundleID: nil, targetAppName: nil, mode: .normal))
+    await store.send(.dictationFinished(output("wir nutzen Vox Drill heute", mode: .normal), try tempAudio()))
+    let range = (store.state.text.string as NSString).range(of: "Vox Drill")
+    await store.send(.selectionChanged(range))
+    let changed = store.state.text.string.replacingOccurrences(of: "Vox Drill", with: "Voxtral")
+    await store.send(.textEdited(BoxText(NSAttributedString(string: changed)), selection: NSRange(location: range.location + 7, length: 0)))
+    XCTAssertEqual(store.state.learnCandidates.first?.original, "Vox Drill")
+    XCTAssertEqual(store.state.learnCandidates.first?.replacement, "Voxtral")
+    await store.send(.confirmTapped)
+    XCTAssertEqual(store.state.phase, .learning)
+  }
+
   /// B3: hovering a misrecognized word offers the lexicon term; click replaces.
   func testSuggestionReplacesWord() async throws {
     let store = makeStore()

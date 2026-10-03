@@ -1,6 +1,9 @@
+import AudioCommon
 import AVFoundation
+import ComposableArchitecture
 import Foundation
 import HexCore
+import LocalLLM
 import Qwen3ASR
 import XCTest
 
@@ -150,6 +153,296 @@ final class EngineSmokeTests: XCTestCase {
 		for term in ["Mycophenolatmofetil", "PostgreSQL", "AVFoundation"] {
 			XCTAssertTrue(output.text.contains(term), "missing \(term); variants \(variants); corrections \(corrections.map { "\($0.original)→\($0.replacement)" })")
 		}
+	}
+
+	/// Same production path as Normal direct dictation and the dictation box;
+	/// keep complete outputs for WER and technical/medical term scoring.
+	func testNormalTerminologyAccuracyReport() async throws {
+		let samples = try loadFixture("Terminology-de-en.m4a")
+		let client = TranscriptionClient.liveValue
+		let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+		let packSource = root.appendingPathComponent("dev-docs/06-wortlisten/packs", isDirectory: true)
+		let store = LexiconStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("accuracy-lexicon-\(UUID().uuidString)"))
+		defer { try? FileManager.default.removeItem(at: store.directory) }
+		var packs: [String] = []
+		for id in ["technical", "medical-de", "anatomy-la"] {
+			let url = packSource.appendingPathComponent("\(id).json")
+			if FileManager.default.fileExists(atPath: url.path) { packs.append(try store.importPack(from: url).id) }
+		}
+		let service = LexiconService(store: store)
+		let runner = DictationSessionRunner(transcribeSamples: client.transcribeSamples,
+			corrector: { await service.corrector($0) })
+		let report = URL(fileURLWithPath: "/private/tmp/NativeTongue-QA-20261003", isDirectory: true)
+		try FileManager.default.createDirectory(at: report, withIntermediateDirectories: true)
+		var tested = 0
+		for model in [turbo, "parakeet-ultra-coreml"] where await client.isModelDownloaded(model) {
+			let started = Date()
+			let output = try await runner.run(samples: samples, request: .init(
+				model: model, mode: .normal, commandPauseMs: 450, language: "de",
+				profile: .medical, activePacks: packs
+			))
+			try output.text.write(to: report.appendingPathComponent("batch-\(model).txt"), atomically: true, encoding: .utf8)
+			print("ACCURACY_BATCH model=\(model) seconds=\(Int(Date().timeIntervalSince(started))) words=\(output.text.split(separator: " ").count) corrections=\(output.document.corrections.count)")
+			XCTAssertGreaterThan(output.text.count, 500)
+			tested += 1
+			await client.unloadModel()
+		}
+		if tested == 0 { throw XCTSkip("No selected local ASR engine is installed") }
+	}
+
+	func testRealFileTranscriptionExportsTimedSRTWithoutDownload() async throws {
+		let client = TranscriptionClient.liveValue
+		guard await client.isModelDownloaded(turbo) else { throw XCTSkip("Whisper Turbo not installed") }
+		let samples = try loadFixture("Terminology-de-en.m4a")
+		let runner = FileTranscriptionRunner(transcribeSamples: client.transcribeSamples)
+		let segments = try await runner.run(samples: samples, request: .init(model: turbo, mode: .normal, language: "de"))
+		await client.unloadModel()
+		let srt = TranscriptExporter.subtitles(segments, vtt: false)
+		let report = URL(fileURLWithPath: "/private/tmp/NativeTongue-QA-20261003/file-terminology.srt")
+		try srt.write(to: report, atomically: true, encoding: .utf8)
+		XCTAssertGreaterThan(segments.count, 5)
+		XCTAssertTrue(zip(segments, segments.dropFirst()).allSatisfy { $0.start <= $1.start })
+		XCTAssertTrue(srt.hasPrefix("1\n00:00:"))
+		XCTAssertLessThanOrEqual(segments.last?.end ?? 0, Double(samples.count) / 16_000 + 0.5)
+	}
+
+	/// Ablates each production stage on the same real recordings. The personal
+	/// aliases are held in memory and never change the user's own vocabulary.
+	func testRealAudioPipelineAblationsWithAndWithoutAutomaticAI() async throws {
+		let client = TranscriptionClient.liveValue
+		guard await client.isModelDownloaded(turbo) else { throw XCTSkip("Whisper Turbo not installed") }
+		guard let ai = LLMModelCatalog.preferredInstalledForTests() else { throw XCTSkip("No AI model installed") }
+		let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+		let packRoot = root.appendingPathComponent("dev-docs/06-wortlisten/packs", isDirectory: true)
+		let packs = try ["technical", "medical-de", "anatomy-la"].map { id in
+			try JSONDecoder().decode(LexiconPack.self, from: Data(contentsOf: packRoot.appendingPathComponent("\(id).json")))
+		}
+		let packIndex = LexiconIndex(packs: packs)
+		let aliases: [(String, [String])] = [
+			("Mycophenolatmofetil", ["Mycophenolatmophetil", "mycophenolat morphetil"]),
+			("Rivaroxaban", ["Ribaroxaban"]),
+			("Glomerulonephritis", ["Clomerulonephritis", "klomerulonephritis"]),
+			("Urothelkarzinom", ["Urotelkarzinom", "uroT-Karzinum"]),
+			("Pembrolizumab", ["Pemprolizumab", "pemprolizumap"]),
+			("Jejunum", ["Iunum"]),
+			("Tinea corporis", ["Tiniacorpores", "tinia corporis"]),
+			("Musculus vastus lateralis", ["Maskulus vastus lateralis", "Masculus vastus lateralis"]),
+			("ST-Hebungsinfarkt", ["ST Hebungsinfarkt", "ST Hebungs Infarkt"]),
+		]
+		let userEntries = aliases.map { term, variants in
+			LexiconEntry(term: term, lang: "de", category: "user", aliases: variants, autoReplace: true, profile: .medical)
+		}
+		let userIndex = LexiconIndex(userEntries: userEntries)
+		let report = URL(fileURLWithPath: "/private/tmp/NativeTongue-QA-20261003/ablation", isDirectory: true)
+		try FileManager.default.createDirectory(at: report, withIntermediateDirectories: true)
+		let cases: [(String, String, DictationMode, String)] = [
+			("terminology-normal", "Terminology-de-en.m4a", .normal, turbo),
+			("terminology-literal", "Terminology-de-en.m4a", .literal, turbo),
+			("commands-normal", "Literal-controls.m4a", .normal, turbo),
+			("commands-literal", "Literal-controls.m4a", .literal, turbo),
+			("commands-normal-parakeet", "Literal-controls.m4a", .normal, "parakeet-ultra-coreml"),
+		]
+		let stages: [(String, Bool, Bool, Bool)] = [
+			("structure", false, false, false),
+			("format", true, false, false),
+			("pack", false, true, false),
+			("personal", false, false, true),
+			("full", true, true, true),
+		]
+		let llm = LLMHost()
+		for (label, recording, mode, model) in cases where await client.isModelDownloaded(model) {
+			let samples = try loadFixture(recording)
+			let raw = try await client.transcribeSamples(samples, model, RequestOptions(
+				language: "de", punctuation: mode == .literal ? .suppressed : .natural
+			))
+			try raw.text.write(to: report.appendingPathComponent("\(label)-asr.txt"), atomically: true, encoding: .utf8)
+			var stageRawText: String?
+			for (stage, format, usePack, useUser) in stages {
+				let indexes = (useUser ? [userIndex] : []) + (usePack ? [packIndex] : [])
+				let runner = DictationSessionRunner(transcribeSamples: client.transcribeSamples, corrector: { context in
+					guard !indexes.isEmpty else { return nil }
+					return LexiconCorrector(indexes: indexes, wordChecker: SystemWordChecker.shared,
+						options: .init(mode: context.mode, language: context.language, profile: context.profile,
+						               autoReplacePackTermsInLiteral: context.autoReplacePackTermsInLiteral))
+				})
+				let output = try await runner.run(samples: samples, request: .init(
+					model: model, mode: mode, commandPauseMs: 450, language: "de", profile: .medical,
+					activePacks: usePack ? packs.map(\.id) : [], formatNumbers: format,
+					agentFormatting: format, boxOpen: false
+				))
+				if let stageRawText { XCTAssertEqual(output.rawText, stageRawText, "ASR changed across \(label) ablation stages") }
+				else { stageRawText = output.rawText }
+				try output.rawText.write(to: report.appendingPathComponent("\(label)-\(stage)-raw.txt"), atomically: true, encoding: .utf8)
+				try output.text.write(to: report.appendingPathComponent("\(label)-\(stage).txt"), atomically: true, encoding: .utf8)
+				print("ABLATION case=\(label) stage=\(stage) chars=\(output.text.count) corrections=\(output.document.corrections.count)")
+				XCTAssertFalse(output.text.isEmpty)
+				guard stage == "full" else { continue }
+				var settings = HexSettings()
+				settings.dictationMode = mode
+				settings.dictationBoxEnabledLiteral = false
+				settings.postProcessing.enabled = true
+				settings.postProcessing.autoEnabled = true
+				settings.postProcessing.autoScope = .normalAndLiteralWithoutBox
+				let aiRequest = try XCTUnwrap(TranscriptionFeature.automaticPolish(for: output.text, settings: settings))
+				let protected = userEntries.map(\.term).filter { output.text.localizedCaseInsensitiveContains($0) }
+				let request = PolishRequest(text: aiRequest.text, mode: aiRequest.mode, modelID: aiRequest.modelID,
+				                            settings: aiRequest.settings, protectedTerms: protected)
+				let polished = await llm.polish(request, keepAIResultOnIssues: false, onText: nil)
+				try polished.text.write(to: report.appendingPathComponent("\(label)-full-ai.txt"), atomically: true, encoding: .utf8)
+				try ("failed=\(polished.failed) issues=\(polished.issues)\nAI=\(polished.aiText ?? "-")\n")
+					.write(to: report.appendingPathComponent("\(label)-full-ai-meta.txt"), atomically: true, encoding: .utf8)
+				print("ABLATION case=\(label) stage=full-ai changed=\(polished.text != output.text) failed=\(polished.failed) issues=\(polished.issues.count)")
+			}
+		}
+		await llm.unload()
+		await client.unloadModel()
+	}
+
+	@MainActor
+	func testRealLiteralAudioThroughDictationBoxAIAndPaste() async throws {
+		let client = TranscriptionClient.liveValue
+		guard await client.isModelDownloaded(turbo) else { throw XCTSkip("Whisper Turbo not installed") }
+		guard let ai = LLMModelCatalog.descriptor(id: "qwen35-2b-8bit", settings: PostProcessingSettings()),
+		      LLMModelInstaller.isInstalled(repository: ai.repository, baseDirectory: LLMHost.baseDirectory)
+		else { throw XCTSkip("Qwen 2B is not installed") }
+		let samples = try loadFixture("Literal-controls.m4a")
+		let runner = DictationSessionRunner(transcribeSamples: client.transcribeSamples)
+		let output = try await runner.run(samples: samples, request: .init(model: turbo, mode: .literal, commandPauseMs: 450, language: "de"))
+		await client.unloadModel()
+		var settings = HexSettings()
+		settings.postProcessing.enabled = true
+		settings.postProcessing.boxModel = "qwen35-2b-8bit"
+		var state = DictationBoxFeature.State(hexSettings: Shared(value: settings))
+		state.isPresented = true
+		state.mode = .literal
+		let pasted = LockIsolated<[RichPastePayload]>([])
+		let llm = LLMClient.liveValue
+		let store = TestStore(initialState: state) { DictationBoxFeature() } withDependencies: {
+			$0.llm = llm
+			$0.lexicon.userLexicon = { UserLexicon() }
+			$0.pasteboard.pasteRich = { payload in pasted.withValue { $0.append(payload) } }
+		}
+		store.exhaustivity = .off
+		let audio = FileManager.default.temporaryDirectory.appendingPathComponent("box-real-\(UUID().uuidString).wav")
+		try Data([0]).write(to: audio)
+		await store.send(.dictationFinished(output, audio))
+		let before = store.state.text.string
+		await store.send(.aiTapped(.clean))
+		await store.receive(\.aiFinished, timeout: .seconds(60))
+		let after = store.state.text.string
+		let report = URL(fileURLWithPath: "/private/tmp/NativeTongue-QA-20261003", isDirectory: true)
+		try before.write(to: report.appendingPathComponent("box-literal-ai-off.txt"), atomically: true, encoding: .utf8)
+		try after.write(to: report.appendingPathComponent("box-literal-ai-on.txt"), atomically: true, encoding: .utf8)
+		XCTAssertFalse(after.isEmpty)
+		await store.send(.confirmTapped)
+		await store.receive(\.close)
+		XCTAssertEqual(pasted.value.first?.plain, after)
+		XCTAssertFalse(FileManager.default.fileExists(atPath: audio.path))
+	}
+
+	/// Locally synthesized speech is a supplemental probe for spoken values and
+	/// filenames absent from the two human recordings; no model is downloaded.
+	func testSyntheticValuesAndIdentifiersThroughBatchAndStreaming() async throws {
+		let source = URL(fileURLWithPath: "/private/tmp/NativeTongue-QA-20261003/spoken-values-identifiers.aiff")
+		guard FileManager.default.fileExists(atPath: source.path) else { throw XCTSkip("Local TTS probe missing") }
+		let client = TranscriptionClient.liveValue
+		guard await client.isModelDownloaded(turbo) else { throw XCTSkip("Whisper Turbo not installed") }
+		let samples = try AudioFileLoader.load(url: source, targetSampleRate: 16_000)
+		let report = URL(fileURLWithPath: "/private/tmp/NativeTongue-QA-20261003/values-ablation", isDirectory: true)
+		try FileManager.default.createDirectory(at: report, withIntermediateDirectories: true)
+		let stages: [(String, Bool, Bool)] = [
+			("off", false, false), ("numbers", true, false),
+			("code", false, true), ("full", true, true),
+		]
+		let runner = DictationSessionRunner(transcribeSamples: client.transcribeSamples)
+		for mode in [DictationMode.normal, .literal] {
+			for (name, numbers, code) in stages {
+				let result = try await runner.run(samples: samples, request: .init(
+					model: turbo, mode: mode, commandPauseMs: 450, language: "de",
+					formatNumbers: numbers, agentFormatting: code
+				))
+				try result.text.write(to: report.appendingPathComponent("batch-\(mode.rawValue)-\(name).txt"), atomically: true, encoding: .utf8)
+				XCTAssertFalse(result.text.isEmpty)
+			}
+		}
+		let model = turbo
+		let engine = EmulatedStreamingEngine(pauseMs: 600, maxBlockSeconds: 12) { block in
+			try await client.transcribeSamples(block, model, RequestOptions(language: "de", punctuation: .suppressed)).text
+		}
+		try await engine.begin(language: "de")
+		var deltas: [String] = []
+		var index = 0
+		while index < samples.count {
+			let end = min(index + 1_600, samples.count)
+			let update = try await engine.feed(Array(samples[index..<end]))
+			if !update.committed.isEmpty { deltas.append(update.committed) }
+			index = end
+		}
+		let last = try await engine.end().committed
+		if !last.isEmpty { deltas.append(last) }
+		try deltas.joined().write(to: report.appendingPathComponent("streaming-asr.txt"), atomically: true, encoding: .utf8)
+		for (name, numbers, code) in stages {
+			var settings = StreamingSettings()
+			settings.punctuationMode = .literal
+			settings.literalScope = .extended
+			settings.formatNumbers = numbers
+			settings.codeFormatting = code
+			var processor = StreamingTextProcessor(options: .init(settings: settings, language: "de", englishCommands: true, aliases: [:]))
+			var output = ""
+			for delta in deltas { output += processor.push(delta) }
+			output += processor.flush()
+			try output.write(to: report.appendingPathComponent("streaming-literal-\(name).txt"), atomically: true, encoding: .utf8)
+			XCTAssertFalse(output.isEmpty)
+		}
+		await client.unloadModel()
+	}
+
+	func testSyntheticValuesWithParakeetUltraForLiteralTokens() async throws {
+		let source = URL(fileURLWithPath: "/private/tmp/NativeTongue-QA-20261003/spoken-values-identifiers.aiff")
+		guard FileManager.default.fileExists(atPath: source.path) else { throw XCTSkip("Local TTS probe missing") }
+		let client = TranscriptionClient.liveValue
+		let model = "parakeet-ultra-coreml"
+		guard await client.isModelDownloaded(model) else { throw XCTSkip("Parakeet Ultra not installed") }
+		let samples = try AudioFileLoader.load(url: source, targetSampleRate: 16_000)
+		let report = URL(fileURLWithPath: "/private/tmp/NativeTongue-QA-20261003/values-ablation", isDirectory: true)
+		let runner = DictationSessionRunner(transcribeSamples: client.transcribeSamples)
+		for (stage, numbers, code) in [("off", false, false), ("numbers", true, false),
+		                               ("code", false, true), ("full", true, true)] {
+			let output = try await runner.run(samples: samples, request: .init(
+				model: model, mode: .literal, commandPauseMs: 450, language: "de",
+				formatNumbers: numbers, agentFormatting: code
+			))
+			try output.text.write(to: report.appendingPathComponent("parakeet-literal-\(stage).txt"), atomically: true, encoding: .utf8)
+			XCTAssertFalse(output.text.isEmpty)
+		}
+		let engine = EmulatedStreamingEngine(pauseMs: 600, maxBlockSeconds: 12) { block in
+			try await client.transcribeSamples(block, model, RequestOptions(language: "de", punctuation: .suppressed)).text
+		}
+		try await engine.begin(language: "de")
+		var deltas: [String] = []
+		var index = 0
+		while index < samples.count {
+			let end = min(index + 1_600, samples.count)
+			let update = try await engine.feed(Array(samples[index..<end]))
+			if !update.committed.isEmpty { deltas.append(update.committed) }
+			index = end
+		}
+		let last = try await engine.end().committed
+		if !last.isEmpty { deltas.append(last) }
+		try deltas.joined().write(to: report.appendingPathComponent("parakeet-streaming-asr.txt"), atomically: true, encoding: .utf8)
+		for (stage, numbers, code) in [("off", false, false), ("numbers", true, false),
+		                               ("code", false, true), ("full", true, true)] {
+			var settings = StreamingSettings()
+			settings.punctuationMode = .literal
+			settings.formatNumbers = numbers
+			settings.codeFormatting = code
+			var processor = StreamingTextProcessor(options: .init(settings: settings, language: "de", englishCommands: true, aliases: [:]))
+			var output = ""
+			for delta in deltas { output += processor.push(delta) }
+			output += processor.flush()
+			try output.write(to: report.appendingPathComponent("parakeet-streaming-\(stage).txt"), atomically: true, encoding: .utf8)
+		}
+		await client.unloadModel()
 	}
 
 	/// Measures run-to-run stability of Whisper Turbo with and without the

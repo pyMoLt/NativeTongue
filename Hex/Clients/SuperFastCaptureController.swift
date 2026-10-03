@@ -304,7 +304,7 @@ final class SuperFastCaptureController {
     processingQueue.sync { generation == captureGeneration }
   }
 
-  func beginRecording(to url: URL, requestedAt: Date = Date(), mode: CaptureRecordingMode) throws {
+  func beginRecording(to url: URL, requestedAt: Date = Date(), mode: CaptureRecordingMode, liveAudio: Bool = false) throws {
     try startIfNeeded(reason: "begin-recording", keepWarmBuffer: mode.keepsWarmBuffer)
 
     var startError: Error?
@@ -338,10 +338,12 @@ final class SuperFastCaptureController {
         logger.notice(
           "Capture engine recording file opened prepended=\(String(format: "%.3f", prependedDuration))s requestedPreRoll=\(String(format: "%.3f", preRollDuration))s"
         )
-        let stream = AsyncStream<AudioChunk>.makeStream(bufferingPolicy: .bufferingNewest(128))
-        liveAudioStream = stream.stream
-        liveAudioContinuation = stream.continuation
-        liveAudioChunker.reset()
+        if liveAudio {
+          let stream = AsyncStream<AudioChunk>.makeStream(bufferingPolicy: .bufferingNewest(128))
+          liveAudioStream = stream.stream
+          liveAudioContinuation = stream.continuation
+          liveAudioChunker.reset()
+        }
         activeRecording = ActiveRecording(
           url: url,
           file: file,
@@ -349,7 +351,7 @@ final class SuperFastCaptureController {
           prependedDuration: prependedDuration,
           didLogFirstBuffer: false
         )
-        publishLiveAudio(preRollSamples)
+        if liveAudio { publishLiveAudio(preRollSamples) }
       } catch {
         startError = error
       }
@@ -432,7 +434,9 @@ final class SuperFastCaptureController {
 
     do {
       try recording.file.write(from: converted)
-      publishLiveAudio(UnsafeBufferPointer(start: samples, count: sampleCount))
+      if liveAudioContinuation != nil {
+        publishLiveAudio(UnsafeBufferPointer(start: samples, count: sampleCount))
+      }
     } catch {
       logger.error("Failed to write capture engine audio: \(error.localizedDescription)")
       activeRecording = nil

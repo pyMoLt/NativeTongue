@@ -27,6 +27,13 @@ struct DictationBoxFeature {
     var isLoading = true
   }
 
+  /// AI post-processing in the box: the ✨ button becomes ⇄ (diff) after a run.
+  enum AIPhase: Equatable {
+    case idle
+    case running(PolishMode)
+    case done
+  }
+
   enum Phase: Equatable {
     case editing
     /// After ✓: offer manual corrections for the lexicon.
@@ -55,6 +62,12 @@ struct DictationBoxFeature {
     var learnCandidates: [LearnCandidate] = []
     var suggestion: SuggestionState?
     var isConfirmingDiscard = false
+    var aiPhase: AIPhase = .idle
+    /// Box text before the last AI run (diff "before" side).
+    var aiOriginalText = ""
+    var aiResultText = ""
+    var aiIssues: [PolishGuardIssue] = []
+    var isShowingDiff = false
     @Shared(.hexSettings) var hexSettings: HexSettings
     @Shared(.isDictationBoxPresented) var isDictationBoxPresented: Bool = false
     @Shared(.transcriptionHistory) var transcriptionHistory: TranscriptionHistory
@@ -65,6 +78,11 @@ struct DictationBoxFeature {
     }
 
     var wordCount: Int { BoxTextEditing.wordCount(text.string) }
+
+    /// The ✨ button is offered when AI post-processing and the box button are on.
+    var offersAI: Bool {
+      hexSettings.postProcessing.enabled && hexSettings.postProcessing.boxButtonEnabled
+    }
   }
 
   enum Action: BindableAction {
@@ -73,6 +91,8 @@ struct DictationBoxFeature {
     case restoreDraft(BoxText)
     case recordingStarted
     case dictationFinished(DictationSessionOutput, URL)
+    /// Text streamed live into the box (Literal + streaming in the box).
+    case streamedText(String)
     // Editor
     case textEdited(BoxText, selection: NSRange)
     case selectionChanged(NSRange)
@@ -96,6 +116,13 @@ struct DictationBoxFeature {
     case setFontSize(Double)
     case setFormat(OutputFormat)
     case setLanguage(String?)
+    // AI post-processing
+    case aiTapped(PolishMode)
+    case aiPartial(String)
+    case aiFinished(PolishOutcome)
+    case aiCancelTapped
+    case diffToggled
+    case aiRevertTapped
     // Finish
     case confirmTapped
     case discardTapped
@@ -108,8 +135,9 @@ struct DictationBoxFeature {
   @Dependency(\.pasteboard) var pasteboard
   @Dependency(\.transcriptPersistence) var transcriptPersistence
   @Dependency(\.lexicon) var lexicon
+  @Dependency(\.llm) var llm
 
-  private enum CancelID { case suggestions, draft }
+  private enum CancelID { case suggestions, draft, ai }
 
   var body: some ReducerOf<Self> {
     BindingReducer()
@@ -149,19 +177,64 @@ struct DictationBoxFeature {
 
       case let .dictationFinished(output, audioURL):
         state.audioURLs.append(audioURL)
+        resetAI(&state)
         return applyDictation(&state, output: output)
 
+      case let .streamedText(text):
+        guard state.isPresented, state.phase == .editing else { return .none }
+        return appendStreamed(&state, text: text)
+
       case let .textEdited(text, selection):
+        // Editor callbacks also arrive while the AI streams text in.
+        if case .running = state.aiPhase { return .none }
+        if text.string != state.text.string, state.aiPhase == .done { resetAI(&state) }
+        if let candidate = Self.manualCorrection(from: state.text.string, to: text.string, replacing: state.selection) {
+          state.learnCandidates.removeAll { $0.original == candidate.original }
+          state.learnCandidates.append(candidate)
+        }
         state.text = text
         state.selection = selection
         state.suggestion = nil
+        return saveDraft(state)
+
+      case let .aiTapped(mode):
+        return startAI(&state, mode: mode)
+
+      case let .aiPartial(partial):
+        guard case .running = state.aiPhase else { return .none }
+        state.text = BoxText(NSAttributedString(string: partial, attributes: BoxTextStyle.attributes(font: state.baseFont)))
+        state.revision += 1
+        return .none
+
+      case let .aiFinished(outcome):
+        return finishAI(&state, outcome: outcome)
+
+      case .aiCancelTapped:
+        guard case .running = state.aiPhase else { return .none }
+        if let previous = state.snapshots.popLast() { state.text = previous }
+        state.revision += 1
+        resetAI(&state)
+        state.lastAction = "AI cancelled"
+        return .cancel(id: CancelID.ai)
+
+      case .diffToggled:
+        guard state.aiPhase == .done else { return .none }
+        state.isShowingDiff.toggle()
+        return .none
+
+      case .aiRevertTapped:
+        guard state.aiPhase == .done else { return .none }
+        if let previous = state.snapshots.popLast() { state.text = previous }
+        state.revision += 1
+        resetAI(&state)
+        state.lastAction = "Original restored"
         return saveDraft(state)
 
       case let .selectionChanged(selection):
         state.selection = selection
         guard selection.length > 0, selection.length <= 60 else { return .none }
         let words = BoxTextEditing.wordCount((state.text.string as NSString).substring(with: BoxTextEditing.clamp(selection, length: state.text.length)))
-        guard (1...3).contains(words) else { return .none }
+        guard (1...5).contains(words) else { return .none }
         return .send(.wordHovered(selection))
 
       case let .wordHovered(range):
@@ -369,8 +442,8 @@ struct DictationBoxFeature {
         ? (state.text.string as NSString).substring(with: BoxTextEditing.clamp(target, length: state.text.length))
         : ""
       insert(&state, attributed, at: target)
-      if !replacedText.isEmpty, (1...3).contains(BoxTextEditing.wordCount(replacedText)),
-         (1...3).contains(BoxTextEditing.wordCount(output.text)), replacedText != output.text {
+      if !replacedText.isEmpty, (1...5).contains(BoxTextEditing.wordCount(replacedText)),
+         (1...5).contains(BoxTextEditing.wordCount(output.text)), replacedText != output.text {
         state.learnCandidates.append(LearnCandidate(original: replacedText, replacement: output.text))
       }
       if state.lastAction.isEmpty || output.document.unappliedEdits.isEmpty {
@@ -419,6 +492,29 @@ struct DictationBoxFeature {
       state.learnCandidates.removeAll { $0.original == original }
       state.learnCandidates.append(LearnCandidate(original: original, replacement: term))
     }
+  }
+
+  /// A deliberate selection replacement can become an optional lexicon alias.
+  /// Ignore free typing and punctuation edits, which do not identify a reliable
+  /// ASR mistake. The user still chooses whether to save the suggestion.
+  static func manualCorrection(from old: String, to new: String, replacing selection: NSRange) -> LearnCandidate? {
+    let before = old as NSString
+    let after = new as NSString
+    guard selection.length > 0, selection.location >= 0,
+          NSMaxRange(selection) <= before.length else { return nil }
+    let insertedLength = after.length - before.length + selection.length
+    guard insertedLength > 0, selection.location + insertedLength <= after.length else { return nil }
+    let prefix = before.substring(to: selection.location)
+    let suffix = before.substring(from: NSMaxRange(selection))
+    guard new.hasPrefix(prefix), new.hasSuffix(suffix) else { return nil }
+    let original = before.substring(with: selection).trimmingCharacters(in: .whitespacesAndNewlines)
+    let replacement = after.substring(with: NSRange(location: selection.location, length: insertedLength))
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard original != replacement,
+          (1...5).contains(BoxTextEditing.wordCount(original)),
+          (1...5).contains(BoxTextEditing.wordCount(replacement)),
+          original.contains(where: \.isLetter), replacement.contains(where: \.isLetter) else { return nil }
+    return LearnCandidate(original: original, replacement: replacement)
   }
 
   private func edit(_ state: inout State, _ label: String, _ transform: (NSAttributedString, NSRange) -> NSAttributedString) -> Effect<Action> {
@@ -500,8 +596,93 @@ struct DictationBoxFeature {
     )
   }
 
+  // MARK: - Streaming into the box
+
+  /// Streamed pieces arrive already formatted by the streaming processor in
+  /// Literal punctuation mode (spoken punctuation, numbers); only spacing and
+  /// sentence-start capitals are fitted to the box text.
+  private func appendStreamed(_ state: inout State, text: String) -> Effect<Action> {
+    var rendered = text
+    guard !rendered.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .none }
+    let target = BoxTextEditing.clamp(state.replacementRange ?? state.selection, length: state.text.length)
+    state.replacementRange = nil
+    let before = (state.text.string as NSString).substring(to: target.location)
+    rendered = String(StreamingTextJoiner.join(rendered, after: before, adapt: true).drop { $0 == " " })
+    if target.location == 0, state.text.length == 0 { state.snapshots.append(state.text) }
+    let attributed = BoxTextConverter.attributed(fromMarkdown: rendered, baseFont: state.baseFont)
+    let (newText, inserted) = BoxTextEditing.insert(attributed, into: state.text.value, replacing: target)
+    state.text = BoxText(newText)
+    state.selection = NSRange(location: inserted.location + inserted.length, length: 0)
+    state.revision += 1
+    resetAI(&state)
+    return saveDraft(state)
+  }
+
+  // MARK: - AI post-processing
+
+  private func resetAI(_ state: inout State) {
+    state.aiPhase = .idle
+    state.aiIssues = []
+    state.isShowingDiff = false
+  }
+
+  private func startAI(_ state: inout State, mode: PolishMode) -> Effect<Action> {
+    let settings = state.hexSettings.postProcessing
+    guard state.offersAI, state.aiPhase != .running(mode) else { return .none }
+    let markdown = BoxTextConverter.markdown(from: state.text.value).trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !markdown.isEmpty else { return .none }
+    let modelID = settings.boxModel
+    guard let model = LLMModelCatalog.descriptor(id: modelID, settings: settings), llm.isInstalled(model) else {
+      state.lastAction = modelID.isEmpty
+        ? "⚠︎ No AI model selected — choose one under AI Post-Processing"
+        : "⚠︎ The selected AI model is not installed — install it under AI Post-Processing"
+      return .none
+    }
+    state.snapshots.append(state.text)
+    state.aiOriginalText = markdown
+    state.aiPhase = .running(mode)
+    state.isShowingDiff = false
+    state.suggestion = nil
+    state.lastAction = mode == .clean ? "Cleaning up …" : "Rewriting …"
+    let request = PolishRequest(text: markdown, mode: mode, modelID: modelID, settings: settings)
+    return .run { [llm, lexicon] send in
+      var request = request
+      let terms = await lexicon.userLexicon().entries.map(\.term)
+      request.protectedTerms = terms.filter { request.text.localizedCaseInsensitiveContains($0) }
+      let outcome = await llm.polish(request, true) { partial in
+        Task { await send(.aiPartial(partial)) }
+      }
+      await send(.aiFinished(outcome))
+    }
+    .cancellable(id: CancelID.ai, cancelInFlight: true)
+  }
+
+  private func finishAI(_ state: inout State, outcome: PolishOutcome) -> Effect<Action> {
+    guard case .running = state.aiPhase else { return .none }
+    guard !outcome.failed, let aiText = outcome.aiText else {
+      if let previous = state.snapshots.popLast() { state.text = previous }
+      state.revision += 1
+      resetAI(&state)
+      state.lastAction = "⚠︎ AI post-processing failed — text unchanged"
+      return .none
+    }
+    let attributed = NSMutableAttributedString(attributedString: BoxTextConverter.attributed(fromMarkdown: aiText, baseFont: state.baseFont))
+    let marked = outcome.issues.map(\.detail).filter { !$0.isEmpty && aiText.contains($0) }
+    BoxTextConverter.markUncertain(marked, in: attributed)
+    state.text = BoxText(attributed)
+    state.selection = NSRange(location: attributed.length, length: 0)
+    state.revision += 1
+    state.aiResultText = aiText
+    state.aiIssues = outcome.issues
+    state.aiPhase = .done
+    state.isShowingDiff = state.hexSettings.postProcessing.boxShowsDiffAutomatically
+    state.lastAction = outcome.issues.first.map { "⚠︎ \($0.explanation)" } ?? "AI done — ⇄ shows the changes"
+    return saveDraft(state)
+  }
+
   private func finish(_ state: inout State) -> Effect<Action> {
     let audioURLs = state.audioURLs
+    resetAI(&state)
     state.isPresented = false
     state.phase = .editing
     state.text = BoxText()
@@ -515,6 +696,7 @@ struct DictationBoxFeature {
     return .merge(
       .cancel(id: CancelID.draft),
       .cancel(id: CancelID.suggestions),
+      .cancel(id: CancelID.ai),
       .run { _ in
         for url in audioURLs { FileManager.default.removeItemIfExists(at: url) }
         DictationBoxDraftStore.remove()
@@ -556,7 +738,7 @@ enum DictationBoxDraftStore {
     }
     guard let data = try? text.value.data(from: NSRange(location: 0, length: text.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]) else { return }
     try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-    try? data.write(to: url, options: [.atomic, .completeFileProtection])
+    try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
   }
 
   static func load() -> BoxText? {

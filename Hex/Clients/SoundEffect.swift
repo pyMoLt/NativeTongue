@@ -72,7 +72,7 @@ actor SoundEffectsClientLive {
   private let logger = HexLog.sound
   private let baselineVolume = HexSettings.baseSoundEffectsVolume
 
-  private let engine = AVAudioEngine()
+  private var engine: AVAudioEngine?
   @Shared(.hexSettings) var hexSettings: HexSettings
   private var playerNodes: [SoundEffect: AVAudioPlayerNode] = [:]
   private var audioBuffers: [SoundEffect: AVAudioPCMBuffer] = [:]
@@ -83,11 +83,12 @@ actor SoundEffectsClientLive {
 
   func play(_ soundEffect: SoundEffect) {
     guard hexSettings.soundEffectsEnabled else { return }
-    guard let player = playerNodes[soundEffect], let buffer = audioBuffers[soundEffect] else {
+    guard let buffer = audioBuffers[soundEffect] else {
       logger.error("Requested sound \(soundEffect.rawValue) not preloaded")
       return
     }
     prepareEngineIfNeeded()
+    guard let player = playerNodes[soundEffect] else { return }
     let clampedVolume = min(max(hexSettings.soundEffectsVolume, 0), baselineVolume)
     player.volume = Float(clampedVolume)
     player.stop()
@@ -158,17 +159,23 @@ actor SoundEffectsClientLive {
       try file.read(into: buffer)
       audioBuffers[soundEffect] = buffer
 
-      let player = AVAudioPlayerNode()
-      engine.attach(player)
-      engine.connect(player, to: engine.mainMixerNode, format: buffer.format)
-      playerNodes[soundEffect] = player
     } catch {
       logger.error("Failed to load sound \(soundEffect.rawValue): \(error.localizedDescription)")
     }
   }
 
   private func prepareEngineIfNeeded() {
-    guard !engine.isRunning else { return }
+    if engine == nil {
+      let newEngine = AVAudioEngine()
+      for (effect, buffer) in audioBuffers {
+        let player = AVAudioPlayerNode()
+        newEngine.attach(player)
+        newEngine.connect(player, to: newEngine.mainMixerNode, format: buffer.format)
+        playerNodes[effect] = player
+      }
+      engine = newEngine
+    }
+    guard let engine, !engine.isRunning else { return }
     engine.prepare()
     if #available(macOS 13.0, *) {
       engine.isAutoShutdownEnabled = false
@@ -181,16 +188,21 @@ actor SoundEffectsClientLive {
   }
 
   private func stopEngineIfNeeded() {
-    guard engine.isRunning else { return }
+    guard let engine else { return }
+    playerNodes.values.forEach { $0.stop(); engine.detach($0) }
+    playerNodes.removeAll()
     engine.stop()
+    self.engine = nil
     logger.debug("Sound effects engine stopped")
   }
 
   deinit {
-    playerNodes.values.forEach {
-      $0.stop()
-      engine.detach($0)
+    if let engine {
+      playerNodes.values.forEach {
+        $0.stop()
+        engine.detach($0)
+      }
+      engine.stop()
     }
-    engine.stop()
   }
 }

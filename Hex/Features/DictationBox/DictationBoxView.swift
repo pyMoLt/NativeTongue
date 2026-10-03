@@ -14,6 +14,9 @@ struct DictationBoxView: View {
         learnView
       } else {
         toolbar
+        if store.isShowingDiff {
+          diffPanel
+        }
         BoxTextEditor(store: store)
           .background(Color(nsColor: .textBackgroundColor).opacity(0.55))
           .overlay(alignment: .topLeading) {
@@ -147,6 +150,9 @@ struct DictationBoxView: View {
       toolButton("character.cursor.ibeam", "Spelling mode: next dictation as letters", active: store.spellingMode) {
         store.send(.toggleSpellingMode)
       }
+      if store.offersAI {
+        aiButton
+      }
 
       Spacer()
 
@@ -165,6 +171,104 @@ struct DictationBoxView: View {
     .padding(.horizontal, 10)
     .padding(.vertical, 6)
     .controlSize(.small)
+  }
+
+  // MARK: AI
+
+  /// ✨ runs the AI (menu picks the mode); after a run it turns into ⇄ (diff).
+  @ViewBuilder
+  private var aiButton: some View {
+    switch store.aiPhase {
+    case .idle:
+      Menu {
+        ForEach(PolishMode.allCases, id: \.self) { mode in
+          Button(mode.displayName) { store.send(.aiTapped(mode)) }
+        }
+      } label: {
+        Image(systemName: "sparkles")
+      } primaryAction: {
+        store.send(.aiTapped(store.hexSettings.postProcessing.boxDefaultMode))
+      }
+      .menuStyle(.button)
+      .buttonStyle(.glass)
+      .fixedSize()
+      .help("AI post-processing: \(store.hexSettings.postProcessing.boxDefaultMode.displayName) (click) or choose a mode")
+      .accessibilityLabel("AI post-processing")
+    case .running:
+      Button {
+        store.send(.aiCancelTapped)
+      } label: {
+        HStack(spacing: 4) {
+          ProgressView().controlSize(.mini)
+          Image(systemName: "xmark")
+        }
+        .frame(height: 20)
+      }
+      .buttonStyle(.glass)
+      .help("Cancel AI post-processing")
+      .accessibilityLabel("Cancel AI post-processing")
+    case .done:
+      Button {
+        store.send(.diffToggled)
+      } label: {
+        HStack(spacing: 3) {
+          Image(systemName: "arrow.left.arrow.right")
+          if !store.aiIssues.isEmpty {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+          }
+        }
+        .frame(height: 20)
+      }
+      .buttonStyle(.glass)
+      .tint(store.isShowingDiff ? .accentColor : nil)
+      .help("Show what the AI changed")
+      .accessibilityLabel("Show AI changes")
+    }
+  }
+
+  private var diffPanel: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      ScrollView {
+        Text(diffText)
+          .font(.callout)
+          .textSelection(.enabled)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .frame(maxHeight: 150)
+      HStack(spacing: 10) {
+        if let issue = store.aiIssues.first {
+          Label(issue.explanation, systemImage: "exclamationmark.triangle.fill")
+            .font(.caption)
+            .foregroundStyle(.orange)
+            .lineLimit(1)
+        }
+        Spacer()
+        Button("Restore original") { store.send(.aiRevertTapped) }
+          .buttonStyle(.glass)
+      }
+    }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 8)
+    .background(Color.accentColor.opacity(0.06))
+  }
+
+  private var diffText: AttributedString {
+    var result = AttributedString()
+    for segment in WordDiff.diff(store.aiOriginalText, store.aiResultText) {
+      var part = AttributedString(segment.text + " ")
+      switch segment.kind {
+      case .same:
+        part.foregroundColor = .secondary
+      case .removed:
+        part.foregroundColor = .red
+        part.strikethroughStyle = .single
+      case .added:
+        part.foregroundColor = .green
+        part.backgroundColor = .green.opacity(0.12)
+      }
+      result += part
+    }
+    return result
   }
 
   private func toolButton(_ symbol: String, _ help: String, active: Bool = false, action: @escaping () -> Void) -> some View {

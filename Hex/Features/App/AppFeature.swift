@@ -23,6 +23,8 @@ struct AppFeature {
     case vocabulary
     case commands
     case dictationBox
+    case postProcessing
+    case streaming
     case files
     case history
     case settings
@@ -158,21 +160,14 @@ struct AppFeature {
       case .transcription(.startRecording):
         // Open the dictation box on the first hotkey of a box session (plan 5.8).
         guard state.transcription.isRecording else { return .none }
-        let mode = state.hexSettings.dictationMode
-        var effects: [Effect<Action>] = []
-        if !state.dictationBox.isPresented, state.hexSettings.dictationBoxEnabled(for: mode) {
-          let frontmost = NSWorkspace.shared.frontmostApplication
-          let isSelf = frontmost?.bundleIdentifier == Bundle.main.bundleIdentifier
-          effects.append(.send(.dictationBox(.present(
-            targetBundleID: isSelf ? nil : frontmost?.bundleIdentifier,
-            targetAppName: isSelf ? nil : frontmost?.localizedName,
-            mode: mode
-          ))))
-        }
-        if state.dictationBox.isPresented || state.hexSettings.dictationBoxEnabled(for: mode) {
-          effects.append(.send(.dictationBox(.recordingStarted)))
-        }
-        return .concatenate(effects)
+        return presentBoxIfNeeded(&state)
+
+      case .transcription(.hotKeyPressed) where state.transcription.isStreaming && state.hexSettings.dictationMode == .literal:
+        // Literal + streaming in the box: open the box for the new session.
+        return presentBoxIfNeeded(&state)
+
+      case let .transcription(.boxStreamedText(text)):
+        return .send(.dictationBox(.streamedText(text)))
 
       case let .transcription(.boxDictationFinished(output, audioURL)):
         return .send(.dictationBox(.dictationFinished(output, audioURL)))
@@ -400,7 +395,7 @@ struct AppFeature {
   }
 
   /// One-time migration of V1 vocabulary/remappings into the user lexicon,
-  /// then build the pack index in the background.
+  /// The pack index is built on the first dictation (see TranscriptionFeature).
   private func prepareLexicon(state: State) -> Effect<Action> {
     // Plain values only: no `withLock` on shared settings from a background effect
     // (lock-order deadlock with dependency initialization, see HexAppDelegate).
@@ -414,8 +409,29 @@ struct AppFeature {
           HexLog.app.error("Lexicon migration failed: \(error.localizedDescription, privacy: .private)")
         }
       }
-      await lexicon.warmUp(settings.activeLexiconPacks)
+      // The pack index (~130 MB) is built when dictation starts, not at
+      // launch, and released with the idle speech model (audit A13).
     }
+  }
+
+  /// Opens the dictation box for a new box session (plan 5.8), also when
+  /// Literal streams into the box.
+  private func presentBoxIfNeeded(_ state: inout State) -> Effect<Action> {
+    let mode = state.hexSettings.dictationMode
+    var effects: [Effect<Action>] = []
+    if !state.dictationBox.isPresented, state.hexSettings.dictationBoxEnabled(for: mode) {
+      let frontmost = NSWorkspace.shared.frontmostApplication
+      let isSelf = frontmost?.bundleIdentifier == Bundle.main.bundleIdentifier
+      effects.append(.send(.dictationBox(.present(
+        targetBundleID: isSelf ? nil : frontmost?.bundleIdentifier,
+        targetAppName: isSelf ? nil : frontmost?.localizedName,
+        mode: mode
+      ))))
+    }
+    if state.dictationBox.isPresented || state.hexSettings.dictationBoxEnabled(for: mode) {
+      effects.append(.send(.dictationBox(.recordingStarted)))
+    }
+    return .concatenate(effects)
   }
 
   private func promptForPendingRecordingRecovery() -> Effect<Action> {

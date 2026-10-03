@@ -11,11 +11,17 @@ import DependenciesMacros
 import Foundation
 import HexCore
 import Hub
+import Sharing
 import Tokenizers
 import AudioCommon
 import WhisperKit
 
 private let transcriptionLogger = HexLog.transcription
+
+extension Notification.Name {
+  /// The speech model was unloaded after the idle time.
+  static let speechModelIdleUnloaded = Notification.Name("NativeTongue.speechModelIdleUnloaded")
+}
 private let modelsLogger = HexLog.models
 private let parakeetLogger = HexLog.parakeet
 
@@ -145,7 +151,10 @@ actor TranscriptionClientLive {
     do {
       return try URL.hexModelsDirectory
     } catch {
-      fatalError("Could not create Application Support folder: \(error)")
+      // Do not crash the app: model installs and loads on this path fail with a
+      // reportable error instead (audit A12).
+      transcriptionLogger.error("Could not create the models folder: \(error.localizedDescription, privacy: .private)")
+      return URL.hexModelsDirectoryPath
     }
   }()
 
@@ -204,6 +213,15 @@ actor TranscriptionClientLive {
       if currentModelName != variant { await unloadCurrentModel() }
       try await appleSpeech.install(progress: progressCallback)
       currentModelName = variant
+      return
+    case .nemotronStreamingCoreML:
+      @Shared(.hexSettings) var hexSettings: HexSettings
+      try await NemotronStreamingEngine.install(chunkMs: hexSettings.streaming.nemotronChunkMs) { fraction in
+        progressCallback(Self.progress(fraction))
+      }
+      return
+    case .voxtralRealtimeMLX:
+      try await VoxtralStreamingEngine.install { fraction in progressCallback(Self.progress(fraction)) }
       return
     case .whisperKitCoreML:
       break
@@ -286,6 +304,11 @@ actor TranscriptionClientLive {
       if currentModelName == variant { currentModelName = nil }
       return
     }
+    if descriptor.backend == .nemotronStreamingCoreML || descriptor.backend == .voxtralRealtimeMLX {
+      await StreamingEngineHost.shared.unloadAll()
+      if descriptor.backend == .nemotronStreamingCoreML { try NemotronStreamingEngine.delete() } else { try VoxtralStreamingEngine.delete() }
+      return
+    }
     let modelFolder = modelPath(for: variant)
 
     // Check if the model exists
@@ -309,6 +332,13 @@ actor TranscriptionClientLive {
   /// Performs a thorough check to ensure the model files are actually present and usable.
   func isModelDownloaded(_ modelName: String) async -> Bool {
     guard let descriptor = try? LocalASRModelCatalog.descriptor(named: modelName) else { return false }
+    if descriptor.backend == .nemotronStreamingCoreML {
+      @Shared(.hexSettings) var hexSettings: HexSettings
+      return NemotronStreamingEngine.isInstalled(chunkMs: hexSettings.streaming.nemotronChunkMs)
+    }
+    if descriptor.backend == .voxtralRealtimeMLX {
+      return VoxtralStreamingEngine.isInstalled()
+    }
     if descriptor.backend == .parakeetFluidAudioCoreML {
       let available = await parakeet.isModelAvailable(modelName)
       parakeetLogger.debug("Parakeet available? \(available)")
@@ -541,6 +571,8 @@ actor TranscriptionClientLive {
       result = try await cohere.transcribe(samples: samples, options: options)
     case .appleSpeechAnalyzer:
       result = try await appleSpeech.transcribe(samples: samples, options: options)
+    case .nemotronStreamingCoreML, .voxtralRealtimeMLX:
+      throw Self.streamingOnlyError(descriptor)
     case .whisperKitCoreML:
       result = try await transcribeWhisper(samples: samples, model: model, options: options)
     }
@@ -628,6 +660,9 @@ actor TranscriptionClientLive {
     }
 
     let descriptor = try LocalASRModelCatalog.descriptor(named: variant)
+    if descriptor.streamingOnly {
+      throw Self.streamingOnlyError(descriptor)
+    }
     if descriptor.backend == .parakeetFluidAudioCoreML {
       if currentModelName != variant { await unloadCurrentModel() }
       try await parakeet.loadInstalled(modelName: variant, progress: progressCallback)
@@ -788,6 +823,18 @@ actor TranscriptionClientLive {
     }
   }
 
+  static func progress(_ fraction: Double) -> Progress {
+    let progress = Progress(totalUnitCount: 100)
+    progress.completedUnitCount = Int64(max(0, min(1, fraction)) * 100)
+    return progress
+  }
+
+  static func streamingOnlyError(_ descriptor: LocalASRModelDescriptor) -> NSError {
+    NSError(domain: "TranscriptionClient", code: -7, userInfo: [
+      NSLocalizedDescriptionKey: "\(descriptor.displayName) works in Streaming mode only. Choose another model for Normal or Literal.",
+    ])
+  }
+
   private func operationBusyError() -> NSError {
     NSError(domain: "TranscriptionClient", code: -6, userInfo: [
       NSLocalizedDescriptionKey: "A model is currently being installed or used. Please try again when that operation finishes.",
@@ -806,6 +853,7 @@ actor TranscriptionClientLive {
     await qwen.unload()
     await additionalFluidAudio.unload()
     await cohere.unload()
+    await StreamingEngineHost.shared.unloadAll()
   }
 
   private func cancelIdleUnload() {
@@ -843,6 +891,8 @@ actor TranscriptionClientLive {
     idleUnloadTask = nil
     await unloadCurrentModel()
     modelsLogger.info("Unloaded idle ASR model")
+    // Free the vocabulary index too; the next hotkey press rebuilds it (audit A13).
+    NotificationCenter.default.post(name: .speechModelIdleUnloaded, object: nil)
   }
 
   /// Downloads the model to a temporary folder (if it isn't already on disk),

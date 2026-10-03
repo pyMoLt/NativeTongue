@@ -16,6 +16,8 @@ class HexAppDelegate: NSObject, NSApplicationDelegate {
 	@Dependency(\.recording) var recording
 
 	func applicationDidFinishLaunching(_: Notification) {
+		// Cap MLX's GPU buffer cache before any model loads (V2.5 memory fix).
+		MLXMemoryPolicy.apply()
 		if isTesting {
 			return
 		}

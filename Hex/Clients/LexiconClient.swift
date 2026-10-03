@@ -24,6 +24,8 @@ struct LexiconClient {
   /// Terms used for model biasing (Qwen/Whisper context), user entries of the profile first.
   var biasTerms: @Sendable (_ profile: ASRProfile) async -> [String] = { _ in [] }
   var userLexicon: @Sendable () async -> UserLexicon = { UserLexicon() }
+  /// Exact aliases for live typing, from active packs and eligible user entries.
+  var streamingAliases: @Sendable (_ packs: [String], _ profile: ASRProfile) async -> [String: String] = { _, _ in [:] }
   var saveUserLexicon: @Sendable (UserLexicon) async throws -> Void
   /// Adds entries; an existing term (case-insensitive) gets the new aliases merged.
   var addUserEntries: @Sendable ([LexiconEntry]) async throws -> Void
@@ -39,11 +41,17 @@ struct LexiconClient {
 extension LexiconClient: DependencyKey {
   static var liveValue: Self {
     let service = LexiconService()
+    // Release the large pack index together with the speech model after the
+    // idle time (audit A13: ~130 MB); it is rebuilt when dictation starts.
+    NotificationCenter.default.addObserver(forName: .speechModelIdleUnloaded, object: nil, queue: nil) { _ in
+      Task { await service.releaseIndexes() }
+    }
     return Self(
       corrector: { await service.corrector($0) },
       suggestions: { await service.suggestions(for: $0, context: $1) },
       biasTerms: { await service.biasTerms(profile: $0) },
       userLexicon: { await service.userLexicon() },
+      streamingAliases: { await service.streamingAliases(activePacks: $0, profile: $1) },
       saveUserLexicon: { try await service.saveUserLexicon($0) },
       addUserEntries: { try await service.addUserEntries($0) },
       installedPacks: { await service.installedPacks() },
@@ -59,6 +67,7 @@ extension LexiconClient: DependencyKey {
     suggestions: { _, _ in [] },
     biasTerms: { _ in [] },
     userLexicon: { UserLexicon() },
+    streamingAliases: { _, _ in [:] },
     saveUserLexicon: { _ in },
     addUserEntries: { _ in },
     installedPacks: { [] },
@@ -85,6 +94,7 @@ actor LexiconService {
   private var userIndex: LexiconIndex?
   private var packIndex: (ids: [String], index: LexiconIndex)?
   private var packIndexTask: (ids: [String], task: Task<LexiconIndex, Never>)?
+  private var streamingPackAliases: (ids: [String], aliases: [String: String])?
 
   init(store: LexiconStore? = try? .defaultStore()) {
     self.store = store
@@ -94,15 +104,15 @@ actor LexiconService {
 
   func userLexicon() -> UserLexicon {
     if let user { return user }
-    let loaded: UserLexicon
     do {
-      loaded = try store?.loadUser() ?? UserLexicon()
+      let loaded = try store?.loadUser() ?? UserLexicon()
+      user = loaded
+      return loaded
     } catch {
+      // Do not cache the failure: the next call retries (e.g. after unlocking).
       lexiconLogger.error("Could not read user lexicon: \(error.localizedDescription, privacy: .private)")
-      loaded = UserLexicon()
+      return UserLexicon()
     }
-    user = loaded
-    return loaded
   }
 
   func saveUserLexicon(_ lexicon: UserLexicon) throws {
@@ -139,6 +149,41 @@ actor LexiconService {
       .prefix(50))
   }
 
+  func streamingAliases(activePacks: [String], profile: ASRProfile) async -> [String: String] {
+    let installed = Set(installedPacks().map(\.id))
+    let ids = activePacks.filter(installed.contains).sorted()
+    var aliases: [String: String]
+    if let cache = streamingPackAliases, cache.ids == ids {
+      aliases = cache.aliases
+    } else {
+      aliases = [:]
+      // Exact aliases need no 200k-entry phonetic index. Decode the active
+      // packs once, retain only their small alias map for later sessions.
+      if let store {
+        for id in ids {
+          do {
+            let pack = try store.loadPack(id: id)
+            for entry in pack.entries {
+              for alias in entry.aliases {
+                aliases[LexiconIndex.normalize(alias)] = entry.term
+              }
+            }
+          } catch {
+            lexiconLogger.error("Could not load streaming word pack: \(error.localizedDescription, privacy: .private)")
+          }
+        }
+      }
+      streamingPackAliases = (ids, aliases)
+    }
+    // Personal variants take precedence and obey the user's auto-replace flag.
+    for entry in userLexicon().entries where entry.autoReplace && (entry.profile == nil || entry.profile == profile) {
+      for alias in entry.aliases {
+        aliases[LexiconIndex.normalize(alias)] = entry.term
+      }
+    }
+    return aliases
+  }
+
   // MARK: Packs
 
   func installedPacks() -> [LexiconPackInfo] {
@@ -152,6 +197,7 @@ actor LexiconService {
     let info = try store.importPack(from: url)
     packIndex = nil
     packIndexTask = nil
+    streamingPackAliases = nil
     return info
   }
 
@@ -159,10 +205,19 @@ actor LexiconService {
     try store?.removePack(id: id)
     packIndex = nil
     packIndexTask = nil
+    streamingPackAliases = nil
   }
 
   func warmUp(activePacks: [String]) async {
     _ = await index(for: activePacks)
+  }
+
+  func releaseIndexes() {
+    guard packIndex != nil || userIndex != nil else { return }
+    packIndex = nil
+    packIndexTask = nil
+    userIndex = nil
+    lexiconLogger.notice("Released lexicon index after idle time")
   }
 
   // MARK: Correction and suggestions

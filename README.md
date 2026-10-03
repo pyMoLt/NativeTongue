@@ -11,6 +11,8 @@ The app targets Apple Silicon and macOS 26 or newer. Development and hands-on va
 - A configurable global hotkey supports press-and-release dictation and a double-tap recording lock.
 - **Normal mode** is intended for natural text, everyday writing and code.
 - **Literal mode** suppresses model-generated punctuation where the selected engine supports it. Spoken punctuation and commands produce the requested characters.
+- **Streaming mode** (2.5, off by default) types words into the frontmost app while you speak; you can pause, type and keep talking. Native streaming with Nemotron 3.5 Multilingual, Voxtral Mini 4B Realtime or Apple SpeechAnalyzer; other models type a block after each pause.
+- **AI post-processing** (2.5, off by default) runs a small local MLX language model after dictation — automatically or via ✨ in the dictation box — to clean up the text or rewrite it as a task. A safety check keeps the original when numbers, doses, terms or negations would change.
 - German and English commands can insert paragraphs and lines, edit recent text, format the Dictation Box and express common punctuation.
 - Audio pauses, rather than transcript punctuation, determine command boundaries. The default command pause is 450 ms.
 - Number and unit formatting, optional AI-agent/code formatting, and vocabulary correction run locally.
@@ -101,11 +103,11 @@ xcodebuild test -scheme Hex \
   -only-testing:HexTests/SuiteName
 ~~~
 
-This repository currently has no tracked GitHub Actions workflow files. It also does not contain a supported one-command release packager or an automatic update service. See [docs/release-process.md](docs/release-process.md) before preparing a distributable build.
+This repository currently has no tracked GitHub Actions workflow files or automatic update service. `scripts/build-dist.sh [--install]` builds the local release bundle. See [docs/release-process.md](docs/release-process.md) before preparing a distributable build.
 
 ## Validation status
 
-The application has been built and run on Apple Silicon. Core logic, Dictation Box, terminology, file handling and several installed-model paths have been exercised. The latest full audit found environment-related test failures and skipped model-backed tests; it did not complete a microphone, permission and system-wide insertion check. See [docs/release-pipeline-status.md](docs/release-pipeline-status.md) for the current validation and release status.
+The application has been built and run on Apple Silicon. As of 2.5.0 the HexCore suite (XCTest and Swift Testing) and the app suite run green; model-backed app tests (speech models, a local MLX language model, emulated streaming) run against installed models and are skipped otherwise. Microphone, permissions, live streaming into other apps and system-wide insertion still need a manual check. See [docs/release-pipeline-status.md](docs/release-pipeline-status.md) for the current validation and release status.
 
 ## Project map
 

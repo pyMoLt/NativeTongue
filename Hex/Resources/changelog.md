@@ -1,3 +1,12 @@
+# NativeTongue 2.5.0
+
+## New in 2.5
+
+- **Streaming** — a third mode: words appear in your app while you speak. Pause, type a comma or fix a word, then keep talking. Best with Nemotron 3.5 or Voxtral Realtime; Whisper and Parakeet type a block after each pause.
+- **AI post-processing** — optional, fully local. Clean up dictations automatically or with ✨ in the dictation box (⇄ shows what changed). A safety check keeps your original when numbers, doses or terms would change.
+- **Esc** cancels the current dictation. Pressing the dictation key again while text is still being processed no longer cancels it.
+- Clearer model cards with recommendations per mode.
+
 # NativeTongue 2.0.0
 
 NativeTongue is a local macOS dictation application for German and English.

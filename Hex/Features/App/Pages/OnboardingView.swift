@@ -152,6 +152,8 @@ struct OnboardingView: View {
         .glassEffect(.regular, in: .rect(cornerRadius: 14))
       Text("In Literal mode the dictation box opens. Hover over a word to see suggestions, then insert with ✓.")
         .foregroundStyle(.secondary)
+      Label("Changed your mind? Press Esc to cancel the current dictation — nothing is inserted.", systemImage: "escape")
+        .foregroundStyle(.secondary)
       Button("Switch to Literal mode") { store.send(.settings(.setDictationMode(.literal))) }
         .buttonStyle(.glass)
         .disabled(store.hexSettings.dictationMode == .literal)

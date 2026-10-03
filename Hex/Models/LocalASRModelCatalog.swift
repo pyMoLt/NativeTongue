@@ -9,6 +9,9 @@ public enum LocalASRBackend: String, Codable, Equatable, Sendable {
 	case omiMedicalParakeetCoreML
 	case cohereMLX
 	case appleSpeechAnalyzer
+	/// Streaming-only engines (V2.5).
+	case nemotronStreamingCoreML
+	case voxtralRealtimeMLX
 
 	public var displayName: String {
 		switch self {
@@ -19,6 +22,8 @@ public enum LocalASRBackend: String, Codable, Equatable, Sendable {
 		case .omiMedicalParakeetCoreML: "Omi Med STT / Core ML"
 		case .cohereMLX: "Cohere Transcribe / MLX"
 		case .appleSpeechAnalyzer: "Apple SpeechAnalyzer (on-device)"
+		case .nemotronStreamingCoreML: "Nemotron Streaming / Core ML"
+		case .voxtralRealtimeMLX: "Voxtral Realtime / MLX"
 		}
 	}
 }
@@ -74,6 +79,12 @@ public enum LocalASRLiteralRating: String, Codable, Equatable, Sendable {
 	case reliable, limited, unverified, unsuitable
 }
 
+/// How a model can drive Streaming mode: `native` engines emit text while you
+/// speak; `emulated` engines insert one block after each speech pause.
+public enum LocalASRStreamingSupport: String, Codable, Equatable, Sendable {
+	case native, emulated, none
+}
+
 public struct LocalASRModelDescriptor: Codable, Equatable, Identifiable, Sendable {
 	public let displayName: String
 	public let internalName: String
@@ -90,6 +101,12 @@ public struct LocalASRModelDescriptor: Codable, Equatable, Identifiable, Sendabl
 	public let group: LocalASRModelGroup
 	public let literalRating: LocalASRLiteralRating
 	public let recommendedFor: [DictationMode]
+	public let streaming: LocalASRStreamingSupport
+	public let recommendedForStreaming: Bool
+	/// Only usable in Streaming mode (no batch transcription).
+	public let streamingOnly: Bool
+	/// Two friendly sentences for the model card ("what is it good for").
+	public let blurb: String?
 
 	public var id: String { internalName }
 	public var engineCapabilities: EngineCapabilities { capabilities.engineCapabilities(languages: languages) }
@@ -97,6 +114,7 @@ public struct LocalASRModelDescriptor: Codable, Equatable, Identifiable, Sendabl
 	private enum CodingKeys: String, CodingKey {
 		case displayName, internalName, backend, repository, revision, precision, license
 		case languages, size, storageSize, capabilities, experimental, group, literalRating, recommendedFor
+		case streaming, recommendedForStreaming, blurb, streamingOnly
 	}
 
 	public init(from decoder: Decoder) throws {
@@ -116,6 +134,10 @@ public struct LocalASRModelDescriptor: Codable, Equatable, Identifiable, Sendabl
 		group = try values.decodeIfPresent(LocalASRModelGroup.self, forKey: .group) ?? (experimental ? .experimental : .general)
 		literalRating = try values.decodeIfPresent(LocalASRLiteralRating.self, forKey: .literalRating) ?? .unverified
 		recommendedFor = try values.decodeIfPresent([DictationMode].self, forKey: .recommendedFor) ?? []
+		streaming = try values.decodeIfPresent(LocalASRStreamingSupport.self, forKey: .streaming) ?? .none
+		recommendedForStreaming = try values.decodeIfPresent(Bool.self, forKey: .recommendedForStreaming) ?? false
+		blurb = try values.decodeIfPresent(String.self, forKey: .blurb)
+		streamingOnly = try values.decodeIfPresent(Bool.self, forKey: .streamingOnly) ?? false
 	}
 }
 

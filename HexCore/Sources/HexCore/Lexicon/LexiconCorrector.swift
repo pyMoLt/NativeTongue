@@ -2,7 +2,7 @@ import Foundation
 
 /// Conservative automatic term correction (plan 5.7), both modes.
 ///
-/// A word sequence (1–3 words) is replaced only when one rule applies:
+/// A word sequence (1–5 words) is replaced only when one rule applies:
 /// 1. **Alias**: exact, case-insensitive match of a known misrecognition.
 /// 2. **Casing**: exact term match that differs only in casing, for
 ///    case-sensitive entries (brands) or multi-word terms ("Nervus Vagus").
@@ -54,7 +54,7 @@ public struct LexiconCorrector: Sendable {
 				continue
 			}
 			var matched = false
-			for length in stride(from: 3, through: 1, by: -1) {
+			for length in stride(from: 5, through: 1, by: -1) {
 				let window = index ..< min(index + length, tokens.count)
 				let words = tokens[window].compactMap(\.wordText)
 				guard words.count == length, words.allSatisfy(Self.isPlainWord) else { continue }
@@ -95,7 +95,7 @@ public struct LexiconCorrector: Sendable {
 		}
 		// Already a known term (any casing) → nothing to fix.
 		if exactTerm != nil { return nil }
-		guard wordChecker != nil else { return nil }
+		guard words.count <= 3, wordChecker != nil else { return nil }
 		guard span.filter(\.isLetter).count >= 5 else { return nil }
 		guard !words.contains(where: { Self.stopWords.contains($0.lowercased()) }) else { return nil }
 		guard !words.contains(where: isGeneralWord) else { return nil }

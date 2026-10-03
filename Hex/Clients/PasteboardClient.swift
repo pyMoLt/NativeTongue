@@ -116,7 +116,7 @@ struct PasteboardClientLive {
         if hexSettings.useClipboardPaste {
             await pasteWithClipboard(text)
         } else {
-            simulateTypingWithAppleScript(text)
+            LiveTyper.type(text, method: .keyboard)
         }
     }
     
@@ -406,16 +406,6 @@ struct PasteboardClientLive {
         try await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000)
     }
     
-    func simulateTypingWithAppleScript(_ text: String) {
-        let escapedText = text.replacingOccurrences(of: "\"", with: "\\\"")
-        let script = NSAppleScript(source: "tell application \"System Events\" to keystroke \"\(escapedText)\"")
-        var error: NSDictionary?
-        script?.executeAndReturnError(&error)
-        if let error = error {
-            pasteboardLogger.error("Error executing AppleScript typing fallback: \(error)")
-        }
-    }
-
     enum PasteError: Error {
         case systemWideElementCreationFailed
         case focusedElementNotFound

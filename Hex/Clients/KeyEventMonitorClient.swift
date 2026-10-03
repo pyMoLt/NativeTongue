@@ -114,7 +114,9 @@ class KeyEventMonitorClientLive {
   private let inputMonitoringTrustProvider: @Sendable () -> Bool
   @Shared(.hotkeyPermissionState) private var hotkeyPermissionState: HotkeyPermissionState
 
-  private let trustCheckIntervalNanoseconds: UInt64 = 100_000_000 // 100ms
+  // Permission changes do not need keypress latency. Polling every 100 ms
+  // woke the idle menu-bar app even while no dictation was active.
+  private let trustCheckIntervalNanoseconds: UInt64 = 2_000_000_000 // 2 s
 
   init(
     accessibilityTrustProvider: @escaping @Sendable () -> Bool = {
@@ -437,6 +439,11 @@ class KeyEventMonitorClientLive {
 
           if type == .tapDisabledByUserInput || type == .tapDisabledByTimeout {
             hotKeyClientLive.handleTapDisabledEvent(type)
+            return Unmanaged.passUnretained(cgEvent)
+          }
+
+          // Text typed by NativeTongue itself (streaming) is never hotkey input.
+          if cgEvent.getIntegerValueField(.eventSourceUserData) == LiveTyper.eventMarker {
             return Unmanaged.passUnretained(cgEvent)
           }
 

@@ -106,7 +106,7 @@ actor AppleSpeechASRClient {
 		)
 	}
 
-	private static func buffer(from samples: [Float], format: AVAudioFormat) throws -> AVAudioPCMBuffer {
+	static func buffer(from samples: [Float], format: AVAudioFormat) throws -> AVAudioPCMBuffer {
 		let source = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
 		let input = AVAudioPCMBuffer(pcmFormat: source, frameCapacity: AVAudioFrameCount(samples.count))!
 		input.frameLength = AVAudioFrameCount(samples.count)

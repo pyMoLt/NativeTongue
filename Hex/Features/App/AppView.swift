@@ -20,6 +20,8 @@ struct AppView: View {
     Item(tab: .vocabulary, title: "Vocabulary", symbol: "character.book.closed"),
     Item(tab: .commands, title: "Commands", symbol: "command"),
     Item(tab: .dictationBox, title: "Dictation Box", symbol: "text.below.photo"),
+    Item(tab: .streaming, title: "Streaming", symbol: "dot.radiowaves.left.and.right"),
+    Item(tab: .postProcessing, title: "AI Post-Processing", symbol: "sparkles"),
   ]
   private let secondary: [Item] = [
     Item(tab: .files, title: "Files", symbol: "waveform.badge.plus"),
@@ -27,7 +29,7 @@ struct AppView: View {
   ]
   private let footer: [Item] = [
     Item(tab: .settings, title: "Settings", symbol: "gearshape"),
-    Item(tab: .remappings, title: "Post-processing", symbol: "text.badge.minus"),
+    Item(tab: .remappings, title: "Word Rules", symbol: "text.badge.minus"),
     Item(tab: .about, title: "About", symbol: "info.circle"),
   ]
 
@@ -63,7 +65,7 @@ struct AppView: View {
         .foregroundStyle(.tint)
       Text(AppBrand.name).font(.headline)
       Spacer()
-      Text(store.hexSettings.dictationMode == .literal ? "¶ Literal" : "Normal")
+      Text(store.hexSettings.dictationMode == .literal ? "¶ Literal" : store.hexSettings.dictationMode == .streaming ? "Streaming" : "Normal")
         .font(.caption.weight(.semibold))
         .padding(.horizontal, 7)
         .padding(.vertical, 2)
@@ -93,6 +95,10 @@ struct AppView: View {
       CommandsPageView(store: store.scope(state: \.settings, action: \.settings))
     case .dictationBox:
       BoxSettingsPageView(store: store.scope(state: \.settings, action: \.settings))
+    case .postProcessing:
+      PostProcessingPageView(store: store.scope(state: \.settings, action: \.settings))
+    case .streaming:
+      StreamingPageView(store: store.scope(state: \.settings, action: \.settings))
     case .files:
       FileTranscriptionView(store: store.scope(state: \.files, action: \.files))
     case .history:

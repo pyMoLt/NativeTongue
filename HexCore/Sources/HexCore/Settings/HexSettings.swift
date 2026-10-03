@@ -75,6 +75,10 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var literalModel: String
 	/// Optional local, content-free metrics file (About → Diagnostics).
 	public var diagnosticsEnabled: Bool
+	/// Optional local AI post-processing (V2.5; off by default).
+	public var postProcessing: PostProcessingSettings
+	/// Streaming mode (V2.5; used when `dictationMode == .streaming`).
+	public var streaming: StreamingSettings
 
 	private mutating func normalizeSettings() {
 		if !doubleTapLockEnabled {
@@ -137,7 +141,9 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		hasCompletedV2Onboarding: Bool = false,
 		modelBiasing: [String: Bool] = [:],
 		literalModel: String = "",
-		diagnosticsEnabled: Bool = false
+		diagnosticsEnabled: Bool = false,
+		postProcessing: PostProcessingSettings = PostProcessingSettings(),
+		streaming: StreamingSettings = StreamingSettings()
 	) {
 		self.soundEffectsEnabled = soundEffectsEnabled
 		self.soundEffectsVolume = soundEffectsVolume
@@ -188,6 +194,8 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.modelBiasing = modelBiasing
 		self.literalModel = literalModel
 		self.diagnosticsEnabled = diagnosticsEnabled
+		self.postProcessing = postProcessing
+		self.streaming = streaming
 		normalizeSettings()
 	}
 
@@ -227,14 +235,22 @@ public extension HexSettings {
 
 	/// Model used for a dictation in `mode` (literal may use its own model).
 	func model(for mode: DictationMode) -> String {
-		mode == .literal && !literalModel.isEmpty ? literalModel : selectedModel
+		switch mode {
+		case .literal: literalModel.isEmpty ? selectedModel : literalModel
+		case .normal: selectedModel
+		case .streaming: streaming.model.isEmpty ? StreamingSettings.recommendedModel : streaming.model
+		}
 	}
 
 	/// Model for the currently selected mode.
 	var activeModel: String { model(for: dictationMode) }
 
 	func dictationBoxEnabled(for mode: DictationMode) -> Bool {
-		mode == .literal ? dictationBoxEnabledLiteral : dictationBoxEnabledNormal
+		switch mode {
+		case .literal: dictationBoxEnabledLiteral
+		case .normal: dictationBoxEnabledNormal
+		case .streaming: false
+		}
 	}
 
 	var activeTerminologyPrompt: String? {
@@ -295,6 +311,8 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case modelBiasing
 	case literalModel
 	case diagnosticsEnabled
+	case postProcessing
+	case streaming
 }
 
 private struct SettingsField<Value: Codable & Sendable> {
@@ -452,6 +470,8 @@ private enum HexSettingsSchema {
 		SettingsField(.hasCompletedV2Onboarding, keyPath: \.hasCompletedV2Onboarding, default: defaults.hasCompletedV2Onboarding).eraseToAny(),
 		SettingsField(.modelBiasing, keyPath: \.modelBiasing, default: defaults.modelBiasing).eraseToAny(),
 		SettingsField(.literalModel, keyPath: \.literalModel, default: defaults.literalModel).eraseToAny(),
-		SettingsField(.diagnosticsEnabled, keyPath: \.diagnosticsEnabled, default: defaults.diagnosticsEnabled).eraseToAny()
+		SettingsField(.diagnosticsEnabled, keyPath: \.diagnosticsEnabled, default: defaults.diagnosticsEnabled).eraseToAny(),
+		SettingsField(.postProcessing, keyPath: \.postProcessing, default: defaults.postProcessing).eraseToAny(),
+		SettingsField(.streaming, keyPath: \.streaming, default: defaults.streaming).eraseToAny()
 	]
 }

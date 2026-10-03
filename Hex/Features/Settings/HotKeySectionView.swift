@@ -41,6 +41,16 @@ struct HotKeySectionView: View {
             }
 
             Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Esc cancels the current dictation")
+                    Text("Stops recording, transcription and AI post-processing; nothing is inserted. A second press of the dictation key while a dictation is still being processed is ignored.")
+                        .settingsCaption()
+                }
+            } icon: {
+                Image(systemName: "escape")
+            }
+
+            Label {
                 Toggle(
                     "Enable double-tap lock",
                     isOn: Binding(

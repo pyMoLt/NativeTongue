@@ -3,13 +3,21 @@ import Foundation
 /// Literal mode: turns spoken punctuation/format words into mark/format tokens,
 /// e.g. `Alpha Komma Beta` → word(Alpha), mark(.comma), word(Beta).
 public enum InlineCommandRenderer {
-	public static func render(_ tokens: [TextToken], englishCommands: Bool) -> [TextToken] {
+	/// - Parameters:
+	///   - allowedMarks: nil = every spoken punctuation command; otherwise only these.
+	///   - includeFormat: also apply inline format commands ("großschreiben", "fett an").
+	public static func render(
+		_ tokens: [TextToken],
+		englishCommands: Bool,
+		allowedMarks: Set<PunctuationMark>? = nil,
+		includeFormat: Bool = true
+	) -> [TextToken] {
 		var output: [TextToken] = []
 		var index = 0
 
 		// Prefix commands at the very beginning of an utterance ("Überschrift …").
 		let leadingWords = tokens.prefix { $0.wordText != nil }.compactMap(\.wordText)
-		if let match = CommandGrammar.match(normalized(leadingWords), at: 0, in: CommandGrammar.formatPrefix, english: englishCommands),
+		if includeFormat, let match = CommandGrammar.match(normalized(leadingWords), at: 0, in: CommandGrammar.formatPrefix, english: englishCommands),
 		   match.length < tokens.count {
 			output.append(.format(match.0))
 			index = consumedTokenCount(tokens, words: match.length)
@@ -25,12 +33,13 @@ public enum InlineCommandRenderer {
 			let run = tokens[index...].prefix { $0.wordText != nil }.compactMap(\.wordText)
 			let words = normalized(Array(run.prefix(4)))
 			if let match = CommandGrammar.match(words, at: 0, in: CommandGrammar.punctuation, english: englishCommands),
+			   allowedMarks?.contains(match.0) ?? true,
 			   isWholeWordMatch(run: Array(run.prefix(match.length)), length: match.length) {
 				output.append(.mark(match.0))
 				index += match.length
 				continue
 			}
-			if let match = CommandGrammar.match(words, at: 0, in: CommandGrammar.formatInline, english: englishCommands),
+			if includeFormat, let match = CommandGrammar.match(words, at: 0, in: CommandGrammar.formatInline, english: englishCommands),
 			   isWholeWordMatch(run: Array(run.prefix(match.length)), length: match.length) {
 				output.append(.format(match.0))
 				index += match.length

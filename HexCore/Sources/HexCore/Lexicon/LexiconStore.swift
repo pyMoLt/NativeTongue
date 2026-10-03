@@ -28,7 +28,9 @@ public struct LexiconStore: Sendable {
 		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 		let encoder = JSONEncoder()
 		encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-		try encoder.encode(lexicon).write(to: userURL, options: [.atomic, .completeFileProtection])
+		// "Until first user authentication": readable while the screen is locked
+		// (full protection made reads and writes fail with EPERM after locking).
+		try encoder.encode(lexicon).write(to: userURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
 	}
 
 	// MARK: Packs

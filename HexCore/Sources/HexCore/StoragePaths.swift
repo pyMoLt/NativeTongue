@@ -28,6 +28,14 @@ public extension URL {
 		return newURL
 	}
 
+	/// The models folder location without creating it. Use when a caller cannot
+	/// throw; file operations on the path then fail with a reportable error.
+	static var hexModelsDirectoryPath: URL {
+		URL.applicationSupportDirectory
+			.appendingPathComponent("com.localasr.LocalASR", isDirectory: true)
+			.appendingPathComponent("models", isDirectory: true)
+	}
+
 	static var hexModelsDirectory: URL {
 		get throws {
 			let modelsDirectory = try hexApplicationSupport.appendingPathComponent("models", isDirectory: true)

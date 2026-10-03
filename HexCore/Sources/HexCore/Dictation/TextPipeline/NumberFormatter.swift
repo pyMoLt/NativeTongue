@@ -208,6 +208,18 @@ public enum SpokenNumberFormatter {
 		(english ? englishUnitTable : germanUnitTable).map(\.0)
 	}
 
+	/// A word that may continue a number, date or measurement still being
+	/// spoken ("zwei", "Komma", "dritter", "März", "Milli…"); used by streaming
+	/// to hold such words back until the value is complete.
+	static func mayContinueValue(_ word: String, english: Bool) -> Bool {
+		let lower = word.lowercased()
+		if isNumberWord(lower, english: english) { return true }
+		if lower == (english ? "point" : "komma") { return true }
+		if (english ? englishOrdinal(lower) : germanOrdinal(lower)) != nil { return true }
+		if english ? englishMonths[lower] != nil : germanMonths[lower] != nil { return true }
+		return unitPhrases(english: english).contains { $0.first == lower }
+	}
+
 	/// A single word that reads as a number ("38,5", "fünf", "zwanzig").
 	static func isNumberWord(_ word: String, english: Bool) -> Bool {
 		if word.contains(where: \.isNumber) { return true }

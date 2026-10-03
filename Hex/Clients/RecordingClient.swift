@@ -28,6 +28,7 @@ struct AudioInputDevice: Identifiable, Equatable {
 @DependencyClient
 struct RecordingClient {
   var startRecording: @Sendable () async -> Void = {}
+  var startStreamingRecording: @Sendable () async -> Void = {}
   var stopRecording: @Sendable () async -> RecordingStopResult = { .ignored(.noActiveRecording) }
   var requestMicrophoneAccess: @Sendable () async -> Bool = { false }
   var observeAudioLevel: @Sendable () async -> AsyncStream<Meter> = { AsyncStream { _ in } }
@@ -48,6 +49,7 @@ extension RecordingClient: DependencyKey {
     }
     return Self(
       startRecording: { await live.startRecording() },
+      startStreamingRecording: { await live.startRecording(liveAudio: true) },
       stopRecording: { await live.stopRecording() },
       requestMicrophoneAccess: { await live.requestMicrophoneAccess() },
       observeAudioLevel: { await live.observeAudioLevel() },
@@ -1241,7 +1243,7 @@ actor RecordingClientLive {
     }
   }
 
-  func startRecording() async {
+  func startRecording(liveAudio: Bool = false) async {
     let sessionID = UUID()
     recordingSessionID = sessionID
     // A pending environment-change debounce is superseded: the start path below applies
@@ -1314,7 +1316,7 @@ actor RecordingClientLive {
     do {
       try ensureCaptureControllerReadyAfterDeferredRestart(for: activeInputDevice, reason: "startRecording")
       let recordingURL = try makeCaptureRecordingURL()
-      try captureController.beginRecording(to: recordingURL, requestedAt: startRequestAt, mode: mode)
+      try captureController.beginRecording(to: recordingURL, requestedAt: startRequestAt, mode: mode, liveAudio: liveAudio)
       let startedAt = Date()
       activeRecordingSession = ActiveRecordingSession(
         startedAt: startedAt,

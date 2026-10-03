@@ -7,10 +7,11 @@ import XCTest
 @testable import Hex
 
 /// Renders every page light + dark into PNGs for review (plan phase 6).
-/// Output: $LOCAL_ASR_UI_SNAPSHOT_DIR or /private/tmp/LocalASR-UI. No assertions on pixels.
+/// Output: $LOCAL_ASR_UI_SNAPSHOT_DIR or <temporary directory>/LocalASR-UI (writable for any test host). No assertions on pixels.
 @MainActor
 final class UISnapshotTests: XCTestCase {
-  private let outputDirectory = URL(fileURLWithPath: ProcessInfo.processInfo.environment["LOCAL_ASR_UI_SNAPSHOT_DIR"] ?? "/private/tmp/LocalASR-UI", isDirectory: true)
+  private let outputDirectory = ProcessInfo.processInfo.environment["LOCAL_ASR_UI_SNAPSHOT_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+    ?? FileManager.default.temporaryDirectory.appendingPathComponent("LocalASR-UI", isDirectory: true)
 
   private func appState(tab: AppFeature.ActiveTab, mode: DictationMode = .literal) -> AppFeature.State {
     var settings = HexSettings()
@@ -81,7 +82,7 @@ final class UISnapshotTests: XCTestCase {
     let store = makeStore(appState(tab: .dictation))
     @Shared(.lastTranscript) var last: LastTranscript? = nil
     $last.withLock { $0 = LastTranscript(text: "Please refactor the ContentView so that the settings sheet uses the new glass buttons and keeps its state.", date: Date().addingTimeInterval(-120), appName: "Xcode") }
-    try render(MenuPanelView(store: store) {}, name: "10-menueleiste", size: NSSize(width: 300, height: 330))
+    try render(MenuPanelView(store: store) {}, name: "10-menueleiste", size: NSSize(width: 300, height: 360))
     try render(AppView(store: makeStore(appState(tab: .dictation))), name: "01b-diktat-schmal", size: NSSize(width: 640, height: 900))
 
     var hudState = appState(tab: .dictation)
@@ -92,11 +93,13 @@ final class UISnapshotTests: XCTestCase {
       VStack(spacing: 14) {
         TranscriptionIndicatorView(status: .recording, meter: .init(averagePower: 0.18, peakPower: 0.3), mode: .literal, recordingStart: Date().addingTimeInterval(-42))
         TranscriptionIndicatorView(status: .transcribing, meter: .init(averagePower: 0, peakPower: 0), mode: .normal)
+        TranscriptionIndicatorView(status: .polishing, meter: .init(averagePower: 0, peakPower: 0), mode: .normal)
+        TranscriptionIndicatorView(status: .hidden, meter: .init(averagePower: 0, peakPower: 0), mode: .normal, showsWarning: true)
       }
       .padding(30)
       .background(LinearGradient(colors: [.teal.opacity(0.5), .indigo.opacity(0.5)], startPoint: .topLeading, endPoint: .bottomTrailing)),
       name: "11-hud",
-      size: NSSize(width: 420, height: 170)
+      size: NSSize(width: 420, height: 270)
     )
 
     var boxState = hudState
@@ -120,6 +123,33 @@ final class UISnapshotTests: XCTestCase {
       name: "12-diktierbox",
       size: NSSize(width: 680, height: 380)
     )
+
+    var aiBox = boxState
+    aiBox.dictationBox.hexSettings.postProcessing.enabled = true
+    aiBox.dictationBox.aiPhase = .done
+    aiBox.dictationBox.isShowingDiff = true
+    aiBox.dictationBox.aiOriginalText = "der patient erhielt rivaroxaban 20 mg und mycophenolatmofetil kein hinweis auf thrombose"
+    aiBox.dictationBox.aiResultText = "Der Patient erhielt WhisperKit 20 mg und WhisperKit. Kein Hinweis auf eine Thrombose."
+    aiBox.dictationBox.aiIssues = [PolishGuardIssue(kind: .numberChanged, detail: "20 mg")]
+    let aiBoxStore = makeStore(aiBox)
+    try render(
+      DictationBoxView(
+        store: aiBoxStore.scope(state: \.dictationBox, action: \.dictationBox),
+        transcription: aiBoxStore.scope(state: \.transcription, action: \.transcription)
+      ),
+      name: "14-diktierbox-ki-diff",
+      size: NSSize(width: 680, height: 520)
+    )
+
+    var aiPage = appState(tab: .postProcessing)
+    aiPage.settings.hexSettings.postProcessing.enabled = true
+    aiPage.settings.hexSettings.postProcessing.autoEnabled = true
+    try render(AppView(store: makeStore(aiPage)), name: "07-ki-nachbearbeitung", size: NSSize(width: 1_040, height: 1_500))
+
+    var streamingPage = appState(tab: .streaming, mode: .streaming)
+    streamingPage.settings.hexSettings.dictationMode = .streaming
+    try render(AppView(store: makeStore(streamingPage)), name: "08-streaming", size: NSSize(width: 1_040, height: 1_450))
+    try render(MenuPanelView(store: makeStore(streamingPage)) {}, name: "10b-menueleiste-streaming", size: NSSize(width: 300, height: 360))
 
     var onboarding = appState(tab: .dictation)
     onboarding.microphonePermission = .granted

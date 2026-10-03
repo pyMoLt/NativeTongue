@@ -160,6 +160,14 @@ public struct HotKeyProcessor {
         }
     }
 
+    /// Drops the current press/lock without emitting an action. The chord must
+    /// be fully released before it can start a new recording.
+    public mutating func abandonCurrentPress() {
+        guard state != .idle else { return }
+        resetToIdle()
+        isDirty = true
+    }
+
     /// Processes a keyboard event and returns an action to take, if any.
     ///
     /// - Parameter keyEvent: The keyboard event containing key and modifier state

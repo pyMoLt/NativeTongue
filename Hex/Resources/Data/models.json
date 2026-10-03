@@ -29,7 +29,9 @@
       "maxWindowSeconds": null,
       "diarization": false
     },
-    "experimental": true
+    "experimental": true,
+    "streaming": "none",
+    "blurb": "NVIDIA's multilingual Canary on the Neural Engine. Handy for comparisons; slower and less accurate than Parakeet in our tests."
   },
   {
     "displayName": "Omi Med STT · English clinical · FP16 · Core ML",
@@ -59,7 +61,9 @@
       "maxWindowSeconds": null,
       "diarization": false
     },
-    "experimental": true
+    "experimental": true,
+    "streaming": "none",
+    "blurb": "An English model fine-tuned on clinical conversations. Try it for English medical dictation; it does not understand German."
   },
   {
     "displayName": "Parakeet TDT v2",
@@ -88,7 +92,9 @@
       "maxWindowSeconds": null,
       "diarization": false
     },
-    "experimental": false
+    "experimental": false,
+    "streaming": "emulated",
+    "blurb": "Very fast English model on the Neural Engine with excellent recall. English only."
   },
   {
     "displayName": "Parakeet TDT v3",
@@ -119,7 +125,9 @@
       "maxWindowSeconds": null,
       "diarization": false
     },
-    "experimental": false
+    "experimental": false,
+    "streaming": "emulated",
+    "blurb": "Fast multilingual model (25 European languages) on the Neural Engine. A light, quick choice for everyday dictation."
   },
   {
     "displayName": "Parakeet Ultra · INT8-linear encoder",
@@ -127,7 +135,9 @@
     "backend": "parakeetFluidAudioCoreML",
     "group": "recommended",
     "literalRating": "limited",
-    "recommendedFor": ["normal"],
+    "recommendedFor": [
+      "normal"
+    ],
     "repository": "FluidInference/parakeet-ultra-coreml",
     "revision": "95eaa59a39d4394f047a4dc5cce480388a60d1b6",
     "precision": "INT8-linear encoder; remaining Core ML components as published",
@@ -150,7 +160,9 @@
       "maxWindowSeconds": null,
       "diarization": false
     },
-    "experimental": true
+    "experimental": true,
+    "streaming": "emulated",
+    "blurb": "The fastest accurate option: three minutes of speech in about half a second, German and English included. Great for Normal mode; it may turn a spoken \"Punkt\" into \".\" by itself, so Literal is limited."
   },
   {
     "displayName": "Qwen3-ASR 0.6B · 8-bit",
@@ -177,11 +189,15 @@
       "supportsAutoLanguage": true,
       "tokenConfidences": false,
       "punctuationControl": "decoderSuppression",
-      "biasing": ["contextText"],
+      "biasing": [
+        "contextText"
+      ],
       "maxWindowSeconds": null,
       "diarization": false
     },
-    "experimental": true
+    "experimental": true,
+    "streaming": "none",
+    "blurb": "Small Qwen speech model on the GPU with strong English and Asian languages. Can use your vocabulary as context."
   },
   {
     "displayName": "Qwen3-ASR 1.7B · 8-bit",
@@ -208,11 +224,15 @@
       "supportsAutoLanguage": true,
       "tokenConfidences": false,
       "punctuationControl": "decoderSuppression",
-      "biasing": ["contextText"],
+      "biasing": [
+        "contextText"
+      ],
       "maxWindowSeconds": null,
       "diarization": false
     },
-    "experimental": true
+    "experimental": true,
+    "streaming": "none",
+    "blurb": "Larger Qwen speech model on the GPU. More accurate than 0.6B, needs about 6 GB while dictating."
   },
   {
     "displayName": "Whisper Tiny",
@@ -238,11 +258,15 @@
       "supportsAutoLanguage": true,
       "tokenConfidences": true,
       "punctuationControl": "decoderSuppression",
-      "biasing": ["promptTokens"],
+      "biasing": [
+        "promptTokens"
+      ],
       "maxWindowSeconds": 30,
       "diarization": false
     },
-    "experimental": false
+    "experimental": false,
+    "streaming": "emulated",
+    "blurb": "Tiny Whisper for quick tests. Fast but not accurate enough for real work."
   },
   {
     "displayName": "Whisper Base",
@@ -268,11 +292,15 @@
       "supportsAutoLanguage": true,
       "tokenConfidences": true,
       "punctuationControl": "decoderSuppression",
-      "biasing": ["promptTokens"],
+      "biasing": [
+        "promptTokens"
+      ],
       "maxWindowSeconds": 30,
       "diarization": false
     },
-    "experimental": false
+    "experimental": false,
+    "streaming": "emulated",
+    "blurb": "Small Whisper, a step up from Tiny. Still best for testing only."
   },
   {
     "displayName": "Whisper Large v3 · FP16 · 32-layer",
@@ -280,7 +308,9 @@
     "backend": "whisperKitCoreML",
     "group": "general",
     "literalRating": "reliable",
-    "recommendedFor": ["literal"],
+    "recommendedFor": [
+      "literal"
+    ],
     "repository": "argmaxinc/whisperkit-coreml",
     "precision": "FP16",
     "license": "MIT runtime; model artifact metadata pending",
@@ -298,11 +328,15 @@
       "supportsAutoLanguage": true,
       "tokenConfidences": true,
       "punctuationControl": "decoderSuppression",
-      "biasing": ["promptTokens"],
+      "biasing": [
+        "promptTokens"
+      ],
       "maxWindowSeconds": 30,
       "diarization": false
     },
-    "experimental": false
+    "experimental": false,
+    "streaming": "emulated",
+    "blurb": "Full Whisper Large v3: very accurate and reliable in Literal mode, but slower than Turbo."
   },
   {
     "displayName": "Whisper Large v3 Turbo · FP16 · 4-layer",
@@ -310,7 +344,10 @@
     "backend": "whisperKitCoreML",
     "group": "recommended",
     "literalRating": "reliable",
-    "recommendedFor": ["literal", "normal"],
+    "recommendedFor": [
+      "literal",
+      "normal"
+    ],
     "repository": "argmaxinc/whisperkit-coreml",
     "precision": "FP16",
     "license": "MIT runtime; model artifact metadata pending",
@@ -328,11 +365,15 @@
       "supportsAutoLanguage": true,
       "tokenConfidences": true,
       "punctuationControl": "decoderSuppression",
-      "biasing": ["promptTokens"],
+      "biasing": [
+        "promptTokens"
+      ],
       "maxWindowSeconds": 30,
       "diarization": false
     },
-    "experimental": false
+    "experimental": false,
+    "streaming": "emulated",
+    "blurb": "Our all-round pick: accurate German and English, and the most reliable model for Literal mode with spoken punctuation."
   },
   {
     "displayName": "Whisper Large v3 Turbo · 4-bit compressed",
@@ -358,11 +399,15 @@
       "supportsAutoLanguage": true,
       "tokenConfidences": true,
       "punctuationControl": "decoderSuppression",
-      "biasing": ["promptTokens"],
+      "biasing": [
+        "promptTokens"
+      ],
       "maxWindowSeconds": 30,
       "diarization": false
     },
-    "experimental": false
+    "experimental": false,
+    "streaming": "emulated",
+    "blurb": "A compressed Whisper Turbo that saves disk space. Accuracy not yet measured."
   },
   {
     "displayName": "Whisper Turbo · legacy artifact · precision unverified",
@@ -388,11 +433,15 @@
       "supportsAutoLanguage": true,
       "tokenConfidences": true,
       "punctuationControl": "decoderSuppression",
-      "biasing": ["promptTokens"],
+      "biasing": [
+        "promptTokens"
+      ],
       "maxWindowSeconds": 30,
       "diarization": false
     },
-    "experimental": true
+    "experimental": true,
+    "streaming": "emulated",
+    "blurb": "Whisper Large v3 (September 2024 build). Experimental; prefer Turbo."
   },
   {
     "displayName": "Cohere Transcribe 2B · 8-bit · MLX",
@@ -402,7 +451,22 @@
     "revision": "924ad09b5bc13619c16248d2c6b625b430e9e192",
     "precision": "8-bit MLX",
     "license": "Apache-2.0 model and runtime",
-    "languages": ["de", "en", "fr", "es", "it", "pt", "nl", "pl", "el", "ar", "ja", "zh", "vi", "ko"],
+    "languages": [
+      "de",
+      "en",
+      "fr",
+      "es",
+      "it",
+      "pt",
+      "nl",
+      "pl",
+      "el",
+      "ar",
+      "ja",
+      "zh",
+      "vi",
+      "ko"
+    ],
     "size": "MLX / GPU · 2B · multilingual · experimental",
     "storageSize": "~2.42 GB",
     "capabilities": {
@@ -419,7 +483,9 @@
     "group": "experimental",
     "literalRating": "limited",
     "recommendedFor": [],
-    "experimental": true
+    "experimental": true,
+    "streaming": "none",
+    "blurb": "Cohere's 2B transcription model on the GPU. Accurate but heavy; experimental."
   },
   {
     "displayName": "Apple SpeechAnalyzer · Dictation · On-device",
@@ -429,7 +495,10 @@
     "revision": null,
     "precision": "system-managed",
     "license": "Apple (OS component)",
-    "languages": ["de", "en"],
+    "languages": [
+      "de",
+      "en"
+    ],
     "size": "SpeechAnalyzer / Neural Engine · system-managed · experimental",
     "storageSize": "system-managed",
     "capabilities": {
@@ -439,13 +508,94 @@
       "supportsAutoLanguage": false,
       "tokenConfidences": true,
       "punctuationControl": "promptFlag",
-      "biasing": ["contextualStrings"],
+      "biasing": [
+        "contextualStrings"
+      ],
       "maxWindowSeconds": null,
       "diarization": false
     },
     "group": "general",
     "literalRating": "unverified",
     "recommendedFor": [],
-    "experimental": true
+    "experimental": true,
+    "streaming": "native",
+    "blurb": "Apple's built-in on-device speech recognition. No model download; macOS manages the language assets."
+  },
+  {
+    "displayName": "Nemotron 3.5 Streaming · Multilingual · Core ML",
+    "internalName": "nemotron-3.5-streaming-multilingual-coreml",
+    "backend": "nemotronStreamingCoreML",
+    "group": "recommended",
+    "literalRating": "unsuitable",
+    "recommendedFor": [],
+    "repository": "FluidInference/Nemotron-3.5-ASR-Streaming-Multilingual-0.6b-CoreML",
+    "revision": "1a41b75758b0337ff67db7d5408280aaaf23074e",
+    "precision": "INT8 encoder · 6-bit palettized · Neural Engine",
+    "license": "OpenMDW-1.1",
+    "languages": [
+      "de",
+      "en",
+      "es",
+      "fr",
+      "it",
+      "pt"
+    ],
+    "size": "FluidAudio / Core ML · 0.6B · cache-aware streaming",
+    "storageSize": "~611 MB per latency tier",
+    "capabilities": {
+      "wordTimings": false,
+      "contextPrompt": false,
+      "languageHint": true,
+      "supportsAutoLanguage": true,
+      "tokenConfidences": false,
+      "punctuationControl": "stripOnly",
+      "biasing": [],
+      "maxWindowSeconds": null,
+      "diarization": false
+    },
+    "experimental": false,
+    "streaming": "native",
+    "recommendedForStreaming": true,
+    "streamingOnly": true,
+    "blurb": "Built for live dictation: words appear while you speak and are never rewritten afterwards, so they can be typed straight into any app. Runs on the Neural Engine and handles German well."
+  },
+  {
+    "displayName": "Voxtral Mini 4B Realtime · 4-bit · MLX",
+    "internalName": "voxtral-mini-4b-realtime-4bit-mlx",
+    "backend": "voxtralRealtimeMLX",
+    "group": "recommended",
+    "literalRating": "unsuitable",
+    "recommendedFor": [],
+    "repository": "mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit",
+    "revision": "fdebf7b2af834a1db4b8a3c99ab7480b333adf9e",
+    "precision": "4-bit · GPU",
+    "license": "Apache-2.0",
+    "languages": [
+      "de",
+      "en",
+      "fr",
+      "es",
+      "it",
+      "nl",
+      "pt"
+    ],
+    "size": "MLX · 4B · realtime streaming",
+    "storageSize": "~3.15 GB",
+    "capabilities": {
+      "wordTimings": false,
+      "contextPrompt": false,
+      "languageHint": true,
+      "supportsAutoLanguage": true,
+      "tokenConfidences": false,
+      "punctuationControl": "stripOnly",
+      "biasing": [],
+      "maxWindowSeconds": null,
+      "diarization": false
+    },
+    "experimental": false,
+    "streaming": "native",
+    "recommendedForStreaming": true,
+    "streamingOnly": true,
+    "blurb": "Mistral's realtime speech model: very accurate live transcription in 13 languages. Larger and heavier on the GPU than Nemotron."
   }
 ]

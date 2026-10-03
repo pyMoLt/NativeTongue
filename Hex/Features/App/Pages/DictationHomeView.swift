@@ -146,11 +146,10 @@ struct DictationHomeView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .glassEffect(.regular, in: .capsule)
-      Text(settings.useDoubleTapOnly
-        ? "Double-tap starts and stops recording."
-        : "Hold to dictate · double-tap to lock recording.")
+      Text(hotkeyHint)
         .font(.callout)
         .foregroundStyle(.secondary)
+      if settings.dictationMode != .streaming {
       Toggle("Dictation box in \(settings.dictationMode == .literal ? "Literal" : "Normal") mode", isOn: Binding(
         get: { settings.dictationBoxEnabled(for: settings.dictationMode) },
         set: { value in
@@ -160,7 +159,22 @@ struct DictationHomeView: View {
         }
       ))
       .toggleStyle(.switch)
+      }
+      Label("Esc cancels the current dictation", systemImage: "escape")
+        .font(.callout)
+        .foregroundStyle(.secondary)
     }
+  }
+
+  private var hotkeyHint: String {
+    if settings.dictationMode == .streaming {
+      return settings.streaming.hotkeyBehavior == .toggle
+        ? "Press once to start streaming, press again to stop. You can type in between."
+        : "Hold to stream; release to stop."
+    }
+    return settings.useDoubleTapOnly
+      ? "Double-tap starts and stops recording."
+      : "Hold to dictate · double-tap to lock recording."
   }
 
   static func describe(_ hotkey: HotKey) -> String {

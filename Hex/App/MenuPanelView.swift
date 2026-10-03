@@ -13,7 +13,7 @@ struct MenuBarIcon: View {
   }
 
   private var imageName: String {
-    if store.transcription.isRecording { return "MenuBarRecording" }
+    if store.transcription.isRecording || store.transcription.isStreaming { return "MenuBarRecording" }
     if store.transcription.isTranscribing { return "MenuBarProcessing" }
     return store.hexSettings.dictationMode == .literal ? "MenuBarLiteral" : "MenuBarIdle"
   }
@@ -46,15 +46,32 @@ struct MenuPanelView: View {
       )) {
         Text("Normal").tag(DictationMode.normal)
         Text("¶ Literal").tag(DictationMode.literal)
+        Text("Streaming").tag(DictationMode.streaming)
       }
       .pickerStyle(.segmented)
       .labelsHidden()
       .controlSize(.large)
 
+      if settings.dictationMode == .streaming {
+        Picker("Streaming style", selection: Binding(
+          get: { settings.streaming.punctuationMode == .literal },
+          set: { literal in
+            store.$hexSettings.withLock { $0.streaming.punctuationMode = literal ? .literal : .automatic }
+          }
+        )) {
+          Text("Normal").tag(false)
+          Text("¶ Literal").tag(true)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .controlSize(.small)
+      }
+
       lastTranscriptCard
       settingsRow
       actions
       Divider()
+      escHint
       footer
     }
     .padding(12)
@@ -204,6 +221,21 @@ struct MenuPanelView: View {
     }
     .buttonStyle(.glass)
     .controlSize(.regular)
+  }
+
+  /// Escape cancels a running dictation (recording, transcription and AI
+  /// post-processing); it only reaches other apps while nothing is running.
+  private var escHint: some View {
+    Label {
+      Text("cancels the current dictation")
+    } icon: {
+      Text("esc")
+        .font(.caption2.weight(.semibold).monospaced())
+        .padding(.horizontal, 4)
+        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.secondary.opacity(0.5)))
+    }
+    .font(.caption)
+    .foregroundStyle(.secondary)
   }
 
   private var footer: some View {

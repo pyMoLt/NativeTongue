@@ -1,0 +1,347 @@
+[
+  {
+    "id": "lfm25-350m-8bit",
+    "displayName": "LFM2.5 350M",
+    "family": "Liquid LFM2.5",
+    "repository": "mlx-community/LFM2.5-350M-8bit",
+    "revision": "1227587c17a9e439da6c848b351c1901f86b4cce",
+    "variant": "8-bit",
+    "downloadSize": "0.38 GB",
+    "license": "LFM Open License",
+    "sizeClass": "tiny",
+    "speed": "fastest",
+    "recommendedFor": [],
+    "experimental": true,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "A tiny, very fast model. Only for simple clean-up of short texts; expect mistakes on German grammar."
+  },
+  {
+    "id": "qwen35-0.8b-8bit",
+    "displayName": "Qwen3.5 0.8B",
+    "family": "Qwen3.5",
+    "repository": "mlx-community/Qwen3.5-0.8B-8bit",
+    "revision": "87e768fbfa03994095f3d14527c80c5ae70c5758",
+    "variant": "8-bit",
+    "downloadSize": "1.03 GB",
+    "license": "Apache-2.0",
+    "sizeClass": "small",
+    "speed": "fast",
+    "recommendedFor": [],
+    "experimental": false,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "Small and quick. Good for fixing punctuation and capitalisation after every dictation; less reliable for rewriting."
+  },
+  {
+    "id": "qwen35-0.8b-bf16",
+    "displayName": "Qwen3.5 0.8B (full precision)",
+    "family": "Qwen3.5",
+    "repository": "mlx-community/Qwen3.5-0.8B-bf16",
+    "revision": "3067585164dbcc505eec73d554349de6a27571a4",
+    "variant": "BF16",
+    "downloadSize": "1.73 GB",
+    "license": "Apache-2.0",
+    "sizeClass": "small",
+    "speed": "fast",
+    "recommendedFor": [],
+    "experimental": false,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "The same small Qwen without compression, slightly more accurate than the 8-bit version."
+  },
+  {
+    "id": "lfm25-1.2b-8bit",
+    "displayName": "LFM2.5 1.2B Instruct",
+    "family": "Liquid LFM2.5",
+    "repository": "mlx-community/LFM2.5-1.2B-Instruct-8bit",
+    "revision": "e8c415057d2eb9e4ef19e57692d6bdbca96a74d2",
+    "variant": "8-bit",
+    "downloadSize": "1.25 GB",
+    "license": "LFM Open License",
+    "sizeClass": "small",
+    "speed": "fastest",
+    "recommendedFor": [],
+    "experimental": false,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "Built for on-device use and very fast. German is officially supported; a good light choice for automatic clean-up."
+  },
+  {
+    "id": "llama32-1b-8bit",
+    "displayName": "Llama 3.2 1B Instruct",
+    "family": "Llama 3.2",
+    "repository": "mlx-community/Llama-3.2-1B-Instruct-8bit",
+    "revision": "d48cdf0a4ea22d893b7c63a99d6a693e24822795",
+    "variant": "8-bit",
+    "downloadSize": "1.32 GB",
+    "license": "Llama 3.2 Community License",
+    "sizeClass": "small",
+    "speed": "fast",
+    "recommendedFor": [],
+    "experimental": false,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "Meta's small model with official German support. A solid reference for comparison."
+  },
+  {
+    "id": "granite40h-1b-8bit",
+    "displayName": "Granite 4.0-H 1B",
+    "family": "IBM Granite",
+    "repository": "mlx-community/granite-4.0-h-1b-8bit",
+    "revision": "acb3821c45aeae857b8750df718e58cb1887c46f",
+    "variant": "8-bit",
+    "downloadSize": "1.56 GB",
+    "license": "Apache-2.0",
+    "sizeClass": "small",
+    "speed": "fast",
+    "recommendedFor": [],
+    "experimental": false,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "IBM's hybrid model that stays light on memory. Supports German among other European languages."
+  },
+  {
+    "id": "eurollm-1.7b-bf16",
+    "displayName": "EuroLLM 1.7B Instruct",
+    "family": "EuroLLM",
+    "repository": "utter-project/EuroLLM-1.7B-Instruct",
+    "revision": "a25c7fa65fc2a644e6270b8940dbe295b51da681",
+    "variant": "BF16",
+    "downloadSize": "3.32 GB",
+    "license": "Apache-2.0",
+    "sizeClass": "small",
+    "speed": "medium",
+    "recommendedFor": [],
+    "experimental": false,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "Trained in Europe on all EU languages. Strong German for its size; larger download because it is not compressed."
+  },
+  {
+    "id": "qwen35-2b-8bit",
+    "displayName": "Qwen3.5 2B",
+    "family": "Qwen3.5",
+    "repository": "mlx-community/Qwen3.5-2B-MLX-8bit",
+    "revision": "e6ffd0033d03c9efa880984e611028e0da63905f",
+    "variant": "8-bit",
+    "downloadSize": "2.69 GB",
+    "license": "Apache-2.0",
+    "sizeClass": "medium",
+    "speed": "medium",
+    "recommendedFor": [],
+    "experimental": false,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "Fast and light. Good for punctuation, grammar and spoken commands; misses more medical names and mixed-language commands than the 4B model."
+  },
+  {
+    "id": "qwen35-2b-6bit",
+    "displayName": "Qwen3.5 2B (6-bit)",
+    "family": "Qwen3.5",
+    "repository": "mlx-community/Qwen3.5-2B-6bit",
+    "revision": "ba2bcf03dd5b502646de7e32b003cf538f2ca4d6",
+    "variant": "6-bit",
+    "downloadSize": "2.22 GB",
+    "license": "Apache-2.0",
+    "sizeClass": "medium",
+    "speed": "medium",
+    "recommendedFor": [],
+    "experimental": false,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "Qwen3.5 2B with a little more compression: less memory, nearly the same quality."
+  },
+  {
+    "id": "salamandra-2b-bf16",
+    "displayName": "Salamandra 2B Instruct",
+    "family": "Salamandra",
+    "repository": "BSC-LT/salamandra-2b-instruct",
+    "revision": "66b2be1e98fca5764696c1538f240a78f4b15433",
+    "variant": "BF16",
+    "downloadSize": "4.53 GB",
+    "license": "Apache-2.0",
+    "sizeClass": "medium",
+    "speed": "medium",
+    "recommendedFor": [],
+    "experimental": false,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "From the Barcelona Supercomputing Center, trained on 35 European languages. Uncompressed, so the download is large."
+  },
+  {
+    "id": "lfm25-2.6b-8bit",
+    "displayName": "LFM2.5 2.6B",
+    "family": "Liquid LFM2.5",
+    "repository": "mlx-community/LFM2.5-2.6B-8bit",
+    "revision": "1f4efae857731d7fe8bfd8da58d12d8509e6ff30",
+    "variant": "8-bit",
+    "downloadSize": "2.88 GB",
+    "license": "LFM Open License",
+    "sizeClass": "medium",
+    "speed": "fast",
+    "recommendedFor": [],
+    "experimental": false,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "The larger fast Liquid model. Worth a try when the small models make too many mistakes."
+  },
+  {
+    "id": "ministral3-3b-4bit",
+    "displayName": "Ministral 3 3B Instruct",
+    "family": "Mistral",
+    "repository": "mlx-community/Ministral-3-3B-Instruct-2512-4bit",
+    "revision": "a962dcb09eee4169c890e544c9eb938f1113fdee",
+    "variant": "4-bit",
+    "downloadSize": "2.76 GB",
+    "license": "Apache-2.0",
+    "sizeClass": "medium",
+    "speed": "medium",
+    "recommendedFor": [],
+    "experimental": false,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "Mistral's small European model with official German support. A good candidate for the dictation box."
+  },
+  {
+    "id": "llama32-3b-8bit",
+    "displayName": "Llama 3.2 3B Instruct",
+    "family": "Llama 3.2",
+    "repository": "mlx-community/Llama-3.2-3B-Instruct-8bit",
+    "revision": "ff054899609078569493def2823f9acd2780c0c9",
+    "variant": "8-bit",
+    "downloadSize": "3.42 GB",
+    "license": "Llama 3.2 Community License",
+    "sizeClass": "medium",
+    "speed": "medium",
+    "recommendedFor": [],
+    "experimental": false,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "The larger Llama 3.2 with official German support."
+  },
+  {
+    "id": "granite41-3b-8bit",
+    "displayName": "Granite 4.1 3B",
+    "family": "IBM Granite",
+    "repository": "mlx-community/granite-4.1-3b-8bit",
+    "revision": "38735bfdf1eb49543dd7316ec5574c269dafb8fd",
+    "variant": "8-bit",
+    "downloadSize": "3.84 GB",
+    "license": "Apache-2.0",
+    "sizeClass": "medium",
+    "speed": "medium",
+    "recommendedFor": [],
+    "experimental": false,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "IBM's 2026 compact model. Careful and literal, which suits clean-up without rewriting."
+  },
+  {
+    "id": "qwen35-4b-4bit",
+    "displayName": "Qwen3.5 4B",
+    "family": "Qwen3.5",
+    "repository": "mlx-community/Qwen3.5-4B-MLX-4bit",
+    "revision": "32f3e8ecf65426fc3306969496342d504bfa13f3",
+    "variant": "4-bit",
+    "downloadSize": "3.06 GB",
+    "license": "Apache-2.0",
+    "sizeClass": "large",
+    "speed": "medium",
+    "recommendedFor": [
+      "auto",
+      "box"
+    ],
+    "experimental": false,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "Our recommended model for automatic clean-up and the dictation box: in our tests it got all ten quality checks right (spoken commands, grammar, names, mixed languages) at about half a second per sentence."
+  },
+  {
+    "id": "gemma4-e2b-4bit",
+    "displayName": "Gemma 4 E2B",
+    "family": "Gemma 4",
+    "repository": "mlx-community/gemma-4-e2b-it-4bit",
+    "revision": "238767527555cb75a05732a84dff5d6ba0dd6809",
+    "variant": "4-bit",
+    "downloadSize": "3.58 GB",
+    "license": "Gemma Terms of Use",
+    "sizeClass": "large",
+    "speed": "medium",
+    "recommendedFor": [],
+    "experimental": true,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "Google's efficient Gemma 4 with strong multilingual writing. The download includes image and audio parts the app does not use."
+  },
+  {
+    "id": "gemma4-e4b-4bit",
+    "displayName": "Gemma 4 E4B",
+    "family": "Gemma 4",
+    "repository": "mlx-community/gemma-4-e4b-it-4bit",
+    "revision": "475b9088d29754a3379866cf5aeb6b41acd313c2",
+    "variant": "4-bit",
+    "downloadSize": "5.18 GB",
+    "license": "Gemma Terms of Use",
+    "sizeClass": "large",
+    "speed": "slow",
+    "recommendedFor": [],
+    "experimental": true,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "The bigger Gemma 4 for the best wording in the dictation box. Needs more memory and time."
+  },
+  {
+    "id": "lfm25-8b-a1b-4bit",
+    "displayName": "LFM2.5 8B-A1B",
+    "family": "Liquid LFM2.5",
+    "repository": "mlx-community/LFM2.5-8B-A1B-MLX-4bit",
+    "revision": "146590a491db88581884033023f51f6b49a27b89",
+    "variant": "4-bit",
+    "downloadSize": "4.78 GB",
+    "license": "LFM Open License",
+    "sizeClass": "large",
+    "speed": "fast",
+    "recommendedFor": [],
+    "experimental": true,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "A mixture-of-experts model: knowledge of an 8B model at roughly the speed of a 1B one, but it needs about 5 GB of memory."
+  }
+]

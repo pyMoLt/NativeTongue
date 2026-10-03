@@ -77,6 +77,8 @@ struct Badge: View {
       Text(text)
     }
     .font(.caption.weight(.medium))
+    .lineLimit(1)
+    .fixedSize()
     .padding(.horizontal, 8)
     .padding(.vertical, 3)
     .foregroundStyle(style == .neutral ? Color.secondary : tint)
@@ -84,7 +86,53 @@ struct Badge: View {
   }
 }
 
-/// Large Normal / Literal switch (segmented glass capsules).
+/// Lays out children left to right and wraps whole items onto new lines
+/// (badges never break inside a word).
+struct FlowLayout: Layout {
+  var spacing: CGFloat = 6
+  var lineSpacing: CGFloat = 6
+
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    let rows = arrange(subviews, width: proposal.width ?? .infinity)
+    let width = rows.map(\.width).max() ?? 0
+    let height = rows.map(\.height).reduce(0, +) + lineSpacing * CGFloat(max(rows.count - 1, 0))
+    return CGSize(width: proposal.width ?? width, height: height)
+  }
+
+  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    var y = bounds.minY
+    for row in arrange(subviews, width: bounds.width) {
+      var x = bounds.minX
+      for index in row.indices {
+        let size = subviews[index].sizeThatFits(.unspecified)
+        subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2), proposal: ProposedViewSize(size))
+        x += size.width + spacing
+      }
+      y += row.height + lineSpacing
+    }
+  }
+
+  private struct Row { var indices: [Int] = []; var width: CGFloat = 0; var height: CGFloat = 0 }
+
+  private func arrange(_ subviews: Subviews, width: CGFloat) -> [Row] {
+    var rows: [Row] = [Row()]
+    for index in subviews.indices {
+      let size = subviews[index].sizeThatFits(.unspecified)
+      let needed = rows[rows.count - 1].indices.isEmpty ? size.width : rows[rows.count - 1].width + spacing + size.width
+      if needed > width, !rows[rows.count - 1].indices.isEmpty {
+        rows.append(Row())
+      }
+      var row = rows[rows.count - 1]
+      row.width = row.indices.isEmpty ? size.width : row.width + spacing + size.width
+      row.height = max(row.height, size.height)
+      row.indices.append(index)
+      rows[rows.count - 1] = row
+    }
+    return rows
+  }
+}
+
+/// Large Normal / Literal / Streaming switch (segmented glass capsules).
 struct ModeSwitch: View {
   let mode: DictationMode
   let onChange: (DictationMode) -> Void
@@ -95,6 +143,7 @@ struct ModeSwitch: View {
       HStack(spacing: 6) {
         segment(.normal, title: "Normal", subtitle: "natural text for chats & AI agents", symbol: "waveform")
         segment(.literal, title: "Literal", subtitle: "precise dictation for demanding texts", symbol: "paragraphsign")
+        segment(.streaming, title: "Streaming", subtitle: "words appear while you speak", symbol: "dot.radiowaves.left.and.right")
       }
     }
     .animation(.smooth(duration: 0.25), value: mode)
@@ -120,7 +169,7 @@ struct ModeSwitch: View {
     }
     .buttonStyle(.plain)
     .glassEffect(selected ? .regular.tint(.accentColor.opacity(0.35)).interactive() : .regular.interactive(), in: .rect(cornerRadius: 12))
-    .glassEffectID(value == .normal ? "normal" : "literal", in: namespace)
+    .glassEffectID(value.rawValue, in: namespace)
     .accessibilityAddTraits(selected ? .isSelected : [])
     .accessibilityLabel("\(title) mode")
   }
@@ -133,6 +182,16 @@ extension LocalASRLiteralRating {
     case .limited: Badge(text: "Literal: limited", systemImage: "exclamationmark.triangle.fill", style: .caution)
     case .unverified: Badge(text: "Literal: unverified", systemImage: "questionmark.circle", style: .neutral)
     case .unsuitable: Badge(text: "Not for Literal", systemImage: "xmark.circle", style: .caution)
+    }
+  }
+}
+
+extension LocalASRStreamingSupport {
+  var badge: Badge {
+    switch self {
+    case .native: Badge(text: "Streaming: live", systemImage: "dot.radiowaves.left.and.right", style: .positive)
+    case .emulated: Badge(text: "Streaming: after pauses", systemImage: "pause.circle", style: .neutral)
+    case .none: Badge(text: "No streaming", systemImage: "minus.circle", style: .neutral)
     }
   }
 }

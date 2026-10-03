@@ -11,6 +11,7 @@ import CoreGraphics
 import Foundation
 import HexCore
 import Inject
+import os
 import SwiftUI
 import WhisperKit
 
@@ -68,6 +69,15 @@ struct TranscriptionFeature {
     var isRecording: Bool = false
     var isTranscribing: Bool = false
     var isPrewarming: Bool = false
+    /// AI post-processing runs before insertion (pill shows ✨).
+    var isPolishing: Bool = false
+    /// The AI result was not used; the pill shows ⚠︎ briefly.
+    var showsPolishWarning: Bool = false
+    /// Streaming mode session is running (text is typed while you speak).
+    var isStreaming: Bool = false
+    var streamingSessionID: UUID?
+    /// Recognised text not yet typed (pill, last few words).
+    var streamingPending: String = ""
     var error: String?
     var recordingStartTime: Date?
     var meter: Meter = .init(averagePower: 0, peakPower: 0)
@@ -107,6 +117,11 @@ struct TranscriptionFeature {
     case capturedRecording(CapturedDictationRequest)
     case transcriptionError(Error, URL?)
     case prewarmCompleted(String?)
+    case polishCompleted(warning: Bool)
+    case polishWarningExpired
+    case streamingEvent(UUID, StreamingEvent)
+    /// Streamed text for the dictation box (Literal + "Streaming in the box").
+    case boxStreamedText(String)
 
     // Model availability
     case modelMissing
@@ -118,12 +133,15 @@ struct TranscriptionFeature {
     case recordingCleanup
     case transcription
     case prewarm
+    case polishWarning
   }
 
   @Dependency(\.transcription) var transcription
   @Dependency(\.lexicon) var lexicon
   @Dependency(\.recording) var recording
   @Dependency(\.pasteboard) var pasteboard
+  @Dependency(\.llm) var llm
+  @Dependency(\.streaming) var streaming
   @Dependency(\.keyEventMonitor) var keyEventMonitor
   @Dependency(\.soundEffects) var soundEffect
   @Dependency(\.sleepManagement) var sleepManagement
@@ -131,6 +149,18 @@ struct TranscriptionFeature {
   @Dependency(\.transcriptPersistence) var transcriptPersistence
 
   var body: some ReducerOf<Self> {
+    core
+    Reduce { state, _ in
+      // Mirror the job phase for the hotkey event tap, which cannot read state.
+      DictationActivity.update(
+        active: state.isRecording || state.isTranscribing || state.isStreaming,
+        processing: state.isTranscribing && !state.isRecording
+      )
+      return .none
+    }
+  }
+
+  private var core: some ReducerOf<Self> {
     Reduce { state, action in
       switch action {
       // MARK: - Lifecycle / Setup
@@ -155,9 +185,15 @@ struct TranscriptionFeature {
       // MARK: - HotKey Flow
 
       case .hotKeyPressed:
-        // If we're transcribing, send a cancel first. Otherwise start recording immediately.
-        // We'll decide later (on release) whether to keep or discard the recording.
+        if Self.usesStreaming(state.hexSettings) {
+          return state.isStreaming ? stopStreaming(&state) : startStreaming(&state)
+        }
+        // A press while the previous dictation is still being processed is
+        // dropped silently; only Escape cancels a running job (audit A1).
         return handleHotKeyPressed(isTranscribing: state.isTranscribing)
+
+      case .hotKeyReleased where state.isStreaming:
+        return state.hexSettings.streaming.hotkeyBehavior == .hold ? stopStreaming(&state) : .none
 
       case .hotKeyReleased:
         // If we're currently recording, then stop. Otherwise, just cancel
@@ -198,8 +234,30 @@ struct TranscriptionFeature {
           text: output.text,
           audioURL: audioURL,
           duration: duration,
-          isRecovery: isRecovery
+          isRecovery: isRecovery,
+          protectedTerms: output.document.corrections.map(\.replacement)
         )
+
+      case let .polishCompleted(warning):
+        state.isPolishing = false
+        state.isTranscribing = false
+        guard warning else { return .none }
+        state.showsPolishWarning = true
+        return .run { send in
+          try? await Task.sleep(for: .seconds(2.5))
+          await send(.polishWarningExpired)
+        }
+        .cancellable(id: CancelID.polishWarning, cancelInFlight: true)
+
+      case .polishWarningExpired:
+        state.showsPolishWarning = false
+        return .none
+
+      case let .streamingEvent(id, event):
+        return handleStreamingEvent(&state, id: id, event: event)
+
+      case .boxStreamedText:
+        return .none
 
       case let .prewarmCompleted(errorMessage):
         state.isPrewarming = false
@@ -218,6 +276,15 @@ struct TranscriptionFeature {
 
       case .cancel:
         // Only cancel if we're in the middle of recording, transcribing, or post-processing
+        if state.isStreaming {
+          state.isStreaming = false
+          state.streamingSessionID = nil
+          state.streamingPending = ""
+          return .run { [streaming] _ in
+            await streaming.cancel()
+            soundEffect.play(.cancel)
+          }
+        }
         guard state.isRecording || state.isTranscribing else {
           return .none
         }
@@ -271,16 +338,25 @@ private extension TranscriptionFeature {
         switch inputEvent {
         case .keyboard(let keyEvent):
           // If Escape is pressed with no modifiers while idle, let's treat that as `cancel`.
+          // Escape cancels a running job and is consumed only while one is
+          // active, so it never also closes a dialog in the frontmost app.
           if keyEvent.key == .escape, keyEvent.modifiers.isEmpty,
              hotKeyProcessor.state == .idle
           {
+            let consume = DictationActivity.isJobActive
             Task { await send(.cancel) }
-            return false
+            return consume
           }
 
 		  // Process the key event
 		  switch hotKeyProcessor.process(keyEvent: keyEvent) {
 		  case .startRecording:
+			if DictationActivity.isProcessing {
+			  // Dropped silently (audit A1); require a full release first so
+			  // the processor does not stay locked while nothing records.
+			  hotKeyProcessor.abandonCurrentPress()
+			  return useDoubleTapOnly || keyEvent.key != nil
+			}
 			Task { await send(.hotKeyPressed) }
             // If the hotkey is purely modifiers, return false to keep it from interfering with normal usage
             // But if useDoubleTapOnly is true, always intercept the key
@@ -347,12 +423,11 @@ private extension TranscriptionFeature {
 
 private extension TranscriptionFeature {
   func handleHotKeyPressed(isTranscribing: Bool) -> Effect<Action> {
-    // If already transcribing, cancel first. Otherwise start recording immediately.
-    guard isTranscribing else { return .send(.startRecording) }
-    return .concatenate(
-      .send(.cancel),
-      .send(.startRecording)
-    )
+    guard !isTranscribing else {
+      transcriptionFeatureLogger.notice("Hotkey pressed while processing; dropped")
+      return .none
+    }
+    return .send(.startRecording)
   }
 
   func handleHotKeyReleased(isRecording: Bool) -> Effect<Action> {
@@ -422,6 +497,8 @@ private extension TranscriptionFeature {
         await recording.startRecording()
       }
       .cancellable(id: CancelID.recordingStart, cancelInFlight: true),
+      Self.preloadPolish(settings: state.hexSettings, llm: llm),
+      .run { [lexicon, packs = state.hexSettings.activeLexiconPacks] _ in await lexicon.warmUp(packs) },
       model.isEmpty ? .none : .run { send in
         do {
           try await transcription.prewarm(model)
@@ -434,6 +511,15 @@ private extension TranscriptionFeature {
       }
       .cancellable(id: CancelID.prewarm, cancelInFlight: true)
     )
+  }
+
+  /// Loads the AI model while the user is still speaking (setting "preload on hotkey").
+  static func preloadPolish(settings: HexSettings, llm: LLMClient) -> Effect<Action> {
+    let post = settings.postProcessing
+    guard post.enabled, post.autoEnabled, post.preloadOnHotkey,
+          let request = automaticPolish(for: Array(repeating: "x", count: post.minimumWords).joined(separator: " "), settings: settings)
+    else { return .none }
+    return .run { _ in await llm.preload(request.modelID, post) }
   }
 
   func handleStopRecording(_ state: inout State) -> Effect<Action> {
@@ -687,7 +773,8 @@ private extension TranscriptionFeature {
     text: String,
     audioURL: URL,
     duration: TimeInterval,
-    isRecovery: Bool
+    isRecovery: Bool,
+    protectedTerms: [String] = []
   ) -> Effect<Action> {
     state.isTranscribing = false
     state.isPrewarming = false
@@ -738,11 +825,31 @@ private extension TranscriptionFeature {
     let transcriptionHistory = state.$transcriptionHistory
     let saveTranscriptionHistory = state.hexSettings.saveTranscriptionHistory
     let maxHistoryEntries = state.hexSettings.maxHistoryEntries
-    state.$lastTranscript.withLock { $0 = LastTranscript(text: modifiedResult, date: wallClock.now(), appName: sourceAppName) }
-    return .run { send in
+    let polish = isRecovery || state.isRemappingScratchpadFocused ? nil : Self.automaticPolish(for: modifiedResult, settings: state.hexSettings)
+    if polish != nil {
+      // Still "processing": a hotkey press is dropped and Esc cancels.
+      state.isTranscribing = true
+      state.isPolishing = true
+    } else {
+      state.$lastTranscript.withLock { $0 = LastTranscript(text: modifiedResult, date: wallClock.now(), appName: sourceAppName) }
+    }
+    let lastTranscript = state.$lastTranscript
+    let now = wallClock.now()
+    return .run { [llm, lexicon] send in
+      var finalText = modifiedResult
+      var warning = false
+      if var request = polish {
+        let userTerms = await lexicon.userLexicon().entries.map(\.term).filter { modifiedResult.localizedCaseInsensitiveContains($0) }
+        request.protectedTerms = Array(Set(protectedTerms + userTerms))
+        let outcome = await llm.polish(request, false, nil)
+        guard !Task.isCancelled else { return }
+        finalText = outcome.text
+        warning = outcome.hasWarning
+        lastTranscript.withLock { $0 = LastTranscript(text: finalText, date: now, appName: sourceAppName) }
+      }
       do {
         try await finalizeRecordingAndStoreTranscript(
-          result: modifiedResult,
+          result: finalText,
           duration: duration,
           sourceAppBundleID: sourceAppBundleID,
           sourceAppName: sourceAppName,
@@ -755,6 +862,7 @@ private extension TranscriptionFeature {
         // Keep the source WAV available if persistence/finalization fails so the user can retry.
         await send(.transcriptionError(error, nil))
       }
+      if polish != nil { await send(.polishCompleted(warning: warning)) }
     }
     .cancellable(id: CancelID.transcription)
   }
@@ -822,6 +930,7 @@ private extension TranscriptionFeature {
 private extension TranscriptionFeature {
   func handleCancel(_ state: inout State) -> Effect<Action> {
     let wasRecording = state.isRecording
+    state.isPolishing = false
     state.isTranscribing = false
     state.isRecording = false
     state.isPrewarming = false
@@ -881,6 +990,10 @@ struct TranscriptionView: View {
     // The dictation box shows its own recording indicator.
     if store.isDictationBoxPresented {
       return .hidden
+    } else if store.isStreaming {
+      return .streaming
+    } else if store.isPolishing {
+      return .polishing
     } else if store.isTranscribing {
       return .transcribing
     } else if store.isRecording {
@@ -897,12 +1010,126 @@ struct TranscriptionView: View {
       status: status,
       meter: store.meter,
       mode: store.hexSettings.dictationMode,
-      recordingStart: store.recordingStartTime
+      recordingStart: store.recordingStartTime,
+      showsWarning: store.showsPolishWarning && !store.isDictationBoxPresented,
+      pendingText: store.streamingPending
     )
     .task {
       await store.send(.task).finish()
     }
     .enableInjection()
+  }
+}
+
+// MARK: - Streaming mode
+
+extension TranscriptionFeature {
+  /// Streaming mode, or Literal with "streaming in the dictation box".
+  static func usesStreaming(_ settings: HexSettings) -> Bool {
+    switch settings.dictationMode {
+    case .streaming: true
+    case .literal: settings.streaming.literalStreamingInBox && settings.dictationBoxEnabledLiteral
+    case .normal: false
+    }
+  }
+
+  func startStreaming(_ state: inout State) -> Effect<Action> {
+    let id = UUID()
+    state.isStreaming = true
+    state.streamingSessionID = id
+    state.streamingPending = ""
+    state.error = nil
+    state.recordingStartTime = wallClock.now()
+    var settings = state.hexSettings
+    let intoBox = settings.dictationMode == .literal
+    if intoBox {
+      // Literal in the box: spoken punctuation decides, the model's does not.
+      settings.streaming.punctuationMode = .literal
+    }
+    return .run { [streaming, lexicon] send in
+      soundEffect.play(.startRecording)
+      let aliases = await lexicon.streamingAliases(settings.activeLexiconPacks, settings.asrProfile)
+      var request = StreamingRequest(settings: settings, aliases: aliases)
+      if intoBox {
+        request.sink = { text in send(.boxStreamedText(text)) }
+      }
+      do {
+        try await streaming.start(request) { event in
+          Task { await send(.streamingEvent(id, event)) }
+        }
+      } catch {
+        await send(.streamingEvent(id, .failed(error.localizedDescription)))
+      }
+    }
+  }
+
+  func stopStreaming(_ state: inout State) -> Effect<Action> {
+    state.isStreaming = false
+    state.streamingPending = ""
+    return .run { [streaming] _ in
+      await streaming.stop()
+      soundEffect.play(.stopRecording)
+    }
+  }
+
+  func handleStreamingEvent(_ state: inout State, id: UUID, event: StreamingEvent) -> Effect<Action> {
+    let isCurrent = state.streamingSessionID == id
+    switch event {
+    case let .pending(text):
+      if isCurrent, state.isStreaming, state.hexSettings.streaming.showsPendingText {
+        state.streamingPending = String(text.split(separator: " ").suffix(6).joined(separator: " "))
+      }
+      return .none
+    case .silenceTimeout:
+      guard isCurrent, state.isStreaming else { return .none }
+      return stopStreaming(&state)
+    case .finished:
+      if isCurrent { state.streamingSessionID = nil }
+      return .none
+    case let .failed(message):
+      guard isCurrent else { return .none }
+      state.isStreaming = false
+      state.streamingSessionID = nil
+      state.streamingPending = ""
+      state.error = message
+      return .run { [streaming] _ in
+        await streaming.cancel()
+        soundEffect.play(.cancel)
+      }
+    }
+  }
+}
+
+// MARK: - Automatic AI post-processing
+
+extension TranscriptionFeature {
+  /// The AI request for the automatic step, or nil when it should not run.
+  static func automaticPolish(for text: String, settings: HexSettings) -> PolishRequest? {
+    let post = settings.postProcessing
+    guard post.enabled, post.autoEnabled else { return nil }
+    let modeAllowed = settings.dictationMode == .normal
+      || (settings.dictationMode == .literal && post.autoScope == .normalAndLiteralWithoutBox)
+    guard modeAllowed else { return nil }
+    guard text.split(whereSeparator: \.isWhitespace).count >= post.minimumWords else { return nil }
+    // The selected model only; without one the original is inserted with ⚠︎.
+    return PolishRequest(text: text, mode: post.autoMode, modelID: post.autoModel, settings: post)
+  }
+}
+
+// MARK: - Dictation Activity
+
+/// Job phase mirrored from `TranscriptionFeature.State` for the hotkey event tap,
+/// which runs outside the store. While a job is active Escape is consumed by
+/// NativeTongue; while a finished recording is processing, hotkey presses are
+/// dropped (audit A1).
+enum DictationActivity {
+  private static let flags = OSAllocatedUnfairLock(initialState: (active: false, processing: false))
+
+  static var isJobActive: Bool { flags.withLock { $0.active } }
+  static var isProcessing: Bool { flags.withLock { $0.processing } }
+
+  static func update(active: Bool, processing: Bool) {
+    flags.withLock { $0 = (active, processing) }
   }
 }
 

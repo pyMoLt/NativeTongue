@@ -4,11 +4,14 @@ import Foundation
 public enum DictationMode: String, Codable, CaseIterable, Equatable, Sendable {
 	case normal
 	case literal
+	/// Text is typed into the target app while you speak (V2.5).
+	case streaming
 
 	public var displayName: String {
 		switch self {
 		case .normal: "Normal dictation"
 		case .literal: "Literal punctuation"
+		case .streaming: "Streaming"
 		}
 	}
 }

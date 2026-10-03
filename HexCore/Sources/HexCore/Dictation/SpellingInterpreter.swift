@@ -5,6 +5,9 @@ import Foundation
 /// variants), NATO, „groß“/„klein“ before a letter, digits, „Bindestrich“,
 /// „Leerzeichen“, „Punkt“.
 public enum SpellingInterpreter {
+	/// Spelling-alphabet words (DIN 5009, NATO) and letter names, lowercased.
+	static var alphabetWords: Set<String> { Set(alphabet.keys) }
+
 	private static let alphabet: [String: String] = {
 		var table: [String: String] = [:]
 		let german: [(String, String)] = [
@@ -41,6 +44,11 @@ public enum SpellingInterpreter {
 		"bindestrich": "-", "minus": "-", "hyphen": "-", "dash": "-", "leerzeichen": " ", "space": " ",
 		"punkt": ".", "dot": ".", "period": ".", "unterstrich": "_", "underscore": "_", "schrägstrich": "/", "slash": "/",
 	]
+
+	/// The letter a spelling-alphabet word stands for ("anton" → "a"), if any.
+	public static func letter(forAlphabetWord word: String) -> String? {
+		alphabet[word.lowercased()].flatMap { $0.count == 1 ? $0 : nil }
+	}
 
 	public static func interpret(_ text: String) -> String {
 		let words = text.lowercased()

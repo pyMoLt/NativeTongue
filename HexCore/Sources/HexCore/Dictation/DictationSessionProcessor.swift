@@ -126,6 +126,7 @@ public enum DictationSessionProcessor {
 		corrector: LexiconCorrector? = nil
 	) -> DictationDocument {
 		let alignedUtterances = joinSplitPhrases(alignedUtterances, language: options.language, englishCommands: options.englishCommands)
+			.map { AlignedUtterance(utterance: $0.utterance, text: HallucinationFilter.collapsingRepetitionLoops($0.text), language: $0.language) }
 		var document = DictationDocument()
 		let classifierContext = ClassifierContext(
 			mode: options.mode,

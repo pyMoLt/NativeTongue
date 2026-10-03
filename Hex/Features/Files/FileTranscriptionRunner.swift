@@ -109,6 +109,7 @@ struct FileTranscriptionRunner {
     )
     var segments: [TranscriptSegment] = []
     let aligned = DictationSessionProcessor.joinSplitPhrases(aligned, language: language, englishCommands: request.englishCommands)
+      .map { AlignedUtterance(utterance: $0.utterance, text: HallucinationFilter.collapsingRepetitionLoops($0.text), language: $0.language) }
     for item in aligned {
       let durationMs = item.utterance.range.count * 1_000 / sampleRate
       guard !HallucinationFilter.shouldDrop(text: item.text, utteranceDurationMs: durationMs) else { continue }

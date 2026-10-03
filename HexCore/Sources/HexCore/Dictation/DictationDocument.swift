@@ -148,6 +148,7 @@ public enum DictationTextPipeline {
 
 	public static func process(_ text: String, options: Options) -> [TextToken] {
 		var tokens = ModelTextTokenizer.tokenize(text)
+		if options.mode != .streaming { tokens = SpelledWordRenderer.render(tokens) }
 		switch options.mode {
 		case .literal:
 			tokens = LiteralNormalizer.normalize(tokens)
@@ -156,6 +157,8 @@ public enum DictationTextPipeline {
 		case .normal:
 			if options.formatNumbers { tokens = SpokenNumberFormatter.format(tokens, language: options.language) }
 			if options.agentFormatting { tokens = AgentFormatter.format(tokens) }
+		case .streaming:
+			if options.formatNumbers { tokens = SpokenNumberFormatter.format(tokens, language: options.language) }
 		}
 		return tokens
 	}
