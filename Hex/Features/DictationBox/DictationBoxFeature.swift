@@ -30,7 +30,8 @@ struct DictationBoxFeature {
   /// AI post-processing in the box: the ✨ button becomes ⇄ (diff) after a run.
   enum AIPhase: Equatable {
     case idle
-    case running(PolishMode)
+    /// Running with this style id.
+    case running(String)
     case done
   }
 
@@ -60,6 +61,8 @@ struct DictationBoxFeature {
     /// Text before each dictation, for „streich das“ across dictations.
     var snapshots: [BoxText] = []
     var learnCandidates: [LearnCandidate] = []
+    /// Counters of earlier manual corrections (plan B8), loaded when the box opens.
+    var learnedCorrections: [LearnedCorrection] = []
     var suggestion: SuggestionState?
     var isConfirmingDiscard = false
     var aiPhase: AIPhase = .idle
@@ -68,8 +71,16 @@ struct DictationBoxFeature {
     var aiResultText = ""
     var aiIssues: [PolishGuardIssue] = []
     var isShowingDiff = false
+    /// Command Mode (C3): the box holds a selection from another app; a
+    /// spoken or typed instruction (or a style) rewrites it and ✓ replaces
+    /// the selection.
+    var isCommandMode = false
+    var instruction = ""
     @Shared(.hexSettings) var hexSettings: HexSettings
+    /// Settings of the target app's profile (C2).
+    var targetSettings: HexSettings { hexSettings.effective(forApp: targetBundleID) }
     @Shared(.isDictationBoxPresented) var isDictationBoxPresented: Bool = false
+    @Shared(.dictationBoxPlainText) var plainTextForCommands: String = ""
     @Shared(.transcriptionHistory) var transcriptionHistory: TranscriptionHistory
     @Shared(.lastTranscript) var lastTranscript: LastTranscript? = nil
 
@@ -88,6 +99,10 @@ struct DictationBoxFeature {
   enum Action: BindableAction {
     case binding(BindingAction<State>)
     case present(targetBundleID: String?, targetAppName: String?, mode: DictationMode)
+    /// Opens the box in Command Mode with the selected text of the target app.
+    case presentCommand(targetBundleID: String?, targetAppName: String?, selection: String)
+    /// Runs the typed or spoken instruction on the box text.
+    case commandRun
     case restoreDraft(BoxText)
     case recordingStarted
     case dictationFinished(DictationSessionOutput, URL)
@@ -117,7 +132,8 @@ struct DictationBoxFeature {
     case setFormat(OutputFormat)
     case setLanguage(String?)
     // AI post-processing
-    case aiTapped(PolishMode)
+    /// Runs the AI with this style id.
+    case aiTapped(String)
     case aiPartial(String)
     case aiFinished(PolishOutcome)
     case aiCancelTapped
@@ -129,6 +145,7 @@ struct DictationBoxFeature {
     case discardConfirmed
     case learnConfirmed
     case learnSkipped
+    case learnedLoaded([LearnedCorrection])
     case close
   }
 
@@ -156,7 +173,30 @@ struct DictationBoxFeature {
         state.language = state.hexSettings.outputLanguage ?? "de"
         state.$isDictationBoxPresented.withLock { $0 = true }
         state.lastAction = targetAppName.map { "Target: \($0)" } ?? ""
+        return .merge(
+          .run { _ in await MainActor.run { NotificationCenter.default.post(name: .presentDictationBox, object: nil) } },
+          loadLearnedCorrections()
+        )
+
+      case let .presentCommand(targetBundleID, targetAppName, selection):
+        guard !state.isPresented else { return .none }
+        state = State()
+        state.isPresented = true
+        state.isCommandMode = true
+        state.targetBundleID = targetBundleID
+        state.targetAppName = targetAppName
+        state.mode = .normal
+        state.language = state.hexSettings.outputLanguage ?? "de"
+        state.text = BoxText(NSAttributedString(string: selection))
+        state.revision += 1
+        state.$isDictationBoxPresented.withLock { $0 = true }
+        state.lastAction = "Say or type what to do with the selection"
         return .run { _ in await MainActor.run { NotificationCenter.default.post(name: .presentDictationBox, object: nil) } }
+
+      case .commandRun:
+        let instruction = state.instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard state.isCommandMode, !instruction.isEmpty else { return .none }
+        return startAI(&state, style: AIStyle.oneOff(instruction: instruction))
 
       case let .restoreDraft(text):
         state = State()
@@ -168,21 +208,34 @@ struct DictationBoxFeature {
         state.language = state.hexSettings.outputLanguage ?? "de"
         state.$isDictationBoxPresented.withLock { $0 = true }
         state.lastAction = "Restored dictation"
-        return .run { _ in await MainActor.run { NotificationCenter.default.post(name: .presentDictationBox, object: nil) } }
+        return .merge(
+          .run { _ in await MainActor.run { NotificationCenter.default.post(name: .presentDictationBox, object: nil) } },
+          loadLearnedCorrections()
+        )
 
       case .recordingStarted:
         state.replacementRange = state.selection.length > 0 ? state.selection : nil
         state.suggestion = nil
         return .none
 
+      case let .dictationFinished(output, audioURL) where state.isCommandMode && state.aiPhase != .done:
+        // Command Mode: the dictation is the instruction, not more text.
+        try? FileManager.default.removeItem(at: audioURL)
+        state.instruction = output.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return .send(.commandRun)
+
       case let .dictationFinished(output, audioURL):
         state.audioURLs.append(audioURL)
+        // A dictation during a running AI pass: the original text comes back
+        // first, then the dictation is added (audit M5).
+        let abortAI = abortRunningAI(&state)
         resetAI(&state)
-        return applyDictation(&state, output: output)
+        return .merge(abortAI, applyDictation(&state, output: output))
 
       case let .streamedText(text):
         guard state.isPresented, state.phase == .editing else { return .none }
-        return appendStreamed(&state, text: text)
+        let abortAI = abortRunningAI(&state)
+        return .merge(abortAI, appendStreamed(&state, text: text))
 
       case let .textEdited(text, selection):
         // Editor callbacks also arrive while the AI streams text in.
@@ -197,8 +250,8 @@ struct DictationBoxFeature {
         state.suggestion = nil
         return saveDraft(state)
 
-      case let .aiTapped(mode):
-        return startAI(&state, mode: mode)
+      case let .aiTapped(styleID):
+        return startAI(&state, style: state.targetSettings.postProcessing.style(id: styleID))
 
       case let .aiPartial(partial):
         guard case .running = state.aiPhase else { return .none }
@@ -211,11 +264,9 @@ struct DictationBoxFeature {
 
       case .aiCancelTapped:
         guard case .running = state.aiPhase else { return .none }
-        if let previous = state.snapshots.popLast() { state.text = previous }
-        state.revision += 1
-        resetAI(&state)
+        let effect = abortRunningAI(&state)
         state.lastAction = "AI cancelled"
-        return .cancel(id: CancelID.ai)
+        return effect
 
       case .diffToggled:
         guard state.aiPhase == .done else { return .none }
@@ -247,8 +298,8 @@ struct DictationBoxFeature {
         let context = LexiconContext(
           mode: state.mode,
           language: state.language,
-          profile: state.hexSettings.asrProfile,
-          activePacks: state.hexSettings.activeLexiconPacks,
+          profile: state.targetSettings.asrProfile,
+          activePacks: state.targetSettings.activeLexiconPacks,
           autoReplacePackTermsInLiteral: state.hexSettings.autoReplaceTermsLiteral
         )
         return .run { [lexicon] send in
@@ -369,7 +420,8 @@ struct DictationBoxFeature {
         return finish(&state)
 
       case .learnConfirmed:
-        let entries = state.learnCandidates.filter(\.isSelected).map { candidate in
+        let selected = state.learnCandidates.filter(\.isSelected)
+        let entries = selected.map { candidate in
           LexiconEntry(
             term: candidate.replacement,
             lang: state.language.hasPrefix("en") ? "en" : "de",
@@ -379,10 +431,20 @@ struct DictationBoxFeature {
             autoReplace: true
           )
         }
+        // Accepted pairs become aliases; unticked ones are not offered again.
+        let accepted = selected.map { LearnedCorrection(original: $0.original, replacement: $0.replacement) }
+        let declined = state.learnCandidates.filter { !$0.isSelected }.map { LearnedCorrection(original: $0.original, replacement: $0.replacement) }
         return .merge(
-          .run { [lexicon] _ in try? await lexicon.addUserEntries(entries) },
+          .run { [lexicon] _ in
+            try? await lexicon.addUserEntries(entries)
+            await lexicon.resolveCorrections(accepted, declined)
+          },
           .send(.close)
         )
+
+      case let .learnedLoaded(counters):
+        state.learnedCorrections = counters
+        return .none
 
       case .learnSkipped:
         return .send(.close)
@@ -390,6 +452,12 @@ struct DictationBoxFeature {
       case .close:
         return finish(&state)
       }
+    }
+    Reduce { state, _ in
+      // Mirror the text for the command recogniser of the next dictation.
+      let plain = state.isPresented ? state.text.string : ""
+      if state.plainTextForCommands != plain { state.$plainTextForCommands.withLock { $0 = plain } }
+      return .none
     }
   }
 
@@ -411,6 +479,19 @@ struct DictationBoxFeature {
       case .deleteLastWord:
         state.text = BoxText(BoxTextEditing.deleteLastWord(state.text.value))
         state.lastAction = "Deleted last word"
+      case let .deleteLastWords(count):
+        var text = state.text.value
+        for _ in 0..<count { text = BoxTextEditing.deleteLastWord(text) }
+        state.text = BoxText(text)
+        state.lastAction = "Deleted last \(count) words"
+      case let .replace(old, new):
+        if let replaced = BoxTextEditing.replaceLast(old, with: new, in: state.text.value) {
+          state.snapshots.append(state.text)
+          state.text = BoxText(replaced)
+          state.lastAction = "Replaced “\(old)” with “\(new)”"
+        } else {
+          state.lastAction = "⚠︎ “\(old)” not found"
+        }
       case .clearAll:
         state.snapshots.append(state.text)
         state.text = BoxText()
@@ -559,6 +640,14 @@ struct DictationBoxFeature {
     boxLogger.notice("Dictation box confirmed (\(confirmedWords) words)")
     let audioURLs = state.audioURLs
     state.audioURLs = []
+    // Every manual correction is counted; „Always replace?“ only from the
+    // threshold on (plan B8). Spelled new words without an original are offered at once.
+    let corrections = state.learnCandidates.filter { !$0.original.isEmpty }
+      .map { LearnedCorrection(original: $0.original, replacement: $0.replacement) }
+    let counted = LearnedCorrection.counting(corrections, into: state.learnedCorrections)
+    let offered = Set(LearnedCorrection.offers(counted, threshold: state.hexSettings.textProcessing.learnCorrectionThreshold).map(\.id))
+    state.learnCandidates.removeAll { !$0.original.isEmpty && !offered.contains(LearnedCorrection(original: $0.original, replacement: $0.replacement).id) }
+    state.learnedCorrections = counted
     let hasLearnCandidates = !state.learnCandidates.isEmpty
     if hasLearnCandidates {
       state.phase = .learning
@@ -570,7 +659,7 @@ struct DictationBoxFeature {
     state.$lastTranscript.withLock { $0 = LastTranscript(text: historyText, date: Date(), appName: state.targetAppName) }
     let target = (state.targetBundleID, state.targetAppName)
     return .merge(
-      .run { [pasteboard, transcriptPersistence] send in
+      .run { [pasteboard, transcriptPersistence, lexicon] send in
         await MainActor.run { NotificationCenter.default.post(name: .dictationBoxWillPaste, object: nil) }
         await pasteboard.pasteRich(payload)
         // Keep the text in the history (the user's fallback when insertion fails).
@@ -580,16 +669,14 @@ struct DictationBoxFeature {
             return total + Double(file.length) / file.processingFormat.sampleRate
           }
           if let transcript = try? await transcriptPersistence.save(historyText, firstAudio, duration, target.0, target.1) {
-            history.withLock { history in
-              history.history.insert(transcript, at: 0)
-              if let maxHistoryEntries, maxHistoryEntries > 0 {
-                while history.history.count > maxHistoryEntries { _ = history.history.popLast() }
-              }
-            }
+            let removed = history.withLock { $0.insertNewest(transcript, limit: maxHistoryEntries) }
+            // Trimmed entries take their recordings along (audit M6).
+            for entry in removed { try? await transcriptPersistence.deleteAudio(entry) }
           }
         }
         for url in audioURLs { FileManager.default.removeItemIfExists(at: url) }
         DictationBoxDraftStore.remove()
+        if !corrections.isEmpty { _ = await lexicon.recordCorrections(corrections) }
         if !hasLearnCandidates { await send(.close) }
       },
       .cancel(id: CancelID.draft)
@@ -618,7 +705,20 @@ struct DictationBoxFeature {
     return saveDraft(state)
   }
 
+  private func loadLearnedCorrections() -> Effect<Action> {
+    .run { [lexicon] send in await send(.learnedLoaded(await lexicon.userLexicon().learnedCorrections)) }
+  }
+
   // MARK: - AI post-processing
+
+  /// Stops a running AI pass and restores the text from before it.
+  private func abortRunningAI(_ state: inout State) -> Effect<Action> {
+    guard case .running = state.aiPhase else { return .none }
+    if let previous = state.snapshots.popLast() { state.text = previous }
+    state.revision += 1
+    resetAI(&state)
+    return .cancel(id: CancelID.ai)
+  }
 
   private func resetAI(_ state: inout State) {
     state.aiPhase = .idle
@@ -626,9 +726,9 @@ struct DictationBoxFeature {
     state.isShowingDiff = false
   }
 
-  private func startAI(_ state: inout State, mode: PolishMode) -> Effect<Action> {
-    let settings = state.hexSettings.postProcessing
-    guard state.offersAI, state.aiPhase != .running(mode) else { return .none }
+  private func startAI(_ state: inout State, style: AIStyle) -> Effect<Action> {
+    let settings = state.targetSettings.postProcessing
+    guard state.offersAI || state.isCommandMode, state.aiPhase != .running(style.id) else { return .none }
     let markdown = BoxTextConverter.markdown(from: state.text.value).trimmingCharacters(in: .whitespacesAndNewlines)
     guard !markdown.isEmpty else { return .none }
     let modelID = settings.boxModel
@@ -640,18 +740,30 @@ struct DictationBoxFeature {
     }
     state.snapshots.append(state.text)
     state.aiOriginalText = markdown
-    state.aiPhase = .running(mode)
+    state.aiPhase = .running(style.id)
     state.isShowingDiff = false
     state.suggestion = nil
-    state.lastAction = mode == .clean ? "Cleaning up …" : "Rewriting …"
-    let request = PolishRequest(text: markdown, mode: mode, modelID: modelID, settings: settings)
+    state.lastAction = "\(style.name) …"
+    var prepared = PolishRequest(text: markdown, style: style, modelID: modelID, settings: settings)
+    if settings.context.use != .off {
+      // The box text is the whole text; only the app is useful context.
+      var appOnly = settings.context
+      appOnly.use = .appOnly
+      prepared.context = ContextAnalyzer.prompt(ContextHints(), context: AIContext(appName: state.targetAppName), settings: appOnly)
+    }
+    let request = prepared
     return .run { [llm, lexicon] send in
       var request = request
       let terms = await lexicon.userLexicon().entries.map(\.term)
       request.protectedTerms = terms.filter { request.text.localizedCaseInsensitiveContains($0) }
-      let outcome = await llm.polish(request, true) { partial in
-        Task { await send(.aiPartial(partial)) }
-      }
+      // Partial results arrive in order and before the final one (audit L2).
+      let (partials, continuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(1))
+      async let forwarded: Void = {
+        for await partial in partials { await send(.aiPartial(partial)) }
+      }()
+      let outcome = await llm.polish(request, true) { partial in continuation.yield(partial) }
+      continuation.finish()
+      await forwarded
       await send(.aiFinished(outcome))
     }
     .cancellable(id: CancelID.ai, cancelInFlight: true)

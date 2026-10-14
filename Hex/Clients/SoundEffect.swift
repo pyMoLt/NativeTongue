@@ -1,10 +1,3 @@
-//
-//  SoundEffect.swift
-//  Hex
-//
-//  Created by Kit Langton on 1/26/25.
-//
-
 import AVFoundation
 import ComposableArchitecture
 import Dependencies
@@ -77,7 +70,7 @@ actor SoundEffectsClientLive {
   private var playerNodes: [SoundEffect: AVAudioPlayerNode] = [:]
   private var audioBuffers: [SoundEffect: AVAudioPCMBuffer] = [:]
   private var idleShutdownTask: Task<Void, Never>?
-  /// Comfortably longer than any sound effect, short enough that an idle Hex doesn't keep
+  /// Comfortably longer than any sound effect, short enough that an idle NativeTongue doesn't keep
   /// an output IOProc (and coreaudiod) running around the clock (#209).
   private static let idleShutdownDelay: Duration = .seconds(10)
 

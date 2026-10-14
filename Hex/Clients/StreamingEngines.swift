@@ -43,7 +43,7 @@ actor NemotronStreamingEngine: StreamingEngine {
 
   private var manager: StreamingNemotronMultilingualAsrManager?
   private var loadedDirectory: URL?
-  private var emitted = ""
+  private var emitted = AppendOnlyDelta()
 
   static func variantDirectory(chunkMs: Int) -> URL {
     URL.applicationSupportDirectory
@@ -59,10 +59,10 @@ actor NemotronStreamingEngine: StreamingEngine {
   /// Explicit install action: downloads the Latin-script (DE/EN/…) variant.
   static func install(chunkMs: Int, progress: @escaping @Sendable (Double) -> Void) async throws {
     // The app keeps FluidAudio offline; only this explicit install may fetch.
-    ModelHub.offlineMode = false
-    defer { ModelHub.offlineMode = true }
-    _ = try await StreamingNemotronMultilingualAsrManager.downloadVariant(languageCode: "de-DE", chunkMs: chunkMs) { update in
-      progress(update.fractionCompleted)
+    _ = try await ModelHubNetwork.whileInstalling {
+      try await StreamingNemotronMultilingualAsrManager.downloadVariant(languageCode: "de-DE", chunkMs: chunkMs) { update in
+        progress(update.fractionCompleted)
+      }
     }
   }
 
@@ -88,7 +88,7 @@ actor NemotronStreamingEngine: StreamingEngine {
     guard let manager else { throw NSError(domain: "Streaming", code: 2, userInfo: [NSLocalizedDescriptionKey: "Streaming model not loaded."]) }
     await manager.reset()
     await manager.setLanguage(Self.languageCode(language))
-    emitted = ""
+    emitted.reset()
   }
 
   func feed(_ samples: [Float]) async throws -> StreamingUpdate {
@@ -112,17 +112,9 @@ actor NemotronStreamingEngine: StreamingEngine {
   /// New text since the last call. The final pass may capitalise the first
   /// letter, so the prefix check ignores case.
   private func delta(_ running: String) -> StreamingUpdate {
-    guard running.count > emitted.count else { return StreamingUpdate() }
-    let prefix = running.prefix(emitted.count)
-    guard prefix.lowercased() == emitted.lowercased() else {
-      streamingLogger.notice("Nemotron revised earlier text; only new characters are typed")
-      let new = String(running.dropFirst(emitted.count))
-      emitted = running
-      return StreamingUpdate(committed: new)
-    }
-    let new = String(running.dropFirst(emitted.count))
-    emitted = running
-    return StreamingUpdate(committed: new)
+    let (new, revised) = emitted.next(running)
+    if revised { streamingLogger.notice("Nemotron revised earlier text; only new characters are typed") }
+    return new.isEmpty ? StreamingUpdate() : StreamingUpdate(committed: new)
   }
 
   static func languageCode(_ language: String?) -> String? {
@@ -231,6 +223,9 @@ enum MLXMemoryInfo {
     String(format: "MLX active %.0f MB, cache %.0f MB, peak %.0f MB",
       Double(MLX.Memory.activeMemory) / 1e6, Double(MLX.Memory.cacheMemory) / 1e6, Double(MLX.Memory.peakMemory) / 1e6)
   }
+
+  static var peakMegabytes: Double { Double(MLX.Memory.peakMemory) / 1e6 }
+  static func resetPeak() { MLX.Memory.peakMemory = 0 }
 }
 
 // MARK: - Apple SpeechAnalyzer (native, system)
@@ -342,8 +337,6 @@ actor EmulatedStreamingEngine: StreamingEngine {
   }
 
   func unload() async {}
-
-  var silenceSeconds: Double { detector.silenceSeconds }
 
   private func transcribeBlock(_ block: [Float]) async throws -> StreamingUpdate {
     let text = try await transcribe(block).trimmingCharacters(in: .whitespacesAndNewlines)

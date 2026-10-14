@@ -113,8 +113,10 @@ struct BoxTextEditor: NSViewRepresentable {
     private var isApplying = false
     private var popover: NSPopover?
     private var popoverRange: NSRange?
-    private var dismissalTimer: Timer?
-    private var pointerLeftAt: TimeInterval?
+    /// Pointer tracking for the suggestion popover: enter/exit events instead
+    /// of a 20 Hz polling timer (audit L9).
+    private var trackingAreas: [(view: NSView, area: NSTrackingArea)] = []
+    private var pendingDismissal: DispatchWorkItem?
 
     init(store: StoreOf<DictationBoxFeature>) {
       self.store = store
@@ -156,7 +158,7 @@ struct BoxTextEditor: NSViewRepresentable {
 
     private func updatePopover(_ suggestion: DictationBoxFeature.SuggestionState?) {
       guard let suggestion, let textView else {
-        stopDismissalTimer()
+        stopPointerTracking()
         if popover?.isShown == true { popover?.performClose(nil) }
         popover = nil
         popoverRange = nil
@@ -173,49 +175,69 @@ struct BoxTextEditor: NSViewRepresentable {
       popover.show(relativeTo: rect, of: textView, preferredEdge: .maxY)
       self.popover = popover
       popoverRange = suggestion.range
-      startDismissalTimer()
+      startPointerTracking(wordRect: rect)
     }
 
     func popoverDidClose(_ notification: Notification) {
       guard (notification.object as? NSPopover) === popover else { return }
-      stopDismissalTimer()
+      stopPointerTracking()
       popover = nil
       popoverRange = nil
       if store.suggestion != nil { store.send(.dismissSuggestions) }
     }
 
-    private func startDismissalTimer() {
-      stopDismissalTimer()
-      dismissalTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] timer in
-        guard let self else { timer.invalidate(); return }
-        MainActor.assumeIsolated { self.dismissIfPointerLeft() }
+    private func startPointerTracking(wordRect: NSRect) {
+      stopPointerTracking()
+      guard let textView else { return }
+      let wordArea = NSTrackingArea(
+        rect: wordRect.insetBy(dx: -4, dy: -4),
+        options: [.mouseEnteredAndExited, .activeAlways, .assumeInside],
+        owner: self
+      )
+      textView.addTrackingArea(wordArea)
+      trackingAreas.append((textView, wordArea))
+      if let panel = popover?.contentViewController?.view {
+        let panelArea = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        panel.addTrackingArea(panelArea)
+        trackingAreas.append((panel, panelArea))
       }
     }
 
-    private func stopDismissalTimer() {
-      dismissalTimer?.invalidate()
-      dismissalTimer = nil
-      pointerLeftAt = nil
+    private func stopPointerTracking() {
+      for (view, area) in trackingAreas { view.removeTrackingArea(area) }
+      trackingAreas = []
+      pendingDismissal?.cancel()
+      pendingDismissal = nil
+    }
+
+    @objc func mouseEntered(with event: NSEvent) {
+      pendingDismissal?.cancel()
+      pendingDismissal = nil
+    }
+
+    /// Leaving the word or the panel closes the popover after a short grace
+    /// time, unless the pointer arrived in the other one meanwhile.
+    @objc func mouseExited(with event: NSEvent) {
+      pendingDismissal?.cancel()
+      let work = DispatchWorkItem { [weak self] in
+        MainActor.assumeIsolated { self?.dismissIfPointerLeft() }
+      }
+      pendingDismissal = work
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
     }
 
     private func dismissIfPointerLeft() {
+      pendingDismissal = nil
       guard let popover, popover.isShown, let textView, let popoverRange else {
-        stopDismissalTimer()
+        stopPointerTracking()
         return
       }
       let pointer = NSEvent.mouseLocation
       let wordRect = textView.firstRect(forCharacterRange: popoverRange, actualRange: nil)
         .insetBy(dx: -4, dy: -4)
       let panelRect = popover.contentViewController?.view.window?.frame.insetBy(dx: -4, dy: -4)
-      if wordRect.contains(pointer) || panelRect?.contains(pointer) == true {
-        pointerLeftAt = nil
-      } else if let pointerLeftAt {
-        if ProcessInfo.processInfo.systemUptime - pointerLeftAt >= 0.15 {
-          store.send(.dismissSuggestions)
-        }
-      } else {
-        pointerLeftAt = ProcessInfo.processInfo.systemUptime
-      }
+      guard !wordRect.contains(pointer), panelRect?.contains(pointer) != true else { return }
+      store.send(.dismissSuggestions)
     }
   }
 }
@@ -231,7 +253,7 @@ struct SuggestionPopoverView: View {
           ProgressView().controlSize(.small).padding(8)
         } else if suggestion.suggestions.isEmpty {
           Text("No similar terms")
-            .font(.callout)
+            .flowFont(.callout)
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
@@ -242,7 +264,7 @@ struct SuggestionPopoverView: View {
           } label: {
             HStack(spacing: 8) {
               Text("\(index + 1)")
-                .font(.caption.monospacedDigit())
+                .flowFont(.caption, monospacedDigit: true)
                 .foregroundStyle(.secondary)
                 .frame(width: 12)
               Text(item.term)
@@ -250,7 +272,7 @@ struct SuggestionPopoverView: View {
               Spacer(minLength: 12)
               if item.isUser {
                 Image(systemName: "person.crop.circle")
-                  .font(.caption)
+                  .flowFont(.caption)
                   .foregroundStyle(.tint)
                   .help("From your vocabulary")
               }
@@ -277,7 +299,7 @@ struct SuggestionPopoverView: View {
   private func menuButton(_ symbol: String, _ title: String, action: @escaping () -> Void) -> some View {
     Button(action: action) {
       Label(title, systemImage: symbol)
-        .font(.subheadline)
+        .flowFont(.subheadline)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .padding(.horizontal, 7)

@@ -281,7 +281,7 @@ final class StreamingSmokeTests: XCTestCase {
           print("STREAM_ABLATION case=\(engineName)-\(modeName) stage=\(stage) chars=\(output.count)")
           guard stage == "full", let aiModel else { continue }
           let outcome = await llm.polish(PolishRequest(
-            text: output, mode: .clean, modelID: aiModel, settings: PostProcessingSettings(),
+            text: output, style: AIStyleCatalog.clean, modelID: aiModel, settings: PostProcessingSettings(),
             protectedTerms: Array(Set(personal.values)).filter { output.localizedCaseInsensitiveContains($0) }
           ), keepAIResultOnIssues: true, onText: nil)
           try outcome.text.write(to: report.appendingPathComponent("\(engineName)-\(modeName)-full-box-ai.txt"), atomically: true, encoding: .utf8)

@@ -38,6 +38,20 @@ enum LiveTyper {
     return result as? String
   }
 
+  /// The focused UI element, to tell later whether the same field still has the focus.
+  @MainActor
+  static func focusedTextElement() -> AXUIElement? {
+    focusedElement()
+  }
+
+  /// Presses Delete (backspace) `count` times; used only for text NativeTongue typed itself.
+  @MainActor
+  static func deleteBackward(_ count: Int) {
+    guard count > 0 else { return }
+    let source = CGEventSource(stateID: .privateState)
+    for _ in 0..<count { postKey(51, source: source) }
+  }
+
   // MARK: - Private
 
   @MainActor
@@ -63,10 +77,7 @@ enum LiveTyper {
     let source = CGEventSource(stateID: .privateState)
     for (index, line) in text.components(separatedBy: "\n").enumerated() {
       if index > 0 { postKey(36, source: source) } // Return
-      var units = Array(line.utf16)
-      while !units.isEmpty {
-        let chunk = Array(units.prefix(20))
-        units.removeFirst(chunk.count)
+      for chunk in unicodeChunks(line) {
         for keyDown in [true, false] {
           guard let event = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: keyDown) else { continue }
           event.flags = []
@@ -78,6 +89,23 @@ enum LiveTyper {
         }
       }
     }
+  }
+
+  /// UTF-16 chunks of at most `limit` units that never split a character
+  /// (emoji, combining marks; audit L3). A single longer character is sent alone.
+  static func unicodeChunks(_ text: String, limit: Int = 20) -> [[UInt16]] {
+    var chunks: [[UInt16]] = []
+    var current: [UInt16] = []
+    for character in text {
+      let units = Array(String(character).utf16)
+      if !current.isEmpty, current.count + units.count > limit {
+        chunks.append(current)
+        current = []
+      }
+      current += units
+    }
+    if !current.isEmpty { chunks.append(current) }
+    return chunks
   }
 
   @MainActor

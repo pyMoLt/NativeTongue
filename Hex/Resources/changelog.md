@@ -1,3 +1,17 @@
+# NativeTongue 3.0.0
+
+## New in 3.0
+
+- **New look** — a calm colour field with a floating sidebar, glass surfaces and one consistent style on every page, in the menu bar panel, the dictation box and the recording pill. New app icon.
+- **Appearance** — light, dark or system; accent colour; glass strength; colour field and motion; text size that follows macOS or is set by hand. The window keeps a sensible minimum size for every text size.
+- **AI styles** — Clean up, Clean sentences, Rewrite as task, Key facts, E-mail, Short message, Note, Prompt and your own styles, for automatic clean-up, the box ✨, files and Command Mode. Tell the AI once what matters to you.
+- **Profiles** — Mail, Coding, AI prompt, Medical or your own: mode, vocabulary, AI style and context per app, picked by the app you dictate into.
+- **Command Mode** — select text, hold the Command Mode key and say what to do with it.
+- **Context** — optional and off by default: the app name, or short hints from the text before the cursor (names, terms, language, list style), analysed on this Mac and never stored.
+- **Better dictation** — correction commands, self-corrections ("no, I mean …"), times, money, ordinals and phone numbers, text snippets, spoken punctuation in Normal mode, phonetic term hints and learning from your corrections in the box.
+- **Recording key** — hold to talk or tap to toggle.
+- Many fixes for streaming, model loading and memory.
+
 # NativeTongue 2.5.0
 
 ## New in 2.5

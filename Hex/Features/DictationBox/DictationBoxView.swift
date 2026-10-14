@@ -8,31 +8,49 @@ struct DictationBoxView: View {
   let transcription: StoreOf<TranscriptionFeature>
 
   var body: some View {
-    VStack(spacing: 0) {
+    DictationBoxContent(store: store, transcription: transcription)
+      .flowThemed(store.hexSettings.appearance)
+  }
+}
+
+private struct DictationBoxContent: View {
+  @Bindable var store: StoreOf<DictationBoxFeature>
+  let transcription: StoreOf<TranscriptionFeature>
+  @Environment(\.flowTheme) private var theme
+
+  var body: some View {
+    VStack(spacing: 8) {
       header
       if store.phase == .learning {
         learnView
       } else {
+        if store.isCommandMode {
+          commandBar
+        }
         toolbar
         if store.isShowingDiff {
           diffPanel
         }
         BoxTextEditor(store: store)
-          .background(Color(nsColor: .textBackgroundColor).opacity(0.55))
+          .padding(4)
+          .flowPanel()
+          .padding(.horizontal, 10)
           .overlay(alignment: .topLeading) {
             if store.text.length == 0 {
               Text(placeholder)
                 .font(Font(store.baseFont))
                 .foregroundStyle(.tertiary)
-                .padding(.horizontal, 19)
-                .padding(.vertical, 12)
+                .padding(.horizontal, 33)
+                .padding(.vertical, 16)
                 .allowsHitTesting(false)
             }
           }
         footer
       }
     }
+    .padding(.top, 30)
     .frame(minWidth: 480, minHeight: 260)
+    .background(FlowBackdrop(variant: store.mode == .literal ? 1 : 0))
     .confirmationDialog(
       "Discard dictation?",
       isPresented: $store.isConfirmingDiscard,
@@ -56,11 +74,14 @@ struct DictationBoxView: View {
   private var header: some View {
     HStack(spacing: 10) {
       Label(store.mode == .literal ? "Literal" : "Normal", systemImage: store.mode == .literal ? "paragraphsign" : "waveform")
-        .font(.callout.weight(.semibold))
+        .flowFont(.callout, weight: .semibold)
         .labelStyle(.titleAndIcon)
-      Text("·").foregroundStyle(.tertiary)
+        .foregroundStyle(theme.accent)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(theme.accent.opacity(0.14), in: Capsule())
       Text(modelName)
-        .font(.callout)
+        .flowFont(.callout)
         .foregroundStyle(.secondary)
         .lineLimit(1)
       Menu {
@@ -68,7 +89,7 @@ struct DictationBoxView: View {
         Button("German") { store.send(.setLanguage("de")) }
         Button("English") { store.send(.setLanguage("en")) }
       } label: {
-        Text(store.language.uppercased()).font(.callout.monospaced())
+        Text(store.language.uppercased()).flowFont(.callout, monospaced: true)
       }
       .menuStyle(.borderlessButton)
       .fixedSize()
@@ -76,9 +97,7 @@ struct DictationBoxView: View {
       Spacer()
       statusIndicator
     }
-    .padding(.horizontal, 14)
-    .padding(.vertical, 9)
-    .glassEffect(.regular, in: .rect(cornerRadius: 0))
+    .padding(.horizontal, 16)
   }
 
   private var modelName: String {
@@ -90,12 +109,12 @@ struct DictationBoxView: View {
   private var statusIndicator: some View {
     if transcription.isRecording {
       HStack(spacing: 6) {
-        Circle().fill(.red).frame(width: 8, height: 8)
+        Circle().fill(theme.accent).frame(width: 8, height: 8).shadow(color: theme.accent.opacity(0.6), radius: 3)
         LevelBars(level: transcription.meter.averagePower)
         if let start = transcription.recordingStartTime {
           TimelineView(.periodic(from: start, by: 1)) { context in
             Text(Duration.seconds(context.date.timeIntervalSince(start)).formatted(.time(pattern: .minuteSecond)))
-              .font(.callout.monospacedDigit())
+              .flowFont(.callout, monospacedDigit: true)
           }
         }
       }
@@ -103,13 +122,37 @@ struct DictationBoxView: View {
     } else if transcription.isTranscribing {
       HStack(spacing: 6) {
         ProgressView().controlSize(.small)
-        Text("Transcribing").font(.callout).foregroundStyle(.secondary)
+        Text("Transcribing").flowFont(.callout).foregroundStyle(.secondary)
       }
     } else if store.spellingMode {
       Label("Spell", systemImage: "character.cursor.ibeam")
-        .font(.callout)
+        .flowFont(.callout)
         .foregroundStyle(.tint)
     }
+  }
+
+  // MARK: Command Mode
+
+  /// Instruction for the selection: speak it with the dictation key or type it.
+  private var commandBar: some View {
+    HStack(spacing: 8) {
+      Image(systemName: "wand.and.stars").foregroundStyle(theme.accent)
+      TextField("Say or type what to do – “shorter”, “as a list”, “in English” …", text: $store.instruction)
+        .textFieldStyle(.plain)
+        .onSubmit { store.send(.commandRun) }
+      Button {
+        store.send(.commandRun)
+      } label: {
+        Label("Run", systemImage: "return")
+      }
+      .buttonStyle(.flowPrimary)
+      .disabled(store.instruction.trimmingCharacters(in: .whitespaces).isEmpty)
+    }
+    .padding(.leading, 14)
+    .padding(.trailing, 6)
+    .padding(.vertical, 5)
+    .flowSurface(Capsule(), highlighted: true)
+    .padding(.horizontal, 10)
   }
 
   // MARK: Toolbar
@@ -122,7 +165,7 @@ struct DictationBoxView: View {
         }
       } label: {
         Text(BoxTextStyle.fontChoices.first { $0.name == store.hexSettings.boxFontName }?.title ?? store.hexSettings.boxFontName)
-          .font(.callout)
+          .flowFont(.callout)
       }
       .menuStyle(.borderlessButton)
       .fixedSize()
@@ -133,13 +176,13 @@ struct DictationBoxView: View {
           Button("\(size) pt") { store.send(.setFontSize(Double(size))) }
         }
       } label: {
-        Text("\(Int(store.hexSettings.boxFontSize)) pt").font(.callout.monospacedDigit())
+        Text("\(Int(store.hexSettings.boxFontSize)) pt").flowFont(.callout, monospacedDigit: true)
       }
       .menuStyle(.borderlessButton)
       .fixedSize()
       .help("Font size")
 
-      Divider().frame(height: 18)
+      Capsule().fill(Color.secondary.opacity(0.25)).frame(width: 1, height: 16)
 
       toolButton("bold", "Bold") { store.send(.toggleBold) }
       toolButton("italic", "Italic") { store.send(.toggleItalic) }
@@ -150,7 +193,7 @@ struct DictationBoxView: View {
       toolButton("character.cursor.ibeam", "Spelling mode: next dictation as letters", active: store.spellingMode) {
         store.send(.toggleSpellingMode)
       }
-      if store.offersAI {
+      if store.offersAI || store.isCommandMode {
         aiButton
       }
 
@@ -169,7 +212,9 @@ struct DictationBoxView: View {
       .help("What gets inserted")
     }
     .padding(.horizontal, 10)
-    .padding(.vertical, 6)
+    .padding(.vertical, 5)
+    .flowSurface(Capsule())
+    .padding(.horizontal, 10)
     .controlSize(.small)
   }
 
@@ -181,18 +226,22 @@ struct DictationBoxView: View {
     switch store.aiPhase {
     case .idle:
       Menu {
-        ForEach(PolishMode.allCases, id: \.self) { mode in
-          Button(mode.displayName) { store.send(.aiTapped(mode)) }
+        ForEach(store.hexSettings.postProcessing.allStyles) { style in
+          Button {
+            store.send(.aiTapped(style.id))
+          } label: {
+            Label(style.name, systemImage: style.symbol)
+          }
         }
       } label: {
         Image(systemName: "sparkles")
       } primaryAction: {
-        store.send(.aiTapped(store.hexSettings.postProcessing.boxDefaultMode))
+        store.send(.aiTapped(store.targetSettings.postProcessing.boxStyleID))
       }
       .menuStyle(.button)
-      .buttonStyle(.glass)
+      .buttonStyle(.flowCompact)
       .fixedSize()
-      .help("AI post-processing: \(store.hexSettings.postProcessing.boxDefaultMode.displayName) (click) or choose a mode")
+      .help("AI: \(store.targetSettings.postProcessing.boxStyle.name) (click) or choose a style")
       .accessibilityLabel("AI post-processing")
     case .running:
       Button {
@@ -202,9 +251,9 @@ struct DictationBoxView: View {
           ProgressView().controlSize(.mini)
           Image(systemName: "xmark")
         }
-        .frame(height: 20)
+        .frame(height: 16)
       }
-      .buttonStyle(.glass)
+      .buttonStyle(.flowCompact)
       .help("Cancel AI post-processing")
       .accessibilityLabel("Cancel AI post-processing")
     case .done:
@@ -217,10 +266,9 @@ struct DictationBoxView: View {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
           }
         }
-        .frame(height: 20)
+        .frame(height: 16)
       }
-      .buttonStyle(.glass)
-      .tint(store.isShowingDiff ? .accentColor : nil)
+      .buttonStyle(FlowButtonStyle(kind: store.isShowingDiff ? .primary : .secondary, compact: true))
       .help("Show what the AI changed")
       .accessibilityLabel("Show AI changes")
     }
@@ -230,7 +278,7 @@ struct DictationBoxView: View {
     VStack(alignment: .leading, spacing: 6) {
       ScrollView {
         Text(diffText)
-          .font(.callout)
+          .flowFont(.callout)
           .textSelection(.enabled)
           .frame(maxWidth: .infinity, alignment: .leading)
       }
@@ -238,18 +286,19 @@ struct DictationBoxView: View {
       HStack(spacing: 10) {
         if let issue = store.aiIssues.first {
           Label(issue.explanation, systemImage: "exclamationmark.triangle.fill")
-            .font(.caption)
+            .flowFont(.caption)
             .foregroundStyle(.orange)
             .lineLimit(1)
         }
         Spacer()
         Button("Restore original") { store.send(.aiRevertTapped) }
-          .buttonStyle(.glass)
+          .buttonStyle(.flowCompact)
       }
     }
-    .padding(.horizontal, 14)
-    .padding(.vertical, 8)
-    .background(Color.accentColor.opacity(0.06))
+    .padding(.horizontal, 16)
+    .padding(.vertical, 10)
+    .flowSurface(RoundedRectangle(cornerRadius: FlowMetrics.panelRadius, style: .continuous), highlighted: true)
+    .padding(.horizontal, 10)
   }
 
   private var diffText: AttributedString {
@@ -274,10 +323,13 @@ struct DictationBoxView: View {
   private func toolButton(_ symbol: String, _ help: String, active: Bool = false, action: @escaping () -> Void) -> some View {
     Button(action: action) {
       Image(systemName: symbol)
-        .frame(width: 22, height: 20)
+        .flowFont(size: 12, weight: .medium)
+        .frame(width: 26, height: 24)
+        .foregroundStyle(active ? Color.white : Color.primary)
+        .background(active ? AnyShapeStyle(theme.accent) : AnyShapeStyle(Color.clear), in: Circle())
+        .contentShape(Circle())
     }
-    .buttonStyle(.glass)
-    .tint(active ? .accentColor : nil)
+    .buttonStyle(.plain)
     .help(help)
     .accessibilityLabel(help)
   }
@@ -287,22 +339,22 @@ struct DictationBoxView: View {
   private var footer: some View {
     HStack(spacing: 10) {
       Text(store.lastAction.isEmpty ? " " : store.lastAction)
-        .font(.callout)
+        .flowFont(.callout)
         .foregroundStyle(.secondary)
         .lineLimit(1)
         .truncationMode(.middle)
       Spacer()
       Text("\(store.wordCount) words")
-        .font(.caption.monospacedDigit())
+        .flowFont(.caption, monospacedDigit: true)
         .foregroundStyle(.tertiary)
       Button {
         store.send(.discardTapped)
       } label: {
         Image(systemName: "xmark")
-          .font(.body.weight(.semibold))
-          .frame(width: 30, height: 22)
+          .flowFont(.body, weight: .semibold)
+          .frame(width: 26, height: 20)
       }
-      .buttonStyle(.glass)
+      .buttonStyle(.flow)
       .help("Discard")
       .accessibilityLabel("Discard")
 
@@ -310,26 +362,26 @@ struct DictationBoxView: View {
         store.send(.confirmTapped)
       } label: {
         Image(systemName: "checkmark")
-          .font(.body.weight(.semibold))
-          .frame(width: 30, height: 22)
+          .flowFont(.body, weight: .semibold)
+          .frame(width: 34, height: 20)
       }
-      .buttonStyle(.glassProminent)
+      .buttonStyle(.flowPrimary)
       .help(store.targetAppName.map { "Insert into \($0)" } ?? "Insert")
       .accessibilityLabel("Insert")
       .disabled(store.text.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
-    .padding(.horizontal, 14)
-    .padding(.vertical, 9)
+    .padding(.horizontal, 16)
+    .padding(.bottom, 12)
   }
 
   // MARK: Learning
 
   private var learnView: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Text("Add \(store.learnCandidates.count) correction\(store.learnCandidates.count == 1 ? "" : "s") to your vocabulary?")
-        .font(.headline)
-      Text("From now on the variant on the left is replaced by the spelling on the right.")
-        .font(.caption)
+      Text(store.learnCandidates.count == 1 ? "Always replace?" : "Always replace these \(store.learnCandidates.count)?")
+        .flowFont(.headline)
+      Text("You corrected this by hand before. Ticked pairs are replaced from now on; unticked ones are not suggested again.")
+        .flowFont(.caption)
         .foregroundStyle(.secondary)
       ScrollView {
         VStack(alignment: .leading, spacing: 6) {
@@ -337,7 +389,7 @@ struct DictationBoxView: View {
             Toggle(isOn: $candidate.isSelected) {
               HStack(spacing: 6) {
                 Text(candidate.original.isEmpty ? "(neu)" : candidate.original).foregroundStyle(.secondary)
-                Image(systemName: "arrow.right").font(.caption).foregroundStyle(.tertiary)
+                Image(systemName: "arrow.right").flowFont(.caption).foregroundStyle(.tertiary)
                 Text(candidate.replacement).fontWeight(.medium)
               }
             }
@@ -349,9 +401,9 @@ struct DictationBoxView: View {
       HStack {
         Spacer()
         Button("Not now") { store.send(.learnSkipped) }
-          .buttonStyle(.glass)
+          .buttonStyle(.flow)
         Button("Add") { store.send(.learnConfirmed) }
-          .buttonStyle(.glassProminent)
+          .buttonStyle(.flowPrimary)
           .disabled(!store.learnCandidates.contains(where: \.isSelected))
       }
     }
@@ -379,7 +431,7 @@ struct LevelBars: View {
         let weight = [0.55, 0.85, 1.0, 0.85, 0.55][index]
         let height = 4 + 12 * value * weight
         Capsule()
-          .fill(value * weight > 0.08 ? Color.accentColor : Color.secondary.opacity(0.3))
+          .fill(value * weight > 0.08 ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.secondary.opacity(0.3)))
           .frame(width: 3, height: height)
       }
     }

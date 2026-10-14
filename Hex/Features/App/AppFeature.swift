@@ -1,10 +1,3 @@
-//
-//  AppFeature.swift
-//  Hex
-//
-//  Created by Kit Langton on 1/26/25.
-//
-
 import AppKit
 import ComposableArchitecture
 import Dependencies
@@ -19,6 +12,8 @@ struct AppFeature {
 
   enum ActiveTab: Equatable, CaseIterable {
     case dictation
+    case recording
+    case profiles
     case models
     case vocabulary
     case commands
@@ -29,6 +24,7 @@ struct AppFeature {
     case history
     case settings
     case remappings
+    case appearance
     case about
   }
 
@@ -66,6 +62,10 @@ struct AppFeature {
     case lexicon(LexiconFeature.Action)
     case dictationBox(DictationBoxFeature.Action)
     case setActiveTab(ActiveTab)
+    /// Picks the profile for apps without their own profile (C2).
+    case selectManualProfile(String)
+    /// The Command Mode shortcut was pressed (C3).
+    case commandModeTriggered
     case refreshModelStatus
     case modelStatusLoaded(String?, Int?)
     case unloadModel
@@ -162,7 +162,7 @@ struct AppFeature {
         guard state.transcription.isRecording else { return .none }
         return presentBoxIfNeeded(&state)
 
-      case .transcription(.hotKeyPressed) where state.transcription.isStreaming && state.hexSettings.dictationMode == .literal:
+      case .transcription(.hotKeyPressed) where state.transcription.isStreaming && state.transcription.sessionSettings.dictationMode == .literal:
         // Literal + streaming in the box: open the box for the new session.
         return presentBoxIfNeeded(&state)
 
@@ -219,6 +219,27 @@ struct AppFeature {
 		case let .setActiveTab(tab):
 			state.activeTab = tab
 			return .none
+
+      case .commandModeTriggered:
+        guard !state.dictationBox.isPresented, !state.transcription.isRecording, !state.transcription.isStreaming else { return .none }
+        return .run { send in
+          guard let selection = await SelectionReader.selectedText() else {
+            await MainActor.run { NSSound.beep() }
+            return
+          }
+          let frontmost = await MainActor.run { NSWorkspace.shared.frontmostApplication }
+          await send(.dictationBox(.presentCommand(
+            targetBundleID: frontmost?.bundleIdentifier,
+            targetAppName: frontmost?.localizedName,
+            selection: selection
+          )))
+        }
+
+      case let .selectManualProfile(id):
+        state.$hexSettings.withLock { $0.profiles.manualProfileID = id }
+        // The global vocabulary domain (and its model) follows the chosen profile.
+        let domain = state.hexSettings.profiles.profile(id: id).domain
+        return domain == state.hexSettings.asrProfile ? .none : .send(.settings(.setASRProfile(domain)))
 
       case .refreshModelStatus:
         return .run { [transcription] send in
@@ -332,12 +353,22 @@ struct AppFeature {
   private func startPasteLastTranscriptMonitoring() -> Effect<Action> {
     .run { send in
       @Shared(.isSettingPasteLastTranscriptHotkey) var isSettingPasteLastTranscriptHotkey: Bool
+      @Shared(.isSettingCommandModeHotkey) var isSettingCommandModeHotkey: Bool
       @Shared(.hexSettings) var hexSettings: HexSettings
 
       let token = keyEventMonitor.handleKeyEvent { keyEvent in
         // Skip if user is setting a hotkey
-        if isSettingPasteLastTranscriptHotkey {
+        if isSettingPasteLastTranscriptHotkey || isSettingCommandModeHotkey {
           return false
+        }
+
+        // Command Mode shortcut (C3), only when enabled.
+        if hexSettings.postProcessing.enabled, hexSettings.postProcessing.commandModeEnabled,
+           let commandHotkey = hexSettings.commandModeHotkey,
+           let key = keyEvent.key, key == commandHotkey.key,
+           keyEvent.modifiers.matchesExactly(commandHotkey.modifiers) {
+          MainActor.assumeIsolated { send(.commandModeTriggered) }
+          return true
         }
 
         // Check if this matches the paste last transcript hotkey
@@ -417,9 +448,10 @@ struct AppFeature {
   /// Opens the dictation box for a new box session (plan 5.8), also when
   /// Literal streams into the box.
   private func presentBoxIfNeeded(_ state: inout State) -> Effect<Action> {
-    let mode = state.hexSettings.dictationMode
+    let session = state.transcription.sessionSettings
+    let mode = session.dictationMode
     var effects: [Effect<Action>] = []
-    if !state.dictationBox.isPresented, state.hexSettings.dictationBoxEnabled(for: mode) {
+    if !state.dictationBox.isPresented, session.dictationBoxEnabled(for: mode) {
       let frontmost = NSWorkspace.shared.frontmostApplication
       let isSelf = frontmost?.bundleIdentifier == Bundle.main.bundleIdentifier
       effects.append(.send(.dictationBox(.present(
@@ -428,7 +460,7 @@ struct AppFeature {
         mode: mode
       ))))
     }
-    if state.dictationBox.isPresented || state.hexSettings.dictationBoxEnabled(for: mode) {
+    if state.dictationBox.isPresented || session.dictationBoxEnabled(for: mode) {
       effects.append(.send(.dictationBox(.recordingStarted)))
     }
     return .concatenate(effects)

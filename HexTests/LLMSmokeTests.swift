@@ -31,9 +31,9 @@ final class LLMSmokeTests: XCTestCase {
     let settings = PostProcessingSettings()
     let start = Date()
     let raw = try await engine.generate(
-      system: PolishPrompt.system(for: .clean, settings: settings),
+      system: PolishPrompt.system(for: AIStyleCatalog.clean, settings: settings),
       user: PolishPrompt.user(input),
-      maxTokens: PolishPrompt.maxTokens(for: input, factor: settings.cleanMaxOutputFactor),
+      maxTokens: PolishPrompt.maxTokens(for: input, factor: AIStyleCatalog.clean.outputFactor),
       stopSequences: PolishOutputSanitizer.generationStopSequences
     )
     let seconds = Date().timeIntervalSince(start)
@@ -57,9 +57,9 @@ final class LLMSmokeTests: XCTestCase {
     let input = "Befund Doppelpunkt keine Blutung Klammer auf links Klammer zu Punkt Das Wort Klammer steht im Bericht und soll als Wort stehen bleiben. Keine Änderung der Dosis von 2,5 mg Apixaban."
     let settings = PostProcessingSettings()
     let raw = try await engine.generate(
-      system: PolishPrompt.system(for: .clean, settings: settings),
+      system: PolishPrompt.system(for: AIStyleCatalog.clean, settings: settings),
       user: PolishPrompt.user(input),
-      maxTokens: PolishPrompt.maxTokens(for: input, factor: settings.cleanMaxOutputFactor),
+      maxTokens: PolishPrompt.maxTokens(for: input, factor: AIStyleCatalog.clean.outputFactor),
       stopSequences: PolishOutputSanitizer.generationStopSequences
     )
     let output = PolishOutputSanitizer.clean(raw, input: input)
@@ -83,7 +83,7 @@ final class LLMSmokeTests: XCTestCase {
     let host = LLMHost()
     let input = "Befund Doppelpunkt keine Blutung Klammer auf links Klammer zu Punkt Das Wort Klammer steht im Bericht. Keine Änderung der Dosis von 2,5 mg Apixaban."
     let outcome = await host.polish(
-      PolishRequest(text: input, mode: .clean, modelID: modelID, settings: settings,
+      PolishRequest(text: input, style: AIStyleCatalog.clean, modelID: modelID, settings: settings,
                     protectedTerms: ["Apixaban"]),
       keepAIResultOnIssues: false, onText: nil
     )
@@ -108,9 +108,10 @@ final class LLMSmokeTests: XCTestCase {
     else { throw XCTSkip("App's Qwen 2B model is not installed") }
     let host = LLMHost()
     let ordinary = "ähm morgen treffen wir uns um 10 Uhr im Café am Bahnhof. Danach gehen wir in die Bibliothek und sprechen über das Buch. Bitte erinnere mich an die rote Mappe."
-    let everyday = await host.polish(PolishRequest(text: ordinary, mode: .clean, modelID: modelID,
+    let everyday = await host.polish(PolishRequest(text: ordinary, style: AIStyleCatalog.clean, modelID: modelID,
       settings: settings), keepAIResultOnIssues: false, onText: nil)
     let report = URL(fileURLWithPath: "/private/tmp/NativeTongue-QA-20261003", isDirectory: true)
+    try FileManager.default.createDirectory(at: report, withIntermediateDirectories: true)
     try everyday.text.write(to: report.appendingPathComponent("concise-prompt-everyday.txt"), atomically: true, encoding: .utf8)
     XCTAssertFalse(everyday.failed)
     XCTAssertTrue(everyday.issues.isEmpty, "\(everyday.issues)")
@@ -120,7 +121,7 @@ final class LLMSmokeTests: XCTestCase {
     let source = report.appendingPathComponent("ablation/terminology-normal-full.txt")
     guard FileManager.default.fileExists(atPath: source.path) else { throw XCTSkip("Run real batch ablation first") }
     let mixed = try String(contentsOf: source, encoding: .utf8)
-    let outcome = await host.polish(PolishRequest(text: mixed, mode: .clean, modelID: modelID,
+    let outcome = await host.polish(PolishRequest(text: mixed, style: AIStyleCatalog.clean, modelID: modelID,
       settings: settings, protectedTerms: ["Mycophenolatmofetil", "Rivaroxaban"]),
       keepAIResultOnIssues: false, onText: nil)
     try outcome.text.write(to: report.appendingPathComponent("concise-prompt-mixed.txt"), atomically: true, encoding: .utf8)
@@ -148,9 +149,10 @@ final class LLMSmokeTests: XCTestCase {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     for (name, extra) in [("reminder", reminder), ("reminder-example", reminder + example)] {
       var settings = PostProcessingSettings()
-      settings.customCleanPrompt = PolishPrompt.defaultClean + extra
+      var style = AIStyleCatalog.clean
+      style.instruction = PolishPrompt.defaultClean + extra
       let outcome = await host.polish(PolishRequest(
-        text: input, mode: .clean, modelID: "qwen35-2b-8bit", settings: settings,
+        text: input, style: style, modelID: "qwen35-2b-8bit", settings: settings,
         protectedTerms: ["Mycophenolatmofetil", "Rivaroxaban"]
       ), keepAIResultOnIssues: true, onText: nil)
       try (outcome.aiText ?? "<failed>").write(to: directory.appendingPathComponent("\(name).txt"), atomically: true, encoding: .utf8)
@@ -182,8 +184,9 @@ final class LLMSmokeTests: XCTestCase {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     for (name, extra) in [("reminder", reminder), ("reminder-example", reminder + example)] {
       var settings = PostProcessingSettings()
-      settings.customCleanPrompt = PolishPrompt.defaultClean + extra
-      let outcome = await host.polish(PolishRequest(text: input, mode: .clean,
+      var style = AIStyleCatalog.clean
+      style.instruction = PolishPrompt.defaultClean + extra
+      let outcome = await host.polish(PolishRequest(text: input, style: style,
         modelID: "qwen35-2b-8bit", settings: settings), keepAIResultOnIssues: true, onText: nil)
       try (outcome.aiText ?? "<failed>").write(to: directory.appendingPathComponent("\(name).txt"), atomically: true, encoding: .utf8)
       try ("failed=\(outcome.failed) issues=\(outcome.issues)\n")
@@ -199,6 +202,7 @@ final class LLMSmokeTests: XCTestCase {
     var processor = StreamingTextProcessor(options: .init(keepPunctuation: true, commands: .all))
     let output = processor.push(input + " ") + processor.flush()
     let directory = URL(fileURLWithPath: "/private/tmp/NativeTongue-QA-20261003/command-prompt-variants", isDirectory: true)
+    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     try output.write(to: directory.appendingPathComponent("deterministic-renderer.txt"), atomically: true, encoding: .utf8)
     var negative = StreamingTextProcessor(options: .init(keepPunctuation: true, commands: .all))
     let literal = negative.push("Das Wort Doppelpunkt soll hier als Wort stehen bleiben. ") + negative.flush()

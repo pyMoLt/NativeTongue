@@ -34,4 +34,15 @@ public struct TranscriptionHistory: Codable, Equatable, Sendable {
     public init(history: [Transcript] = []) {
         self.history = history
     }
+
+    /// Inserts the newest entry and trims to `limit` (nil or ≤ 0: no limit).
+    /// Returns the removed entries; their audio must be deleted by the caller.
+    @discardableResult
+    public mutating func insertNewest(_ transcript: Transcript, limit: Int?) -> [Transcript] {
+        history.insert(transcript, at: 0)
+        guard let limit, limit > 0, history.count > limit else { return [] }
+        let removed = Array(history[limit...])
+        history.removeSubrange(limit...)
+        return removed
+    }
 }

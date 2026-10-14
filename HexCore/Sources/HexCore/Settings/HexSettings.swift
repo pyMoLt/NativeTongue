@@ -45,11 +45,16 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var superFastModeEnabled: Bool
 	public var useDoubleTapOnly: Bool
 	public var doubleTapLockEnabled: Bool
+	/// „Hold to talk, tap to toggle“ (plan B9): a short tap starts a hands-free
+	/// recording, the next press stops it; holding works as push-to-talk.
+	public var hotkeyTapToggle: Bool
 	public var outputLanguage: String?
 	public var selectedMicrophoneID: String?
 	public var saveTranscriptionHistory: Bool
 	public var maxHistoryEntries: Int?
 	public var pasteLastTranscriptHotkey: HotKey?
+	/// Command Mode shortcut (C3); nil = not set.
+	public var commandModeHotkey: HotKey?
 	public var hasCompletedModelBootstrap: Bool
 	public var hasCompletedStorageMigration: Bool
 	public var wordRemovalsEnabled: Bool
@@ -79,6 +84,12 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var postProcessing: PostProcessingSettings
 	/// Streaming mode (V2.5; used when `dictationMode == .streaming`).
 	public var streaming: StreamingSettings
+	/// Look of the interface (2.6 "Flow": accent, glass, background, motion).
+	public var appearance: AppearanceSettings
+	/// Self-corrections, spoken punctuation in Normal, learning (2.6 stage B).
+	public var textProcessing: TextProcessingSettings
+	/// Dictation profiles and switching by app (2.6, C2).
+	public var profiles: ProfileSettings
 
 	private mutating func normalizeSettings() {
 		if !doubleTapLockEnabled {
@@ -115,6 +126,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		superFastModeEnabled: Bool = true,
 		useDoubleTapOnly: Bool = false,
 		doubleTapLockEnabled: Bool = true,
+		hotkeyTapToggle: Bool = false,
 		outputLanguage: String? = nil,
 		selectedMicrophoneID: String? = nil,
 		saveTranscriptionHistory: Bool = false,
@@ -143,7 +155,11 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		literalModel: String = "",
 		diagnosticsEnabled: Bool = false,
 		postProcessing: PostProcessingSettings = PostProcessingSettings(),
-		streaming: StreamingSettings = StreamingSettings()
+		streaming: StreamingSettings = StreamingSettings(),
+		appearance: AppearanceSettings = AppearanceSettings(),
+		textProcessing: TextProcessingSettings = TextProcessingSettings(),
+		profiles: ProfileSettings = ProfileSettings(),
+		commandModeHotkey: HotKey? = nil
 	) {
 		self.soundEffectsEnabled = soundEffectsEnabled
 		self.soundEffectsVolume = soundEffectsVolume
@@ -167,6 +183,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.superFastModeEnabled = superFastModeEnabled
 		self.useDoubleTapOnly = useDoubleTapOnly
 		self.doubleTapLockEnabled = doubleTapLockEnabled
+		self.hotkeyTapToggle = hotkeyTapToggle
 		self.outputLanguage = outputLanguage
 		self.selectedMicrophoneID = selectedMicrophoneID
 		self.saveTranscriptionHistory = saveTranscriptionHistory
@@ -196,6 +213,10 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.diagnosticsEnabled = diagnosticsEnabled
 		self.postProcessing = postProcessing
 		self.streaming = streaming
+		self.appearance = appearance
+		self.textProcessing = textProcessing
+		self.profiles = profiles
+		self.commandModeHotkey = commandModeHotkey
 		normalizeSettings()
 	}
 
@@ -204,6 +225,14 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		let container = try decoder.container(keyedBy: HexSettingKey.self)
 		for field in HexSettingsSchema.fields {
 			try field.decode(into: &self, from: container)
+		}
+		// Before 2.6 the profile was chosen by hand only.
+		if !container.contains(.profiles) {
+			profiles.manualProfileID = switch asrProfile {
+			case .general: ProfileSettings.generalID
+			case .medical: ProfileSettings.medicalID
+			case .technical: ProfileSettings.codingID
+			}
 		}
 		normalizeSettings()
 	}
@@ -313,6 +342,11 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case diagnosticsEnabled
 	case postProcessing
 	case streaming
+	case appearance
+	case textProcessing
+	case profiles
+	case commandModeHotkey
+	case hotkeyTapToggle
 }
 
 private struct SettingsField<Value: Codable & Sendable> {
@@ -472,6 +506,18 @@ private enum HexSettingsSchema {
 		SettingsField(.literalModel, keyPath: \.literalModel, default: defaults.literalModel).eraseToAny(),
 		SettingsField(.diagnosticsEnabled, keyPath: \.diagnosticsEnabled, default: defaults.diagnosticsEnabled).eraseToAny(),
 		SettingsField(.postProcessing, keyPath: \.postProcessing, default: defaults.postProcessing).eraseToAny(),
-		SettingsField(.streaming, keyPath: \.streaming, default: defaults.streaming).eraseToAny()
+		SettingsField(.streaming, keyPath: \.streaming, default: defaults.streaming).eraseToAny(),
+		SettingsField(.appearance, keyPath: \.appearance, default: defaults.appearance).eraseToAny(),
+		SettingsField(.textProcessing, keyPath: \.textProcessing, default: defaults.textProcessing).eraseToAny(),
+		SettingsField(.profiles, keyPath: \.profiles, default: defaults.profiles).eraseToAny(),
+		SettingsField(
+			.commandModeHotkey,
+			keyPath: \.commandModeHotkey,
+			default: defaults.commandModeHotkey,
+			decode: { container, key, fallback in (try? container.decodeIfPresent(HotKey.self, forKey: key)) ?? fallback },
+			encode: { container, key, value in try container.encodeIfPresent(value, forKey: key) }
+		).eraseToAny(),
+		SettingsField(.hotkeyTapToggle, keyPath: \.hotkeyTapToggle, default: defaults.hotkeyTapToggle,
+		              decode: { container, key, value in (try? container.decodeIfPresent(Bool.self, forKey: key)) ?? value }).eraseToAny()
 	]
 }

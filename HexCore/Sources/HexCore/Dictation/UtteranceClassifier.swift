@@ -13,12 +13,15 @@ public struct ClassifierContext: Sendable, Equatable {
 	public var commandPauseMs: Int
 	public var englishCommands: Bool
 	public var boxOpen: Bool
+	/// Normalized trigger words → snippet text (plan B6).
+	public var snippets: [[String]: String]
 
-	public init(mode: DictationMode, commandPauseMs: Int = 450, englishCommands: Bool = true, boxOpen: Bool = false) {
+	public init(mode: DictationMode, commandPauseMs: Int = 450, englishCommands: Bool = true, boxOpen: Bool = false, snippets: [[String]: String] = [:]) {
 		self.mode = mode
 		self.commandPauseMs = commandPauseMs
 		self.englishCommands = englishCommands
 		self.boxOpen = boxOpen
+		self.snippets = snippets
 	}
 }
 
@@ -38,10 +41,15 @@ public enum UtteranceClassifier {
 		let pauseAfter = (pauseAfterMs ?? Int.max) >= context.commandPauseMs
 
 		if pauseBefore && pauseAfter {
+			// A snippet trigger only as an utterance of its own, so „meine Adresse
+			// ist neu“ stays text.
+			if let snippet = context.snippets[words] {
+				return .command(.snippet(snippet))
+			}
 			if context.boxOpen, let box = CommandGrammar.isolated(words, in: CommandGrammar.box, english: english) {
 				return .command(.box(box))
 			}
-			if let edit = CommandGrammar.isolated(words, in: CommandGrammar.edit, english: english) {
+			if let edit = CommandGrammar.editCommand(text, english: english) {
 				return .command(.edit(edit))
 			}
 			if let structural = CommandGrammar.isolated(words, in: CommandGrammar.structural + CommandGrammar.structuralIsolatedOnly, english: english) {

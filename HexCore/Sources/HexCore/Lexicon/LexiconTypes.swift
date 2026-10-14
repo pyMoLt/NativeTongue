@@ -146,9 +146,118 @@ public struct LexiconPackInfo: Codable, Sendable, Equatable, Identifiable {
 public struct UserLexicon: Codable, Sendable, Equatable {
 	public var version = 1
 	public var entries: [LexiconEntry]
+	/// Text snippets: a spoken trigger inserts a stored text (plan B6).
+	public var snippets: [TextSnippet]
+	/// Example snippets were offered once; deleting them stays deleted.
+	public var snippetExamplesAdded: Bool
+	/// Manual corrections in the dictation box, counted (plan B8).
+	public var learnedCorrections: [LearnedCorrection]
 
-	public init(entries: [LexiconEntry] = []) {
+	public init(entries: [LexiconEntry] = [], snippets: [TextSnippet] = [], snippetExamplesAdded: Bool = false, learnedCorrections: [LearnedCorrection] = []) {
 		self.entries = entries
+		self.snippets = snippets
+		self.snippetExamplesAdded = snippetExamplesAdded
+		self.learnedCorrections = learnedCorrections
+	}
+
+	private enum CodingKeys: String, CodingKey {
+		case version, entries, snippets, snippetExamplesAdded, learnedCorrections
+	}
+
+	/// Older files without the 2.6 fields keep working.
+	public init(from decoder: Decoder) throws {
+		let c = try decoder.container(keyedBy: CodingKeys.self)
+		version = (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? 1
+		entries = try c.decodeIfPresent([LexiconEntry].self, forKey: .entries) ?? []
+		snippets = (try? c.decodeIfPresent([TextSnippet].self, forKey: .snippets)) ?? []
+		snippetExamplesAdded = (try? c.decodeIfPresent(Bool.self, forKey: .snippetExamplesAdded)) ?? false
+		learnedCorrections = (try? c.decodeIfPresent([LearnedCorrection].self, forKey: .learnedCorrections)) ?? []
+	}
+}
+
+/// A spoken trigger („meine Adresse“) and the text it inserts. The text may
+/// span several lines and contain `{date}` and `{time}`.
+public struct TextSnippet: Codable, Sendable, Hashable, Identifiable {
+	public var id: UUID
+	public var trigger: String
+	public var text: String
+
+	public init(id: UUID = UUID(), trigger: String, text: String) {
+		self.id = id
+		self.trigger = trigger
+		self.text = text
+	}
+
+	/// Snippets without text are inactive (the examples start empty).
+	public var isActive: Bool {
+		!CommandGrammar.normalizedWords(trigger).isEmpty && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+	}
+
+	/// Examples offered on first use, with empty text.
+	public static func examples(english: Bool) -> [TextSnippet] {
+		(english ? ["my address", "my email", "sign-off"] : ["meine Adresse", "meine E-Mail", "Grußformel"])
+			.map { TextSnippet(trigger: $0, text: "") }
+	}
+
+	/// The text with `{date}` and `{time}` filled in.
+	public func expanded(at date: Date = Date(), language: String = "de") -> String {
+		let locale = Locale(identifier: language.lowercased().hasPrefix("en") ? "en_US" : "de_DE")
+		let day = DateFormatter()
+		day.locale = locale
+		day.dateStyle = .medium
+		day.timeStyle = .none
+		let time = DateFormatter()
+		time.locale = locale
+		time.dateStyle = .none
+		time.timeStyle = .short
+		return text
+			.replacingOccurrences(of: "{date}", with: day.string(from: date))
+			.replacingOccurrences(of: "{time}", with: time.string(from: date))
+	}
+
+	/// Normalized trigger words → expanded text, for the active snippets.
+	public static func table(_ snippets: [TextSnippet], at date: Date = Date(), language: String = "de") -> [[String]: String] {
+		var table: [[String]: String] = [:]
+		for snippet in snippets where snippet.isActive {
+			table[CommandGrammar.normalizedWords(snippet.trigger)] = snippet.expanded(at: date, language: language)
+		}
+		return table
+	}
+}
+
+/// How often the user replaced `original` with `replacement` by hand in the
+/// dictation box. From the threshold on, NativeTongue offers „Always replace?“.
+public struct LearnedCorrection: Codable, Sendable, Hashable, Identifiable {
+	public var id: String { "\(original.lowercased())→\(replacement)" }
+	public var original: String
+	public var replacement: String
+	public var count: Int
+	/// The user answered „No“: never ask again for this pair.
+	public var declined: Bool
+
+	public init(original: String, replacement: String, count: Int = 1, declined: Bool = false) {
+		self.original = original
+		self.replacement = replacement
+		self.count = count
+		self.declined = declined
+	}
+
+	/// Adds one to each pair's counter (new pairs start at 1).
+	public static func counting(_ pairs: [LearnedCorrection], into existing: [LearnedCorrection]) -> [LearnedCorrection] {
+		var result = existing
+		for pair in pairs where !pair.original.isEmpty && pair.original != pair.replacement {
+			if let index = result.firstIndex(where: { $0.id == pair.id }) {
+				result[index].count += 1
+			} else {
+				result.append(LearnedCorrection(original: pair.original, replacement: pair.replacement))
+			}
+		}
+		return result
+	}
+
+	/// Pairs to offer as „Always replace?“: counted often enough and not declined.
+	public static func offers(_ counted: [LearnedCorrection], threshold: Int) -> [LearnedCorrection] {
+		counted.filter { !$0.declined && $0.count >= min(max(threshold, 1), 5) }
 	}
 }
 

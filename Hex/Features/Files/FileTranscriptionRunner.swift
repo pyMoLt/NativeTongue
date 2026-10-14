@@ -35,7 +35,8 @@ struct FileTranscriptionRunner {
     let options = RequestOptions(
       language: request.language,
       punctuation: request.mode == .literal ? .suppressed : .natural,
-      biasTerms: request.biasTerms
+      biasTerms: request.biasTerms,
+      isBackground: true
     )
     let wordTimings = (try? LocalASRModelCatalog.descriptor(named: request.model))?.capabilities.wordTimings ?? false
     let total = Double(samples.count)

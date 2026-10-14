@@ -61,7 +61,7 @@ public struct ModelDownloadView: View {
 			{
 				Text("Model Error: \(err)")
 					.foregroundColor(.red)
-					.font(.caption)
+					.flowFont(.caption)
 			}
 		}
 		.frame(maxWidth: .infinity, alignment: .leading)
@@ -106,14 +106,14 @@ private struct NoModelChooser: View {
 		VStack(alignment: .leading, spacing: 12) {
 			HStack(spacing: 12) {
 				Image(systemName: "arrow.down.circle.fill")
-					.font(.title3)
+					.flowFont(.title3)
 					.foregroundStyle(Color.accentColor)
 					.frame(width: 28)
 				VStack(alignment: .leading, spacing: 3) {
 					Text("Choose a transcription model")
-						.font(.body.weight(.medium))
+						.flowFont(.body, weight: .medium)
 					Text("Download a local model to start transcribing.")
-						.font(.caption)
+						.flowFont(.caption)
 						.foregroundStyle(.secondary)
 				}
 				Spacer()
@@ -124,10 +124,10 @@ private struct NoModelChooser: View {
 
 			if isLoading {
 				ProgressView("Checking locally installed models…")
-					.font(.caption)
+					.flowFont(.caption)
 			} else {
 				Button("Refresh local model status", action: onRetry)
-					.font(.caption)
+					.flowFont(.caption)
 					.buttonStyle(.link)
 			}
 		}
@@ -161,19 +161,19 @@ private struct CurrentModelSummary: View {
 	var body: some View {
 		HStack(spacing: 12) {
 			Image(systemName: iconName)
-				.font(.title3)
+				.flowFont(.title3)
 				.foregroundStyle(needsDownload ? Color.orange : Color.accentColor)
 				.frame(width: 28)
 
 			VStack(alignment: .leading, spacing: 5) {
 				Text(title)
-					.font(.body.weight(.medium))
+					.flowFont(.body, weight: .medium)
 				Text(subtitle)
-					.font(.caption)
+					.flowFont(.caption)
 					.foregroundStyle(needsDownload ? Color.orange : Color.secondary)
 				if let activeDownloadStatus {
 					Text(activeDownloadStatus)
-						.font(.caption)
+						.flowFont(.caption)
 						.foregroundStyle(.secondary)
 				}
 				if isDownloadingAnything {
@@ -187,7 +187,7 @@ private struct CurrentModelSummary: View {
 			if isDownloadingAnything {
 				VStack(alignment: .trailing, spacing: 4) {
 					Text("\(Int(downloadProgress * 100))%")
-						.font(.caption)
+						.flowFont(.caption)
 						.foregroundStyle(.secondary)
 						.monospacedDigit()
 					Button("Cancel", role: .destructive, action: onCancelDownload)
@@ -259,9 +259,9 @@ private struct ModelLibrarySheet: View {
 			HStack(alignment: .top) {
 				VStack(alignment: .leading, spacing: 4) {
 					Text("Model Library")
-						.font(.title2.weight(.semibold))
+						.flowFont(.title2, weight: .semibold)
 					Text("Select an installed model to use it, or download another model for local transcription.")
-						.font(.caption)
+						.flowFont(.caption)
 						.foregroundStyle(.secondary)
 				}
 				Spacer()
@@ -276,7 +276,7 @@ private struct ModelLibrarySheet: View {
 			}
 
 			Label("Models run locally on your Mac. Downloads are stored on this device.", systemImage: "lock.shield")
-				.font(.caption)
+				.flowFont(.caption)
 				.foregroundStyle(.secondary)
 		}
 		.padding(18)
@@ -312,7 +312,7 @@ private struct ModelLibrarySheet: View {
 	private func modelSection(title: String, models: [CuratedModelInfo]) -> some View {
 		VStack(alignment: .leading, spacing: 6) {
 			Text(title)
-				.font(.caption.weight(.semibold))
+				.flowFont(.caption, weight: .semibold)
 				.foregroundStyle(.secondary)
 				.padding(.horizontal, 2)
 			VStack(spacing: 0) {
@@ -369,16 +369,16 @@ private struct ModelLibraryRow: View {
 				HStack(spacing: 12) {
 					Image(systemName: leadingIcon)
 						.foregroundStyle(leadingColor)
-						.font(.body)
+						.flowFont(.body)
 						.frame(width: 24)
 
 					VStack(alignment: .leading, spacing: 4) {
 						HStack(spacing: 7) {
 							Text(model.displayName)
-								.font(.body.weight(.medium))
+								.flowFont(.body, weight: .medium)
 							if model.experimental {
 								Text("Experimental")
-									.font(.caption2.weight(.semibold))
+									.flowFont(.caption2, weight: .semibold)
 									.padding(.horizontal, 5)
 									.padding(.vertical, 2)
 									.background(Color.orange.opacity(0.14), in: Capsule())
@@ -386,10 +386,10 @@ private struct ModelLibraryRow: View {
 							}
 						}
 						Text(model.size)
-							.font(.caption)
+							.flowFont(.caption)
 							.foregroundStyle(.secondary)
 						Text("\(model.backend.displayName) · \(model.precision) · \(model.license)")
-							.font(.caption2)
+							.flowFont(.caption2)
 							.foregroundStyle(.tertiary)
 							.lineLimit(1)
 					}
@@ -398,11 +398,11 @@ private struct ModelLibraryRow: View {
 
 					VStack(alignment: .trailing, spacing: 3) {
 						Text(model.storageSize)
-							.font(.caption)
+							.flowFont(.caption)
 							.foregroundStyle(.secondary)
 						if let statusText {
 							Text(statusText)
-								.font(.caption2)
+								.flowFont(.caption2)
 								.foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
 						}
 					}
@@ -447,7 +447,7 @@ private struct ModelLibraryRow: View {
 					.progressViewStyle(.circular)
 					.controlSize(.small)
 				Text("\(Int(downloadProgress * 100))%")
-					.font(.caption)
+					.flowFont(.caption)
 					.foregroundStyle(.secondary)
 					.monospacedDigit()
 				Button("Cancel", role: .destructive, action: onCancelDownload)
@@ -458,7 +458,7 @@ private struct ModelLibraryRow: View {
 				managementMenuItems
 			} label: {
 				Image(systemName: "ellipsis.circle")
-					.font(.body)
+					.flowFont(.body)
 					.foregroundStyle(.secondary)
 			}
 			.menuStyle(.borderlessButton)

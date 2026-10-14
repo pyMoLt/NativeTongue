@@ -102,6 +102,25 @@ final class StreamingTextProcessorTests: XCTestCase {
 		XCTAssertEqual(processor.push("vus Vagus ") + processor.flush(), " Nervus vagus ")
 	}
 
+	/// Audit M13: large packs (tens of thousands of aliases) must not be scanned per update.
+	func testLargeAliasPackStaysFastAndCorrect() {
+		var aliases: [String: String] = ["vox drill": "Voxtral", "gwen": "Qwen"]
+		for index in 0..<60_000 {
+			aliases["fachwort\(index) teil"] = "Fachwort\(index)"
+			aliases["begriff\(index)"] = "Begriff\(index)"
+		}
+		let start = Date()
+		var processor = StreamingTextProcessor(options: .init(aliases: aliases))
+		var output = ""
+		for _ in 0..<300 { output += processor.push("wir nutzen gwen und vox drill heute ") }
+		output += processor.flush()
+		let elapsed = Date().timeIntervalSince(start)
+		XCTAssertTrue(output.contains("Qwen"))
+		XCTAssertTrue(output.contains("Voxtral"))
+		XCTAssertFalse(output.contains("vox drill"))
+		XCTAssertLessThan(elapsed, 5, "per-update alias work must not grow with the pack size")
+	}
+
 	func testAliasPrefixFallsBackWhenNextWordDoesNotMatch() {
 		var processor = StreamingTextProcessor(options: .init(aliases: ["vox drill": "Voxtral"]))
 		XCTAssertEqual(processor.push("Vox "), "")
@@ -199,5 +218,36 @@ final class StreamingFormattingTests: XCTestCase {
 	func testCombinedModeDropsEchoAcrossChunks() {
 		let options = StreamingTextProcessor.Options(keepPunctuation: true, commands: .all, formatNumbers: true)
 		XCTAssertEqual(stream(["Satz.", " Neuer", " Absatz.", " Erster", " Abschnitt", " Ende,", " Punkt."], options), "Satz.\n\nErster Abschnitt Ende.")
+	}
+}
+
+final class AppendOnlyDeltaTests: XCTestCase {
+	func testAppendsReturnOnlyTheNewText() {
+		var delta = AppendOnlyDelta()
+		XCTAssertEqual(delta.next("Hallo").text, "Hallo")
+		XCTAssertEqual(delta.next("Hallo Welt").text, " Welt")
+		XCTAssertEqual(delta.next("Hallo Welt").text, "")
+		XCTAssertEqual(delta.next("Hallo Welt, äöü 👍🏽").text, ", äöü 👍🏽")
+	}
+
+	func testRevisionOfEarlierTextTypesOnlyCharactersBeyondTyped() {
+		var delta = AppendOnlyDelta()
+		_ = delta.next("hallo welt")
+		let result = delta.next("Hallo welt und mehr")
+		XCTAssertEqual(result.text, " und mehr")
+		XCTAssertFalse(result.revisedEarlierText, "case-only change is not a revision")
+		let changed = delta.next("Hallo Welt und mehr Text")
+		XCTAssertEqual(changed.text, " Text")
+	}
+
+	func testLongSessionStaysLinear() {
+		var delta = AppendOnlyDelta()
+		var running = ""
+		let start = Date()
+		for index in 0..<20_000 {
+			running += " wort\(index)"
+			XCTAssertEqual(delta.next(running).text, " wort\(index)")
+		}
+		XCTAssertLessThan(Date().timeIntervalSince(start), 10)
 	}
 }

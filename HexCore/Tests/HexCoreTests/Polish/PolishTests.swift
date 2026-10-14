@@ -23,6 +23,17 @@ final class PolishGuardTests: XCTestCase {
 		XCTAssertTrue(check("Es gibt keinen Hinweis auf eine Thrombose im Bein", "Es gibt einen Hinweis auf eine Thrombose im Bein.").contains(.negationChanged))
 	}
 
+	func testDroppedReminderIsNotANegation() {
+		let original = "dann den arztbrief fertig machen und nicht vergessen die überweisung zur kardiologie raus zu schicken"
+		let rewrite = "- Arztbrief fertig machen\n- Überweisung zur Kardiologie verschicken"
+		XCTAssertEqual(check(original, rewrite, .keyFacts), [])
+		XCTAssertEqual(check("don't forget to push the tag and update the readme", "- Push the tag\n- Update the README", .keyFacts), [])
+		// An exception keeps the meaning of a negation.
+		XCTAssertEqual(check("alte backups löschen aber nicht die vom monatsende", "- Alte Backups löschen, außer die vom Monatsende", .keyFacts), [])
+		// A real negation next to a reminder still counts.
+		XCTAssertTrue(check("nicht vergessen: kein ibuprofen mehr geben", "- Ibuprofen geben", .keyFacts).contains(.negationChanged))
+	}
+
 	func testShorteningIsFlaggedInStrictButNotInKeyFacts() {
 		let original = "also ich wollte eigentlich sagen dass wir die datei ContentView.swift heute noch umbenennen sollten weil der name nicht passt"
 		let rewrite = "Benenne ContentView.swift heute um, der Name passt nicht."
@@ -76,19 +87,53 @@ final class PolishGuardTests: XCTestCase {
 }
 
 final class PolishPromptTests: XCTestCase {
-	func testCustomPromptAndPersonalNote() {
+	func testEditedStylePromptExampleAndPersonalNote() {
 		var settings = PostProcessingSettings()
-		settings.customCleanPrompt = "Fix only commas."
+		var clean = settings.style(id: AIStyleCatalog.cleanID)
+		clean.instruction = "Fix only commas."
+		clean.exampleInput = "a b"
+		clean.exampleOutput = "a, b"
+		settings.save(clean)
 		settings.personalNote = "Always use British spelling."
-		let system = PolishPrompt.system(for: .clean, settings: settings)
+		let system = PolishPrompt.system(for: settings.style(id: AIStyleCatalog.cleanID), settings: settings)
 		XCTAssertTrue(system.hasPrefix("Fix only commas."))
+		XCTAssertTrue(system.contains("Example input: a b\nExample output:\na, b"))
 		XCTAssertTrue(system.hasSuffix("Always use British spelling."))
+		XCTAssertTrue(settings.isEdited(AIStyleCatalog.cleanID))
+		settings.restoreDefault(AIStyleCatalog.cleanID)
+		XCTAssertEqual(PolishPrompt.system(for: settings.style(id: AIStyleCatalog.cleanID), settings: PostProcessingSettings()), PolishPrompt.defaultClean)
 	}
 
-	func testEmptyCustomPromptFallsBackToDefault() {
+	func testEmptyInstructionFallsBackToDefault() {
+		var task = AIStyleCatalog.builtIn(id: AIStyleCatalog.taskID)!
+		task.instruction = "   "
+		XCTAssertEqual(PolishPrompt.system(for: task, settings: PostProcessingSettings()), PolishPrompt.defaultRewrite)
+	}
+
+	func testContextIsAddedAsReference() {
+		let system = PolishPrompt.system(for: AIStyleCatalog.builtIns[0], settings: PostProcessingSettings(), context: "Context (reference only): app Mail")
+		XCTAssertTrue(system.contains("Context (reference only): app Mail"))
+	}
+
+	func testCustomStylesAndDeletion() {
 		var settings = PostProcessingSettings()
-		settings.customRewritePrompt = "   "
-		XCTAssertEqual(PolishPrompt.system(for: .rewrite, settings: settings), PolishPrompt.defaultRewrite)
+		var mine = AIStyle.newCustom(name: "Protocol")
+		mine.instruction = "Write a protocol."
+		settings.save(mine)
+		settings.boxStyleID = mine.id
+		XCTAssertEqual(settings.allStyles.count, AIStyleCatalog.builtIns.count + 1)
+		XCTAssertEqual(settings.boxStyle.name, "Protocol")
+		XCTAssertTrue(settings.boxStyle.isCustom)
+		settings.deleteStyle(mine.id)
+		XCTAssertEqual(settings.boxStyleID, AIStyleCatalog.cleanID)
+		settings.deleteStyle(AIStyleCatalog.cleanID)
+		XCTAssertEqual(settings.allStyles.count, AIStyleCatalog.builtIns.count, "built-in styles cannot be deleted")
+		XCTAssertEqual(settings.style(id: "unknown").id, AIStyleCatalog.cleanID)
+	}
+
+	func testOffStrictnessSkipsTheCheck() {
+		XCTAssertEqual(PolishGuard.check(original: "Es gibt 3 Befunde und keine Blutung heute", result: "- Befunde", strictness: .off, lengthTolerancePercent: 25), [])
+		XCTAssertEqual(PolishGuard.check(original: "Text", result: "  ", strictness: .off, lengthTolerancePercent: 25).map(\.kind), [.empty])
 	}
 
 	func testDefaultCleanPromptCoversSpelling() {
@@ -96,13 +141,44 @@ final class PolishPromptTests: XCTestCase {
 		XCTAssertTrue(PolishPrompt.defaultClean.contains("Do not rephrase"))
 	}
 
+	func testDefaultRewritePromptKeepsNegationsAndRecipients() {
+		XCTAssertTrue(PolishPrompt.defaultRewrite.contains("kein Ibuprofen mehr geben"))
+		XCTAssertTrue(PolishPrompt.defaultRewrite.contains("recipients"))
+		XCTAssertTrue(PolishPrompt.defaultRewrite.contains("no \"Sie\" form"))
+	}
+
 	func testSettingsDecodeWithMissingFields() throws {
 		let decoded = try JSONDecoder().decode(PostProcessingSettings.self, from: Data(#"{"enabled":true}"#.utf8))
 		XCTAssertTrue(decoded.enabled)
 		XCTAssertEqual(decoded.idleUnloadMinutes, 5)
 		XCTAssertEqual(decoded.unloadPolicy, .afterIdle)
-		XCTAssertEqual(decoded.cleanStrictness, .strict)
-		XCTAssertEqual(decoded.rewriteStrictness, .keyFacts)
+		XCTAssertEqual(decoded.autoStyle.strictness, .strict)
+		XCTAssertEqual(decoded.style(id: AIStyleCatalog.taskID).strictness, .keyFacts)
+		XCTAssertTrue(decoded.editedStyles.isEmpty)
+	}
+
+	func testPre26SettingsMoveOntoStyles() throws {
+		let json = #"{"enabled":true,"autoMode":"rewrite","boxDefaultMode":"clean","customCleanPrompt":"Only commas.","rewriteStrictness":"lengthOnly","lengthTolerancePercent":40,"cleanMaxOutputFactor":1.8,"autoStyleIDx":1}"#
+		let decoded = try JSONDecoder().decode(PostProcessingSettings.self, from: Data(json.utf8))
+		XCTAssertEqual(decoded.autoStyleID, AIStyleCatalog.taskID)
+		XCTAssertEqual(decoded.boxStyleID, AIStyleCatalog.cleanID)
+		XCTAssertEqual(decoded.style(id: AIStyleCatalog.cleanID).instruction, "Only commas.")
+		XCTAssertEqual(decoded.style(id: AIStyleCatalog.cleanID).outputFactor, 1.8)
+		XCTAssertEqual(decoded.style(id: AIStyleCatalog.cleanID).lengthTolerancePercent, 40)
+		XCTAssertEqual(decoded.style(id: AIStyleCatalog.taskID).strictness, .lengthOnly)
+		// Round trip keeps the migrated values and drops the legacy keys.
+		let again = try JSONDecoder().decode(PostProcessingSettings.self, from: JSONEncoder().encode(decoded))
+		XCTAssertEqual(again, decoded)
+		XCTAssertFalse(String(decoding: try JSONEncoder().encode(decoded), as: UTF8.self).contains("\"autoMode\""))
+	}
+
+	func testUnknownValuesDoNotBreakDecoding() throws {
+		let json = #"{"enabled":true,"autoScope":"future","unloadPolicy":"sometimes","customStyles":[{"id":"custom-1","name":"X","instruction":"Y","strictness":"paranoid"}]}"#
+		let decoded = try JSONDecoder().decode(PostProcessingSettings.self, from: Data(json.utf8))
+		XCTAssertTrue(decoded.enabled)
+		XCTAssertEqual(decoded.autoScope, .normalOnly)
+		XCTAssertEqual(decoded.unloadPolicy, .afterIdle)
+		XCTAssertEqual(decoded.customStyles.first?.strictness, .keyFacts)
 	}
 }
 
@@ -140,6 +216,24 @@ final class PolishChunkerTests: XCTestCase {
 		XCTAssertTrue(chunks.allSatisfy { PolishGuard.words($0).count <= 100 })
 		XCTAssertEqual(chunks.flatMap { PolishGuard.words($0) }.count, PolishGuard.words(text).count)
 	}
+
+	/// Audit M11: a long paragraph split at sentences must not gain paragraph breaks.
+	func testJoinKeepsParagraphStructureExactly() {
+		let sentences = (1...40).map { "Satz Nummer \($0) hat ein paar Wörter." }.joined(separator: " ")
+		let text = sentences + "\n\nKurzer Absatz am Ende."
+		let split = PolishChunker.split(text, maxWords: 60)
+		XCTAssertGreaterThan(split.chunks.count, 2)
+		let joined = PolishChunker.join(split.chunks, separators: split.separators)
+		XCTAssertEqual(joined.components(separatedBy: "\n\n").count, 2)
+		XCTAssertEqual(joined, text)
+	}
+
+	func testJoinOfPartialResultsUsesTheRightSeparators() {
+		let text = "Erster Absatz.\n\nZweiter Absatz."
+		let split = PolishChunker.Split(chunks: ["Erster Absatz.", "Zweiter Absatz."], separators: ["\n\n", ""])
+		XCTAssertEqual(PolishChunker.join(split.chunks, separators: split.separators), text)
+		XCTAssertEqual(PolishChunker.join(["Erster Absatz."], separators: split.separators), "Erster Absatz.")
+	}
 }
 
 final class WordDiffTests: XCTestCase {
@@ -155,5 +249,106 @@ final class WordDiffTests: XCTestCase {
 
 	func testIdenticalTextIsOneSegment() {
 		XCTAssertEqual(WordDiff.diff("a b c", "a b c"), [.init(.same, "a b c")])
+	}
+}
+
+final class AIStyleCatalogTests: XCTestCase {
+	func testBuiltInsAreCompleteAndDistinct() {
+		let ids = AIStyleCatalog.builtIns.map(\.id)
+		XCTAssertEqual(Set(ids).count, ids.count)
+		XCTAssertEqual(ids, ["clean", "clean-sentences", "task", "key-facts", "email", "message", "note", "prompt"])
+		XCTAssertEqual(AIStyleCatalog.builtIn(id: "clean")?.instruction, PolishPrompt.defaultClean)
+		XCTAssertEqual(AIStyleCatalog.builtIn(id: "key-facts")?.strictness, .off, "a fact list is much shorter by design")
+		XCTAssertTrue(AIStyleCatalog.builtIn(id: "clean")!.chunked)
+	}
+
+	func testOneOffInstruction() {
+		let style = AIStyle.oneOff(instruction: "  List all open questions ")
+		XCTAssertTrue(style.instruction.contains("Instruction: List all open questions"))
+		XCTAssertEqual(style.strictness, .off)
+		XCTAssertTrue(style.isCustom)
+	}
+}
+
+final class ContextAnalyzerTests: XCTestCase {
+	private let general: (String, String) -> Bool = { word, _ in
+		["Nachricht", "Projekt", "Termin", "Grüße", "Dank", "Bericht", "Meier"].contains(word)
+	}
+
+	func testAnalysesPositionAddressLanguageTermsAndLists() {
+		let mail = AIContext(appName: "Mail", textBeforeCursor: "Sehr geehrte Frau Dr. Meier,\n\nvielen Dank für Ihre Nachricht zum Projekt Aurora und den Bericht von SwiftUI-Team. Wir")
+		let hints = ContextAnalyzer.analyze(mail, isGeneralWord: general)
+		XCTAssertEqual(hints.position, .midSentence)
+		XCTAssertTrue(hints.needsLeadingSpace)
+		XCTAssertEqual(hints.address, .formal)
+		XCTAssertEqual(hints.language, "de")
+		XCTAssertTrue(hints.terms.contains("Aurora"))
+		XCTAssertTrue(hints.terms.contains("SwiftUI-Team"))
+		XCTAssertTrue(hints.terms.contains("Meier"))
+		XCTAssertFalse(hints.terms.contains("Nachricht"), "ordinary words are not terms")
+		XCTAssertFalse(hints.terms.contains("Ihre"))
+
+		let list = ContextAnalyzer.analyze(AIContext(textBeforeCursor: "Einkauf:\n- Milch\n- "))
+		XCTAssertEqual(list.listMarker, "- ")
+		XCTAssertEqual(list.position, .midSentence)
+		XCTAssertFalse(list.needsLeadingSpace)
+
+		let chat = ContextAnalyzer.analyze(AIContext(textBeforeCursor: "hey, hast du morgen zeit? "))
+		XCTAssertEqual(chat.address, .informal)
+		XCTAssertEqual(chat.position, .sentenceStart)
+		XCTAssertFalse(chat.needsLeadingSpace)
+
+		XCTAssertEqual(ContextAnalyzer.analyze(AIContext(appName: "ChatGPT", textBeforeCursor: "")).position, .empty)
+	}
+
+	func testContinuationFitsCapitalsAndSpace() {
+		var mid = ContextHints()
+		mid.position = .midSentence
+		mid.needsLeadingSpace = true
+		XCTAssertEqual(ContextAnalyzer.adaptInsertion("Und dann gehen wir.", hints: mid), " und dann gehen wir.")
+		XCTAssertEqual(ContextAnalyzer.adaptInsertion("Patienten kommen.", hints: mid), " Patienten kommen.", "German nouns keep their capital")
+		XCTAssertEqual(ContextAnalyzer.adaptInsertion("Sie kommen morgen.", hints: mid), " Sie kommen morgen.", "formal Sie keeps its capital")
+		XCTAssertEqual(ContextAnalyzer.adaptInsertion(", danke.", hints: mid), ", danke.", "no space before punctuation")
+		var start = ContextHints()
+		start.position = .sentenceStart
+		XCTAssertEqual(ContextAnalyzer.adaptInsertion("morgen geht es los.", hints: start), "Morgen geht es los.")
+		XCTAssertEqual(ContextAnalyzer.adaptInsertion("so bleibt es", hints: ContextHints()), "so bleibt es", "nothing known, nothing changed")
+	}
+
+	func testTermsFromTheFieldFixSpelling() {
+		let fixed = ContextAnalyzer.applyTerms("das projekt aurora mit herrn maier und dem swiftui-team", terms: ["Aurora", "Meier", "SwiftUI-Team"])
+		XCTAssertEqual(fixed, "das projekt Aurora mit herrn Meier und dem SwiftUI-Team", "the spelling written in the field wins")
+		XCTAssertEqual(ContextAnalyzer.applyTerms("mit Ina", terms: ["Ida"]), "mit Ina", "short words change only on the same spelling")
+		XCTAssertEqual(ContextAnalyzer.applyTerms("Rivaroxabahn ist neu", terms: ["Rivaroxaban"]), "Rivaroxaban ist neu", "same sound, close spelling")
+		XCTAssertEqual(ContextAnalyzer.applyTerms("ein Bericht", terms: ["Berichte"], isGeneralWord: { w, _ in w == "Bericht" }), "ein Bericht", "dictionary words stay")
+	}
+
+	func testPromptContainsOnlyDerivedHintsUnlessExperimental() {
+		let context = AIContext(appName: "Mail", profileName: "Mail", textBeforeCursor: "Sehr geehrte Frau Meier, wir haben das Projekt Aurora")
+		let hints = ContextAnalyzer.analyze(context)
+		var settings = ContextSettings()
+		XCTAssertNil(ContextAnalyzer.prompt(hints, context: context, settings: settings), "off by default")
+		settings.use = .appOnly
+		let appOnly = ContextAnalyzer.prompt(hints, context: context, settings: settings)!
+		XCTAssertTrue(appOnly.contains("“Mail”"))
+		XCTAssertFalse(appOnly.contains("Aurora"))
+		settings.use = .analyzed
+		let analyzed = ContextAnalyzer.prompt(hints, context: context, settings: settings)!
+		XCTAssertTrue(analyzed.contains("reference only"))
+		XCTAssertTrue(analyzed.contains("formally (Sie)"))
+		XCTAssertTrue(analyzed.contains("Aurora"))
+		XCTAssertFalse(analyzed.contains("wir haben das"), "no raw text")
+		settings.sendNearbyText = true
+		XCTAssertTrue(ContextAnalyzer.prompt(hints, context: context, settings: settings)!.contains("wir haben das Projekt"))
+		settings.terms = false
+		settings.sendNearbyText = false
+		XCTAssertFalse(ContextAnalyzer.prompt(hints, context: context, settings: settings)!.contains("Aurora"))
+	}
+
+	func testSettingsDecodeTolerantlyAndClampCharacters() throws {
+		let decoded = try JSONDecoder().decode(ContextSettings.self, from: Data(#"{"use":"telepathy","characters":5000,"terms":false}"#.utf8))
+		XCTAssertEqual(decoded.use, .off)
+		XCTAssertEqual(decoded.characters, 1000)
+		XCTAssertFalse(decoded.terms)
 	}
 }

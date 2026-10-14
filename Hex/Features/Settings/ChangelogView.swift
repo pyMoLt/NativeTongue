@@ -9,9 +9,8 @@ struct ChangelogView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Changelog")
-                    .font(.title)
-                    .padding(.bottom, 10)
+                PageHeader(title: "Changelog", subtitle: "What changed in each version", symbol: "list.bullet.rectangle")
+                    .padding(.bottom, 6)
 
                 if let changelogPath = Bundle.main.path(forResource: "changelog", ofType: "md"),
                     let changelogContent = try? String(
@@ -23,9 +22,10 @@ struct ChangelogView: View {
                         .foregroundColor(.red)
                 }
             }
-            .padding()
+            .padding(28)
         }
-        .frame(minWidth: 600, minHeight: 500)
+        .frame(minWidth: 620, minHeight: 520)
+        .background(FlowBackdrop())
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Close") { dismiss() }

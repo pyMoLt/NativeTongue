@@ -15,6 +15,7 @@ private typealias SettingsAudioPropertyListenerBlock = @convention(block) (UInt3
 private enum HotKeyCaptureTarget {
   case recording
   case pasteLastTranscript
+  case commandMode
 }
 
 extension SharedReaderKey
@@ -28,6 +29,10 @@ extension SharedReaderKey
     Self[.inMemory("isSettingPasteLastTranscriptHotkey"), default: false]
   }
 
+  static var isSettingCommandModeHotkey: Self {
+    Self[.inMemory("isSettingCommandModeHotkey"), default: false]
+  }
+
   static var isRemappingScratchpadFocused: Self {
     Self[.inMemory("isRemappingScratchpadFocused"), default: false]
   }
@@ -36,6 +41,14 @@ extension SharedReaderKey
   /// and box voice commands („Text übertragen“, „buchstabieren“) are active.
   static var isDictationBoxPresented: Self {
     Self[.inMemory("isDictationBoxPresented"), default: false]
+  }
+}
+
+extension SharedReaderKey where Self == InMemoryKey<String>.Default {
+  /// Plain text of the open dictation box: „ersetze X durch Y“ is a command
+  /// only when X occurs there (or in the dictation itself).
+  static var dictationBoxPlainText: Self {
+    Self[.inMemory("dictationBoxPlainText"), default: ""]
   }
 }
 
@@ -48,6 +61,7 @@ struct SettingsFeature {
     @Shared(.hexSettings) var hexSettings: HexSettings
     @Shared(.isSettingHotKey) var isSettingHotKey: Bool = false
     @Shared(.isSettingPasteLastTranscriptHotkey) var isSettingPasteLastTranscriptHotkey: Bool = false
+    @Shared(.isSettingCommandModeHotkey) var isSettingCommandModeHotkey: Bool = false
     @Shared(.isRemappingScratchpadFocused) var isRemappingScratchpadFocused: Bool = false
     @Shared(.transcriptionHistory) var transcriptionHistory: TranscriptionHistory
     @Shared(.hotkeyPermissionState) var hotkeyPermissionState: HotkeyPermissionState
@@ -55,6 +69,7 @@ struct SettingsFeature {
     var languages: IdentifiedArrayOf<Language> = []
     var currentModifiers: Modifiers = .init(modifiers: [])
     var currentPasteLastModifiers: Modifiers = .init(modifiers: [])
+    var currentCommandModifiers: Modifiers = .init(modifiers: [])
     var remappingScratchpadText: String = ""
     
     // Available microphones
@@ -74,6 +89,8 @@ struct SettingsFeature {
     case task
     case startSettingHotKey
     case startSettingPasteLastTranscriptHotkey
+    case startSettingCommandModeHotkey
+    case clearCommandModeHotkey
     case clearPasteLastTranscriptHotkey
     case keyEvent(KeyEvent)
     case toggleOpenOnLogin(Bool)
@@ -85,6 +102,7 @@ struct SettingsFeature {
     case setCopyToClipboard(Bool)
     case setDoubleTapLockEnabled(Bool)
     case setUseDoubleTapOnly(Bool)
+    case setHotkeyTapToggle(Bool)
     case setMinimumKeyTime(Double)
     case setDictationMode(DictationMode)
 	case setASRProfile(ASRProfile)
@@ -150,6 +168,9 @@ struct SettingsFeature {
     case .pasteLastTranscript:
       state.$isSettingPasteLastTranscriptHotkey.withLock { $0 = true }
       state.currentPasteLastModifiers = .init(modifiers: [])
+    case .commandMode:
+      state.$isSettingCommandModeHotkey.withLock { $0 = true }
+      state.currentCommandModifiers = .init(modifiers: [])
     }
   }
 
@@ -161,6 +182,9 @@ struct SettingsFeature {
     case .pasteLastTranscript:
       state.$isSettingPasteLastTranscriptHotkey.withLock { $0 = false }
       state.currentPasteLastModifiers = .init(modifiers: [])
+    case .commandMode:
+      state.$isSettingCommandModeHotkey.withLock { $0 = false }
+      state.currentCommandModifiers = .init(modifiers: [])
     }
   }
 
@@ -170,6 +194,8 @@ struct SettingsFeature {
       state.currentModifiers
     case .pasteLastTranscript:
       state.currentPasteLastModifiers
+    case .commandMode:
+      state.currentCommandModifiers
     }
   }
 
@@ -179,6 +205,8 @@ struct SettingsFeature {
       state.currentModifiers = modifiers
     case .pasteLastTranscript:
       state.currentPasteLastModifiers = modifiers
+    case .commandMode:
+      state.currentCommandModifiers = modifiers
     }
   }
 
@@ -193,6 +221,11 @@ struct SettingsFeature {
       guard let key else { return }
       state.$hexSettings.withLock {
         $0.pasteLastTranscriptHotkey = HotKey(key: key, modifiers: modifiers.erasingSides())
+      }
+    case .commandMode:
+      guard let key else { return }
+      state.$hexSettings.withLock {
+        $0.commandModeHotkey = HotKey(key: key, modifiers: modifiers.erasingSides())
       }
     }
   }
@@ -432,9 +465,20 @@ struct SettingsFeature {
         state.$hexSettings.withLock { $0.pasteLastTranscriptHotkey = nil }
         return .none
 
+      case .startSettingCommandModeHotkey:
+        beginCapture(.commandMode, state: &state)
+        return .none
+
+      case .clearCommandModeHotkey:
+        state.$hexSettings.withLock { $0.commandModeHotkey = nil }
+        return .none
+
       case let .keyEvent(keyEvent):
         if state.isSettingPasteLastTranscriptHotkey {
           return handleCapture(keyEvent, for: .pasteLastTranscript, state: &state)
+        }
+        if state.isSettingCommandModeHotkey {
+          return handleCapture(keyEvent, for: .commandMode, state: &state)
         }
 
         guard state.isSettingHotKey else { return .none }
@@ -493,6 +537,10 @@ struct SettingsFeature {
         state.$hexSettings.withLock {
           $0.useDoubleTapOnly = enabled && $0.doubleTapLockEnabled
         }
+        return .none
+
+      case let .setHotkeyTapToggle(enabled):
+        state.$hexSettings.withLock { $0.hotkeyTapToggle = enabled }
         return .none
 
       case let .setMinimumKeyTime(value):

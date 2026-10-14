@@ -5,6 +5,7 @@ import SwiftUI
 /// First-launch sheet (plan 5.10): welcome → permissions → model → word packs → test dictation.
 struct OnboardingView: View {
   @Bindable var store: StoreOf<AppFeature>
+  @Environment(\.flowTheme) private var theme
   @State private var step = 0
   @State private var isImporterPresented = false
   private let recommendedModel = "openai_whisper-large-v3-v20240930_turbo"
@@ -14,8 +15,8 @@ struct OnboardingView: View {
       HStack(spacing: 6) {
         ForEach(0 ..< 5, id: \.self) { index in
           Capsule()
-            .fill(index <= step ? Color.accentColor : Color.secondary.opacity(0.25))
-            .frame(height: 4)
+            .fill(index <= step ? AnyShapeStyle(LinearGradient(colors: [theme.accent, theme.companion], startPoint: .leading, endPoint: .trailing)) : AnyShapeStyle(Color.secondary.opacity(0.2)))
+            .frame(height: 5)
         }
       }
       .padding([.horizontal, .top], 24)
@@ -34,21 +35,21 @@ struct OnboardingView: View {
 
       HStack {
         if step > 0 {
-          Button("Back") { withAnimation { step -= 1 } }.buttonStyle(.glass)
+          Button("Back") { withAnimation(theme.animation()) { step -= 1 } }.buttonStyle(.flow)
         }
         Spacer()
         Button("Skip") { store.send(.finishOnboarding) }
-          .buttonStyle(.borderless)
-          .foregroundStyle(.secondary)
+          .buttonStyle(.flowQuiet)
         Button(step == 4 ? "Done" : "Continue") {
-          if step == 4 { store.send(.finishOnboarding) } else { withAnimation { step += 1 } }
+          if step == 4 { store.send(.finishOnboarding) } else { withAnimation(theme.animation()) { step += 1 } }
         }
-        .buttonStyle(.glassProminent)
+        .buttonStyle(.flowPrimary)
         .keyboardShortcut(.defaultAction)
       }
       .padding(20)
     }
-    .frame(width: 620, height: 470)
+    .frame(width: 640, height: 500)
+    .background(FlowBackdrop(variant: step))
     .fileImporter(isPresented: $isImporterPresented, allowedContentTypes: [.json], allowsMultipleSelection: true) { result in
       if case let .success(urls) = result { store.send(.lexicon(.importPacks(urls))) }
     }
@@ -56,13 +57,9 @@ struct OnboardingView: View {
 
   private func title(_ text: String, _ subtitle: String, symbol: String) -> some View {
     HStack(spacing: 14) {
-      Image(systemName: symbol)
-        .font(.system(size: 26, weight: .semibold))
-        .foregroundStyle(.tint)
-        .frame(width: 54, height: 54)
-        .glassEffect(.regular.tint(.accentColor.opacity(0.2)), in: .rect(cornerRadius: 14))
+      FlowOrb(symbol: symbol, size: 54)
       VStack(alignment: .leading, spacing: 3) {
-        Text(text).font(.title2.weight(.semibold))
+        Text(text).flowFont(size: 24, weight: .bold, design: .rounded)
         Text(subtitle).foregroundStyle(.secondary)
       }
     }
@@ -93,11 +90,11 @@ struct OnboardingView: View {
     let downloading = store.settings.modelDownload.downloadingModelName == recommendedModel
     return VStack(alignment: .leading, spacing: 12) {
       title("Install a model", "Recommended: Whisper Large v3 Turbo – best result in the literal test (14/14 commands).", symbol: "cpu")
-      Card {
+      FlowBlock {
         HStack {
           VStack(alignment: .leading, spacing: 4) {
-            Text("Whisper Large v3 Turbo").font(.headline)
-            Text("\((try? LocalASRModelCatalog.descriptor(named: recommendedModel))?.storageSize ?? "~1.64 GB") · German and English, automatic language").font(.caption).foregroundStyle(.secondary)
+            Text("Whisper Large v3 Turbo").flowFont(.headline)
+            Text("\((try? LocalASRModelCatalog.descriptor(named: recommendedModel))?.storageSize ?? "~1.64 GB") · German and English, automatic language").flowFont(.caption).foregroundStyle(.secondary)
             LocalASRLiteralRating.reliable.badge
           }
           Spacer()
@@ -112,12 +109,12 @@ struct OnboardingView: View {
             } label: {
               Label("Install", systemImage: "arrow.down.circle")
             }
-            .buttonStyle(.glassProminent)
+            .buttonStyle(.flowPrimary)
           }
         }
       }
       Text("More models (Parakeet, Qwen, Canary, Cohere, Apple) are available under Models. Nothing is downloaded unless you choose it.")
-        .font(.callout)
+        .flowFont(.callout)
         .foregroundStyle(.secondary)
     }
   }
@@ -132,7 +129,7 @@ struct OnboardingView: View {
       } label: {
         Label("Import word packs…", systemImage: "square.and.arrow.down")
       }
-      .buttonStyle(.glass)
+      .buttonStyle(.flow)
       if !store.lexicon.packs.isEmpty {
         ForEach(store.lexicon.packs) { pack in
           Label("\(LexiconView.packName(pack.id)) · \(pack.entryCount.formatted()) terms", systemImage: "checkmark.circle.fill")
@@ -146,16 +143,16 @@ struct OnboardingView: View {
     VStack(alignment: .leading, spacing: 12) {
       title("Try it", "Hold the dictation key (\(DictationHomeView.describe(store.hexSettings.hotkey))) and say:", symbol: "mic")
       Text("“This is a first test period\n[short pause] new paragraph [short pause]\nIt works period”")
-        .font(.system(.title3, design: .serif))
+        .flowFont(.title3, design: .serif)
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+        .flowPanel()
       Text("In Literal mode the dictation box opens. Hover over a word to see suggestions, then insert with ✓.")
         .foregroundStyle(.secondary)
       Label("Changed your mind? Press Esc to cancel the current dictation — nothing is inserted.", systemImage: "escape")
         .foregroundStyle(.secondary)
       Button("Switch to Literal mode") { store.send(.settings(.setDictationMode(.literal))) }
-        .buttonStyle(.glass)
+        .buttonStyle(.flow)
         .disabled(store.hexSettings.dictationMode == .literal)
     }
   }
@@ -166,23 +163,24 @@ struct OnboardingView: View {
     } icon: {
       Image(systemName: symbol).foregroundStyle(.tint)
     }
-    .font(.body)
+    .flowFont(.body)
   }
 
   private func permissionRow(_ title: String, _ reason: String, _ status: PermissionStatus, request: @escaping () -> Void) -> some View {
     HStack {
       VStack(alignment: .leading, spacing: 2) {
-        Text(title).font(.headline)
-        Text(reason).font(.caption).foregroundStyle(.secondary)
+        Text(title).flowFont(.headline)
+        Text(reason).flowFont(.caption).foregroundStyle(.secondary)
       }
       Spacer()
       if status == .granted {
         Label("Granted", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
       } else {
-        Button("Allow", action: request).buttonStyle(.glass)
+        Button("Allow", action: request).buttonStyle(.flowPrimary)
       }
     }
-    .padding(12)
-    .background(Color(nsColor: .controlBackgroundColor).opacity(0.7), in: RoundedRectangle(cornerRadius: 12))
+    .padding(FlowMetrics.rowInsets)
+    .frame(minHeight: FlowMetrics.rowMinHeight)
+    .flowPill()
   }
 }

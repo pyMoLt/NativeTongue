@@ -45,6 +45,26 @@ final class HexSettingsMigrationTests: XCTestCase {
 		XCTAssertFalse(decoded.hasCompletedV2Onboarding)
 	}
 
+	func testAppearanceDefaultsAndTolerantDecoding() throws {
+		XCTAssertEqual(HexSettings().appearance, AppearanceSettings(accent: .violet, glass: .frosted, background: .subtle, motion: .fluid))
+		// Older settings without the field get the defaults.
+		let old = try JSONDecoder().decode(HexSettings.self, from: Data(#"{"dictationMode":"literal"}"#.utf8))
+		XCTAssertEqual(old.appearance, AppearanceSettings())
+		// Unknown values (e.g. from a newer version) fall back per field.
+		let mixed = try JSONDecoder().decode(AppearanceSettings.self, from: Data(#"{"accent":"teal","glass":"neon"}"#.utf8))
+		XCTAssertEqual(mixed.accent, .teal)
+		XCTAssertEqual(mixed.glass, .frosted)
+		XCTAssertEqual(mixed.colorScheme, .system)
+		XCTAssertEqual(mixed.textSize, .system)
+		XCTAssertEqual(AppearanceTextSize.scale(forSystemCategory: "L"), 1.12)
+		XCTAssertEqual(AppearanceTextSize.scale(forSystemCategory: nil), 1.0)
+		XCTAssertEqual(AppearanceTextSize.xxLarge.fixedScale, 1.4)
+		var custom = HexSettings()
+		custom.appearance = AppearanceSettings(colorScheme: .dark, accent: .coral, glass: .solid, background: .off, motion: .reduced)
+		let roundTrip = try JSONDecoder().decode(HexSettings.self, from: JSONEncoder().encode(custom))
+		XCTAssertEqual(roundTrip.appearance, custom.appearance)
+	}
+
 	func testEncodeDecodeRoundTripPreservesDefaults() throws {
 		let settings = HexSettings()
 		let data = try JSONEncoder().encode(settings)
@@ -94,6 +114,35 @@ final class HexSettingsMigrationTests: XCTestCase {
 		XCTAssertEqual(decoded.profileModelSelections[.medical], "medical-model")
 		XCTAssertEqual(decoded.spokenCommandPauseSeconds, 0.6)
 		XCTAssertEqual(decoded.medicalVocabulary, "Metoprolol\nBisoprolol")
+	}
+
+	/// 2.6 stage B settings: defaults, missing fields and unknown values.
+	func testTextProcessingDefaultsAndTolerantDecoding() throws {
+		let defaults = HexSettings()
+		XCTAssertTrue(defaults.textProcessing.resolveSelfCorrections)
+		XCTAssertFalse(defaults.textProcessing.spokenPunctuationInNormal)
+		XCTAssertEqual(defaults.textProcessing.learnCorrectionThreshold, 2)
+		XCTAssertTrue(defaults.streaming.correctionCommands)
+		let old = try JSONDecoder().decode(HexSettings.self, from: Data(#"{"dictationMode":"normal","streaming":{"hotkeyBehavior":"hold"}}"#.utf8))
+		XCTAssertEqual(old.textProcessing, TextProcessingSettings())
+		XCTAssertTrue(old.streaming.correctionCommands)
+		let mixed = try JSONDecoder().decode(TextProcessingSettings.self, from: Data(#"{"resolveSelfCorrections":"maybe","learnCorrectionThreshold":9}"#.utf8))
+		XCTAssertTrue(mixed.resolveSelfCorrections)
+		XCTAssertEqual(mixed.learnCorrectionThreshold, 5)
+		var custom = HexSettings()
+		custom.textProcessing = TextProcessingSettings(resolveSelfCorrections: false, spokenPunctuationInNormal: true, learnCorrectionThreshold: 3)
+		custom.streaming.correctionCommands = false
+		let roundTrip = try JSONDecoder().decode(HexSettings.self, from: JSONEncoder().encode(custom))
+		XCTAssertEqual(roundTrip.textProcessing, custom.textProcessing)
+		XCTAssertFalse(roundTrip.streaming.correctionCommands)
+		// Plan B9: tap to toggle, off by default, tolerant decoding.
+		XCTAssertFalse(defaults.hotkeyTapToggle)
+		XCTAssertFalse(old.hotkeyTapToggle)
+		let wrongType = try JSONDecoder().decode(HexSettings.self, from: Data(#"{"hotkeyTapToggle":"yes"}"#.utf8))
+		XCTAssertFalse(wrongType.hotkeyTapToggle)
+		var toggled = HexSettings()
+		toggled.hotkeyTapToggle = true
+		XCTAssertTrue(try JSONDecoder().decode(HexSettings.self, from: JSONEncoder().encode(toggled)).hotkeyTapToggle)
 	}
 
 	func testSpokenCommandPauseIsClampedOnDecode() throws {

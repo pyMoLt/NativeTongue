@@ -79,7 +79,7 @@ actor CohereMLXASRClient {
 			throw NSError(domain: "CohereMLX", code: 2, userInfo: [NSLocalizedDescriptionKey: "Cohere Transcribe (MLX) is not installed."])
 		}
 		model = try CohereTranscribeModel.fromDirectory(try Self.modelDirectory())
-		MLXMemoryControl.setCacheLimit(1 << 30)
+		MLXMemoryControl.capCacheLimit(1 << 30)  // never raises the app policy
 		logger.info("Loaded Cohere Transcribe MLX 8-bit")
 	}
 

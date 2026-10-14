@@ -1,45 +1,57 @@
-# NativeTongue changelog
+# Changelog
 
-This file records NativeTongue application changes. The app version is set in the Xcode project; the current development snapshot is 2.5.0 (build 250).
+All notable NativeTongue changes. The app version is set in the Xcode project.
 
-## 2.5.0 — Development snapshot
+## 3.0.0
 
 ### Added
 
-- **Streaming mode** (off by default): a third mode next to Normal and Literal. Words are typed into the frontmost app while you speak; pause, type or fix something and keep talking. Native streaming with Nemotron 3.5 Multilingual (Neural Engine) and Voxtral Mini 4B Realtime (MLX), Apple SpeechAnalyzer, and block-per-pause streaming for Whisper, Parakeet and other models. Optional streaming into the dictation box in Literal mode.
-- **AI post-processing** (off by default): a local MLX language model cleans up the text (word errors, punctuation, capitalisation, paragraphs, spelled letters) or rewrites a spoken train of thought as a clear task. Automatic after each dictation or via the ✨ button in the dictation box, which then turns into a before/after comparison. A safety check (numbers, doses, units, vocabulary terms, negations, code, length) keeps the original text when something looks wrong; the pill shows ⚠︎. Curated model list plus Hugging Face links, editable prompts, memory policy.
-- Redesigned model cards with descriptions, per-mode recommendations and streaming badges.
+- **Flow design**: a colour field behind every window, a floating glass sidebar with a gliding selection, one set of components for every page, the menu bar panel, the dictation box and the recording pill. New app and menu bar icon.
+- **Appearance page**: light, dark or system; accent colour; glass strength; colour field; motion; text size that follows the macOS setting or is fixed (XS–XXL). Text, icons and rows scale together, and the window keeps a minimum size that grows with the text.
+- **AI styles**: Clean up, Clean sentences, Rewrite as task, Key facts, E-mail, Short message, Note, Prompt and custom styles, shared by the automatic step, the box ✨, file transcription and Command Mode. A personal "What matters to me" note is added to every prompt; prompts are editable under Advanced.
+- **Profiles**: General, Mail, Coding, AI prompt, Medical and custom profiles. Each sets vocabulary domain, word packs, mode, punctuation, code formatting, AI step, AI style and context, and is picked by the app you dictate into.
+- **Command Mode**: select text, hold the Command Mode key and speak an instruction; the selection is read via Accessibility (or a restored ⌘C) and replaced with the result.
+- **Context from the text field** (off by default): app name only, or short hints analysed on the Mac from the text before the cursor (continuation, terms and names, form of address, language, app type, list style). The text itself is never stored, logged or passed to the AI.
+- Correction commands, self-corrections, sturdier Literal mode, spoken punctuation in Normal mode, numbers for times, money, ordinals, phone and house numbers, text snippets, phonetic term hints and learning from box corrections.
+- Recording key: hold to talk or tap to toggle.
+
+### Fixed
+
+- Streaming lifecycle: session ids, stopping during model load, ordered sessions and held text.
+- Number formatter overflow on repeated hundreds.
+- One model job at a time; leftover temporary data is cleaned up; lower idle energy use.
+- History entries no longer keep the insertion space.
+
+## 2.5.0
+
+### Added
+
+- **Streaming mode** (off by default): words are typed into the frontmost app while you speak. Native streaming with Nemotron 3.5 Multilingual and Voxtral Mini 4B Realtime, Apple SpeechAnalyzer, and block-per-pause streaming for other models.
+- **AI post-processing** (off by default): a local MLX language model cleans up the text or rewrites it as a task, automatically or via ✨ in the dictation box. A safety check keeps the original when numbers, doses, terms or negations would change.
+- Redesigned model cards with per-mode recommendations.
 
 ### Changed
 
-- A second press of the dictation key while a dictation is still being processed is ignored; Esc cancels (and no longer reaches the frontmost app while a dictation is active).
+- A second press of the dictation key during processing is ignored; Esc cancels.
 - Decoder repetition loops are collapsed before commands are applied.
-- Typing fallback uses Unicode key events instead of AppleScript.
-- Debug builds run without App Sandbox like the direct release build; the full test suites run green.
+- Typing fallback uses Unicode key events.
 
-## 2.0.0 — Development snapshot
+## 2.0.0
 
 ### Added
 
 - Normal and Literal dictation modes with German and English spoken commands.
-- Pause-based utterance segmentation and deterministic command classification in HexCore.
-- A structured Dictation Box with rich text, Markdown/plain-text output, correction suggestions, re-dictation, spelling mode and explicit insert/discard controls.
-- Local vocabulary entries, aliases and file-imported domain packs.
-- File transcription queue for audio/video, segment editing, optional local speaker separation, and TXT, Markdown, SRT and VTT export.
-- Menu-bar panel, recording HUD, model management, settings transfer and optional transcript history.
-- Model catalog options using WhisperKit/Core ML, FluidAudio/Core ML, Qwen3-ASR/MLX, Cohere/MLX and Apple SpeechAnalyzer.
+- Pause-based segmentation and deterministic command classification.
+- Dictation Box with rich text, Markdown and plain-text output, suggestions, re-dictation and spelling mode.
+- Personal vocabulary, aliases and importable domain packs.
+- File transcription with optional speaker separation and TXT, Markdown, SRT and VTT export.
+- Menu bar panel, recording HUD, model management, settings transfer and optional history.
 
 ### Changed
 
-- Audio and transcripts remain on-device during local inference. Model and speech assets are installed only after an explicit user action.
-- Model downloads and inference are separate operations; an inference request does not silently fetch missing weights.
-- Model selection unloads the previous ASR backend before loading the next one; idle unloading can release memory.
-- Clipboard insertion restores the prior clipboard after the target app reads the text.
+- Audio and transcripts stay on the Mac. Models are installed only after an explicit user action and are never fetched during inference.
+- One speech model is resident at a time; idle unloading frees memory.
 
-### Validation notes
+## 1.0.0
 
-- The latest detailed audit recorded successful app builds and several focused suites.
-- The full app test suite was not fully green in that audit: UI snapshot writes failed in the test sandbox and model-backed tests were skipped. A separate Swift Testing helper crashed after the HexCore XCTest portion passed.
-- Microphone, Accessibility and system-wide insertion behavior still requires manual validation on a Mac with the relevant permissions.
-
-These notes describe the current NativeTongue application. They do not include inherited release history from other products.
+First version as an independent app ("Local ASR"): own app identity, curated offline model catalog (Whisper, Parakeet, Qwen3-ASR and others) with explicit installation, normal and literal dictation, audio file import, transcript history off by default and no update or telemetry paths.

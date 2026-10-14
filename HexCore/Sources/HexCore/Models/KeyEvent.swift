@@ -1,10 +1,3 @@
-//
-//  KeyEvent.swift
-//  HexCore
-//
-//  Created by Kit Langton on 1/28/25.
-//
-
 import Sauce
 
 public enum InputEvent {

@@ -29,6 +29,12 @@ struct LexiconClient {
   var saveUserLexicon: @Sendable (UserLexicon) async throws -> Void
   /// Adds entries; an existing term (case-insensitive) gets the new aliases merged.
   var addUserEntries: @Sendable ([LexiconEntry]) async throws -> Void
+  /// Counts manual corrections from the box (plan B8) and returns the
+  /// updated counters of these pairs.
+  var recordCorrections: @Sendable (_ pairs: [LearnedCorrection]) async -> [LearnedCorrection] = { $0 }
+  /// The user answered „Always replace?“: accepted pairs leave the counter
+  /// (they are aliases now), declined pairs are not offered again.
+  var resolveCorrections: @Sendable (_ accepted: [LearnedCorrection], _ declined: [LearnedCorrection]) async -> Void = { _, _ in }
   var installedPacks: @Sendable () async -> [LexiconPackInfo] = { [] }
   var importPack: @Sendable (URL) async throws -> LexiconPackInfo
   var removePack: @Sendable (String) async throws -> Void
@@ -54,6 +60,8 @@ extension LexiconClient: DependencyKey {
       streamingAliases: { await service.streamingAliases(activePacks: $0, profile: $1) },
       saveUserLexicon: { try await service.saveUserLexicon($0) },
       addUserEntries: { try await service.addUserEntries($0) },
+      recordCorrections: { await service.recordCorrections($0) },
+      resolveCorrections: { await service.resolveCorrections(accepted: $0, declined: $1) },
       installedPacks: { await service.installedPacks() },
       importPack: { try await service.importPack(from: $0) },
       removePack: { try await service.removePack(id: $0) },
@@ -70,6 +78,8 @@ extension LexiconClient: DependencyKey {
     streamingAliases: { _, _ in [:] },
     saveUserLexicon: { _ in },
     addUserEntries: { _ in },
+    recordCorrections: { $0 },
+    resolveCorrections: { _, _ in },
     installedPacks: { [] },
     importPack: { _ in throw CancellationError() },
     removePack: { _ in },
@@ -134,6 +144,24 @@ actor LexiconService {
       }
     }
     try saveUserLexicon(lexicon)
+  }
+
+  func recordCorrections(_ pairs: [LearnedCorrection]) -> [LearnedCorrection] {
+    var lexicon = userLexicon()
+    lexicon.learnedCorrections = LearnedCorrection.counting(pairs, into: lexicon.learnedCorrections)
+    try? saveUserLexicon(lexicon)
+    let ids = Set(pairs.map(\.id))
+    return lexicon.learnedCorrections.filter { ids.contains($0.id) }
+  }
+
+  func resolveCorrections(accepted: [LearnedCorrection], declined: [LearnedCorrection]) {
+    var lexicon = userLexicon()
+    let acceptedIDs = Set(accepted.map(\.id)), declinedIDs = Set(declined.map(\.id))
+    lexicon.learnedCorrections.removeAll { acceptedIDs.contains($0.id) }
+    for index in lexicon.learnedCorrections.indices where declinedIDs.contains(lexicon.learnedCorrections[index].id) {
+      lexicon.learnedCorrections[index].declined = true
+    }
+    try? saveUserLexicon(lexicon)
   }
 
   func migrate(_ settings: HexSettings) throws {

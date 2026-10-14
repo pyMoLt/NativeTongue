@@ -31,16 +31,24 @@ enum MediaAudioLoader {
     guard reader.startReading() else {
       throw LoadError(message: reader.error?.localizedDescription ?? "The audio could not be read.")
     }
+    // The whole signal is needed for pause segmentation and subtitle timing.
+    // Reserving it up front avoids the growth copies (peak ≈ 2× the audio) and
+    // the per-buffer temporary arrays (audit L6).
     var samples: [Float] = []
+    if let seconds = try? await asset.load(.duration).seconds, seconds.isFinite, seconds > 0 {
+      samples.reserveCapacity(Int(seconds * sampleRate) + Int(sampleRate))
+    }
     while let buffer = output.copyNextSampleBuffer() {
       try Task.checkCancellation()
       guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
       let length = CMBlockBufferGetDataLength(block)
-      var chunk = [Float](repeating: 0, count: length / MemoryLayout<Float>.size)
-      chunk.withUnsafeMutableBytes { raw in
-        _ = CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: length, destination: raw.baseAddress!)
+      let count = length / MemoryLayout<Float>.size
+      guard count > 0 else { continue }
+      let start = samples.count
+      samples.append(contentsOf: repeatElement(0, count: count))
+      samples.withUnsafeMutableBytes { raw in
+        _ = CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: count * MemoryLayout<Float>.size, destination: raw.baseAddress! + start * MemoryLayout<Float>.size)
       }
-      samples += chunk
     }
     if reader.status == .failed {
       throw LoadError(message: reader.error?.localizedDescription ?? "The audio could not be read.")

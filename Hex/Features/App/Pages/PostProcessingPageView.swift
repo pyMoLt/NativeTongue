@@ -10,6 +10,8 @@ struct PostProcessingPageView: View {
   @Bindable var store: StoreOf<SettingsFeature>
   @State private var models = LLMModelManager()
   @State private var showsAdvanced = false
+  @State private var editingStyle: AIStyle?
+  @State private var showsContextAdvanced = false
   @State private var customLink = ""
 
   private var post: PostProcessingSettings { store.hexSettings.postProcessing }
@@ -22,86 +24,128 @@ struct PostProcessingPageView: View {
   }
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 18) {
-        PageHeader(
-          title: "AI Post-Processing",
-          subtitle: "A small language model on this Mac polishes your dictation. Off by default; nothing leaves your Mac.",
-          symbol: "sparkles"
-        )
-        Card(title: "AI post-processing", systemImage: "power") {
-          switchRow("Enable AI post-processing", \.enabled, "Runs after NativeTongue's own commands, numbers and vocabulary corrections.")
-        }
-        if post.enabled {
-          automaticCard
-          boxCard
-          safetyCard
-          memoryCard
-          modelsCard
-          advancedCard
-        }
+    FlowPage(
+      "AI Post-Processing",
+      subtitle: "A small language model on this Mac polishes your dictation. Off by default; nothing leaves your Mac.",
+      symbol: "sparkles"
+    ) {
+      FlowGroup {
+        switchRow("Enable AI post-processing", \.enabled, "Runs after NativeTongue's own commands, numbers and vocabulary corrections.")
       }
-      .padding(LocalASRDesign.pagePadding)
+      contextGroup
+      if post.enabled {
+        automaticGroup
+        boxGroup
+        safetyGroup
+        memoryGroup
+        modelsGroup
+        advancedGroup
+      }
     }
     .task { models.refresh(settings: post) }
   }
 
-  // MARK: Cards
+  // MARK: Groups
 
-  private var automaticCard: some View {
-    Card(title: "After each dictation", systemImage: "wand.and.stars") {
+  private var automaticGroup: some View {
+    FlowGroup("After each dictation") {
       switchRow("Process automatically before inserting", \.autoEnabled, "The pill shows ✨ while the AI works. If the safety check finds a problem, your original text is inserted and the pill shows ⚠︎.")
       if post.autoEnabled {
         Picker("Applies to", selection: binding(\.autoScope)) {
           ForEach(PolishAutoScope.allCases, id: \.self) { Text($0.displayName).tag($0) }
         }
-        modePicker(binding(\.autoMode))
+        .flowRow("Applies to")
+        stylePicker(binding(\.autoStyleID), title: "Style")
         modelPicker("Model", binding(\.autoModel), useCase: .auto)
-        Stepper("Only from \(post.minimumWords) words", value: binding(\.minimumWords), in: 1 ... 50)
-        Stepper("Time limit: \(post.timeoutSeconds) s, then the original is inserted", value: binding(\.timeoutSeconds), in: 3 ... 120)
+        Stepper("", value: binding(\.minimumWords), in: 1 ... 50)
+          .flowRow("Only from \(post.minimumWords) words")
+        Stepper("", value: binding(\.timeoutSeconds), in: 3 ... 120)
+          .flowRow("Time limit: \(post.timeoutSeconds) s", caption: "After that, the original is inserted.")
       }
     }
   }
 
-  private var boxCard: some View {
-    Card(title: "Dictation box", systemImage: "text.below.photo") {
+  private var boxGroup: some View {
+    FlowGroup("Dictation box") {
       switchRow("Show the ✨ button in the dictation box", \.boxButtonEnabled, "Click ✨ to run the AI on the box text. Afterwards the button turns into ⇄ to compare before and after.")
       if post.boxButtonEnabled {
-        modePicker(binding(\.boxDefaultMode), title: "Button default")
+        stylePicker(binding(\.boxStyleID), title: "Button default", caption: "Click ✨ for this style; its menu offers every style.")
         modelPicker("Model", binding(\.boxModel), useCase: .box)
-        Toggle("Show the comparison automatically", isOn: binding(\.boxShowsDiffAutomatically))
-          .toggleStyle(.switch)
+        Toggle(isOn: binding(\.boxShowsDiffAutomatically)) { FlowLabel("Show the comparison automatically") }
       }
     }
   }
 
-  private var safetyCard: some View {
-    Card(title: "Safety check", systemImage: "checkmark.shield") {
-      switchRow("Check the AI result", \.guardEnabled, "Compares numbers, doses, units, vocabulary terms, negations, code and length with your original. Strictness is under Advanced.")
+  private var safetyGroup: some View {
+    FlowGroup("Safety check") {
+      switchRow("Check the AI result", \.guardEnabled, "Compares numbers, doses, units, vocabulary terms, negations, code and length with your original. Each style has its own strictness (Advanced → Styles).")
     }
   }
 
-  private var memoryCard: some View {
-    Card(title: "Memory", systemImage: "memorychip") {
+  private func contextBinding<Value>(_ keyPath: WritableKeyPath<ContextSettings, Value>) -> Binding<Value> {
+    Binding(
+      get: { store.hexSettings.postProcessing.context[keyPath: keyPath] },
+      set: { value in store.$hexSettings.withLock { $0.postProcessing.context[keyPath: keyPath] = value } }
+    )
+  }
+
+  private var contextGroup: some View {
+    let context = post.context
+    return FlowGroup("Context from the text field", footer: "Read when you start dictating, analysed on this Mac and forgotten afterwards – never stored or logged. Names and capitals work without AI; the AI only gets the short hints, not the text. Profiles can choose their own setting (Profiles page).") {
+      FlowSegmented(selection: contextBinding(\.use), options: [
+        FlowOption(ContextUse.off, "Off"),
+        FlowOption(.appOnly, "App only"),
+        FlowOption(.analyzed, "Analyse the field"),
+      ], compact: true)
+      .flowRow("Use context", caption: "Off by default. Apps that do not show their text field to macOS (some web and chat apps) give the app name only.")
+      if context.use == .analyzed {
+        contextToggle("Continue the text", \.continuation, "Capitals and the space at the cursor fit what is already written.")
+        contextToggle("Names and rare words", \.terms, "Names and terms already in the field keep their spelling (“maier” → “Meier” when “Meier” is written there).")
+        contextToggle("Form of address", \.address, "Formal (Sie) or informal (du) like the surrounding text.")
+        contextToggle("Language", \.language, "German or English like the surrounding text.")
+        contextToggle("Kind of app", \.appType, "Mail, chat, code or AI assistant, from the app and its profile.")
+        contextToggle("Lists", \.listFormat, "Inside a list item, the dictation stays one item.")
+        FlowBlock {
+          DisclosureGroup(isExpanded: $showsContextAdvanced) {
+            VStack(alignment: .leading, spacing: FlowMetrics.pillSpacing) {
+              Stepper("", value: contextBinding(\.characters), in: ContextSettings.characterRange, step: 100)
+                .flowRow("Read \(context.characters) characters before the cursor", caption: "More text finds more names and a clearer form of address.")
+              contextToggle("Also send the nearby text to the AI (experimental)", \.sendNearbyText, "The AI then sees the text before the cursor itself. It may get confused; the safety check still looks only at your dictation.")
+            }
+            .toggleStyle(FlowToggleStyle())
+            .padding(.top, 8)
+          } label: {
+            Label("Advanced", systemImage: "slider.horizontal.3").flowFont(.subheadline, weight: .semibold, design: .rounded)
+          }
+        }
+      }
+    }
+  }
+
+  private func contextToggle(_ title: String, _ keyPath: WritableKeyPath<ContextSettings, Bool>, _ caption: String) -> some View {
+    Toggle(isOn: contextBinding(keyPath)) { FlowLabel(title, caption: caption) }
+  }
+
+  private var memoryGroup: some View {
+    FlowGroup("Memory", footer: "Only one speech model is loaded at a time; the AI model may stay loaded next to it according to this setting.") {
       Picker("Unload the model", selection: binding(\.unloadPolicy)) {
         ForEach(LLMUnloadPolicy.allCases, id: \.self) { Text($0.displayName).tag($0) }
       }
+      .flowRow("Unload the model")
       if post.unloadPolicy == .afterIdle {
         Picker("Idle time", selection: binding(\.idleUnloadMinutes)) {
           ForEach([1, 2, 5, 10, 30], id: \.self) { Text("\($0) min").tag($0) }
         }
+        .flowRow("Idle time")
       }
-      Toggle("Load the model when you start dictating", isOn: binding(\.preloadOnHotkey))
-        .toggleStyle(.switch)
-      Text("Only one speech model is loaded at a time; the AI model may stay loaded next to it according to this setting.")
-        .settingsCaption()
+      Toggle(isOn: binding(\.preloadOnHotkey)) { FlowLabel("Load the model when you start dictating") }
     }
   }
 
-  private var modelsCard: some View {
-    Card(title: "Models", systemImage: "cpu") {
+  private var modelsGroup: some View {
+    FlowGroup("Models") {
       if let error = models.error {
-        Label(error, systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(.orange)
+        FlowNote(error, systemImage: "exclamationmark.triangle.fill", tone: .warning)
       }
       ForEach(LLMModelCatalog.all(settings: post)) { model in
         LLMModelRow(
@@ -113,16 +157,14 @@ struct PostProcessingPageView: View {
           onRemove: { models.remove(model, settings: post) },
           onForget: model.isCustom ? { forgetCustom(model) } : nil
         )
-        if model.id != LLMModelCatalog.all(settings: post).last?.id { Divider() }
       }
-      Divider()
-      VStack(alignment: .leading, spacing: 6) {
-        Text("Add a model from Hugging Face").font(.callout.weight(.semibold))
-        HStack {
+      FlowBlock {
+        Text("Add a model from Hugging Face").flowFont(.callout, weight: .semibold)
+        HStack(spacing: 8) {
           TextField("https://huggingface.co/mlx-community/…  or  org/model", text: $customLink)
-            .textFieldStyle(.roundedBorder)
+            .flowField()
           Button("Check") { models.check(customLink) }
-            .buttonStyle(.glass)
+            .buttonStyle(.flow)
             .disabled(customLink.trimmingCharacters(in: .whitespaces).isEmpty || models.isChecking)
         }
         if models.isChecking { ProgressView().controlSize(.small) }
@@ -130,23 +172,23 @@ struct PostProcessingPageView: View {
           customInfo(info)
         }
         Text("Only MLX models (safetensors) with a supported architecture can run. Checking reads the model page; nothing is downloaded until you click Install.")
-          .settingsCaption()
+          .flowFont(.caption).foregroundStyle(.secondary)
       }
     }
   }
 
   private func customInfo(_ info: LLMRemoteInfo) -> some View {
     VStack(alignment: .leading, spacing: 4) {
-      Text(info.repository).font(.callout.weight(.medium))
+      Text(info.repository).flowFont(.callout, weight: .medium)
       Text("\(info.modelType ?? "unknown architecture") · \(ByteCountFormatter.string(fromByteCount: info.totalBytes, countStyle: .file)) · \(info.license ?? "license: see model page")")
-        .font(.caption)
+        .flowFont(.caption)
         .foregroundStyle(.secondary)
       if !info.hasSafetensors || !info.isSupportedArchitecture || info.isGated {
         Label(
           info.isGated ? "This model requires accepting terms on Hugging Face." : "This repository is not a supported MLX model.",
           systemImage: "xmark.octagon"
         )
-        .font(.caption)
+        .flowFont(.caption)
         .foregroundStyle(.red)
       } else {
         Button("Add to list") {
@@ -158,106 +200,112 @@ struct PostProcessingPageView: View {
           models.checked = nil
           customLink = ""
         }
-        .buttonStyle(.glassProminent)
+        .buttonStyle(.flowPrimary)
       }
     }
   }
 
-  private var advancedCard: some View {
-    Card {
-      DisclosureGroup(isExpanded: $showsAdvanced) {
-        VStack(alignment: .leading, spacing: 14) {
-          Picker("Strictness · Clean up", selection: binding(\.cleanStrictness)) {
-            ForEach(GuardStrictness.allCases, id: \.self) { Text($0.displayName).tag($0) }
-          }
-          Picker("Strictness · Rewrite", selection: binding(\.rewriteStrictness)) {
-            ForEach(GuardStrictness.allCases, id: \.self) { Text($0.displayName).tag($0) }
-          }
-          Text("Strict: length, numbers, doses, terms, negations and code must match. Key facts: they must still appear (for rewriting). Length only: just large changes in length.")
-            .settingsCaption()
-          Stepper("Length tolerance ±\(post.lengthTolerancePercent) %", value: binding(\.lengthTolerancePercent), in: 5 ... 100, step: 5)
-          promptEditor("Prompt · Clean up", mode: .clean)
-          promptEditor("Prompt · Rewrite as task", mode: .rewrite)
-          VStack(alignment: .leading, spacing: 4) {
-            Text("What matters to me").font(.callout.weight(.semibold))
-            TextEditor(text: binding(\.personalNote))
-              .font(.callout)
-              .frame(minHeight: 50)
-              .scrollContentBackground(.hidden)
-              .padding(6)
-              .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-            Text("Added to both prompts, e.g. “Use British spelling” or “Write numbers below ten as words”.")
-              .settingsCaption()
-          }
-          Button("Restore defaults (prompts and strictness)") {
-            store.$hexSettings.withLock { settings in
-              let defaults = PostProcessingSettings()
-              settings.postProcessing.customCleanPrompt = nil
-              settings.postProcessing.customRewritePrompt = nil
-              settings.postProcessing.personalNote = ""
-              settings.postProcessing.cleanStrictness = defaults.cleanStrictness
-              settings.postProcessing.rewriteStrictness = defaults.rewriteStrictness
-              settings.postProcessing.lengthTolerancePercent = defaults.lengthTolerancePercent
+  private var advancedGroup: some View {
+    FlowGroup("Advanced") {
+      FlowBlock {
+        DisclosureGroup(isExpanded: $showsAdvanced) {
+          VStack(alignment: .leading, spacing: FlowMetrics.pillSpacing) {
+            Toggle(isOn: binding(\.commandModeEnabled)) {
+              FlowLabel("Command Mode", caption: "Select text in any app, press the Command Mode shortcut (Recording page) and say or type what to do – “shorter”, “as a list”, “in English”. The result appears with a comparison; ✓ replaces the selection.")
             }
+            Text("Styles").flowFont(.callout, weight: .semibold).padding(.top, 8)
+            ForEach(post.allStyles) { style in
+              styleRow(style)
+            }
+            HStack {
+              Spacer()
+              Button {
+                editingStyle = AIStyle.newCustom()
+              } label: {
+                Label("New style", systemImage: "plus")
+              }
+              .buttonStyle(.flow)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+              Text("What matters to me").flowFont(.callout, weight: .semibold)
+              TextEditor(text: binding(\.personalNote))
+                .flowFont(.callout)
+                .frame(minHeight: 50)
+                .scrollContentBackground(.hidden)
+                .padding(10)
+                .flowPanel()
+              Text("Added to every style, e.g. “Use British spelling” or “Write numbers below ten as words”.")
+                .flowFont(.caption).foregroundStyle(.secondary)
+            }
+            .padding(.top, 8)
+            Button("Restore built-in styles") {
+              store.$hexSettings.withLock { $0.postProcessing.editedStyles = [] }
+            }
+            .buttonStyle(.flow)
+            .disabled(post.editedStyles.isEmpty)
+            .padding(.top, 6)
           }
-          .buttonStyle(.glass)
+          .toggleStyle(FlowToggleStyle())
+          .padding(.top, 10)
+        } label: {
+          Label("Styles, prompts and safety check", systemImage: "slider.horizontal.3").flowFont(.headline, design: .rounded)
         }
-        .padding(.top, 8)
-      } label: {
-        Label("Advanced: prompts and safety check", systemImage: "slider.horizontal.3").font(.headline)
       }
     }
+    .sheet(item: $editingStyle) { style in
+      StyleEditor(
+        style: style,
+        isEdited: post.isEdited(style.id),
+        isNew: !post.allStyles.contains { $0.id == style.id },
+        onSave: { saved in store.$hexSettings.withLock { $0.postProcessing.save(saved) } },
+        onRestore: { store.$hexSettings.withLock { $0.postProcessing.restoreDefault(style.id) } },
+        onDelete: { store.$hexSettings.withLock { $0.postProcessing.deleteStyle(style.id) } }
+      )
+      .flowThemed(store.hexSettings.appearance)
+    }
+  }
+
+  private func styleRow(_ style: AIStyle) -> some View {
+    FlowRow(style.name, caption: styleCaption(style), systemImage: style.symbol) {
+      HStack(spacing: 8) {
+        if post.isEdited(style.id) { Badge(text: "Edited", style: .accent) }
+        if style.isCustom { Badge(text: "Custom", systemImage: "person") }
+        Button("Edit") { editingStyle = style }
+          .buttonStyle(.flowCompact)
+      }
+    }
+  }
+
+  private func styleCaption(_ style: AIStyle) -> String {
+    var parts = ["Safety check: \(style.strictness.displayName)"]
+    if style.id == post.autoStyleID, post.autoEnabled { parts.append("automatic") }
+    if style.id == post.boxStyleID, post.boxButtonEnabled { parts.append("box ✨") }
+    return parts.joined(separator: " · ")
   }
 
   // MARK: Pieces
 
-  private func promptEditor(_ title: String, mode: PolishMode) -> some View {
-    let keyPath: WritableKeyPath<PostProcessingSettings, String?> = mode == .clean ? \.customCleanPrompt : \.customRewritePrompt
-    let text = Binding<String>(
-      get: { store.hexSettings.postProcessing[keyPath: keyPath] ?? PolishPrompt.defaultPrompt(for: mode) },
-      set: { value in
-        store.$hexSettings.withLock {
-          $0.postProcessing[keyPath: keyPath] = value == PolishPrompt.defaultPrompt(for: mode) ? nil : value
-        }
+  private func stylePicker(_ selection: Binding<String>, title: String, caption: String? = nil) -> some View {
+    Picker(title, selection: selection) {
+      ForEach(post.allStyles) { style in
+        Label(style.name, systemImage: style.symbol).tag(style.id)
       }
-    )
-    return VStack(alignment: .leading, spacing: 4) {
-      HStack {
-        Text(title).font(.callout.weight(.semibold))
-        if post[keyPath: keyPath] != nil { Badge(text: "Edited", style: .accent) }
-        Spacer()
-        Button("Default") { store.$hexSettings.withLock { $0.postProcessing[keyPath: keyPath] = nil } }
-          .buttonStyle(.borderless)
-          .disabled(post[keyPath: keyPath] == nil)
-      }
-      TextEditor(text: text)
-        .font(.system(.caption, design: .monospaced))
-        .frame(minHeight: 160)
-        .scrollContentBackground(.hidden)
-        .padding(6)
-        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
     }
+    .flowRow(title, caption: caption)
   }
 
   private func switchRow(_ title: String, _ keyPath: WritableKeyPath<PostProcessingSettings, Bool>, _ caption: String) -> some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Toggle(title, isOn: binding(keyPath)).toggleStyle(.switch)
-      Text(caption).settingsCaption()
-    }
-  }
-
-  private func modePicker(_ selection: Binding<PolishMode>, title: String = "Mode") -> some View {
-    Picker(title, selection: selection) {
-      ForEach(PolishMode.allCases, id: \.self) { Text($0.displayName).tag($0) }
-    }
-    .pickerStyle(.segmented)
+    Toggle(isOn: binding(keyPath)) { FlowLabel(title, caption: caption) }
   }
 
   private func modelPicker(_ title: String, _ selection: Binding<String>, useCase: LLMModelDescriptor.UseCase) -> some View {
     let installed = LLMModelCatalog.all(settings: post).filter { models.installed.contains($0.id) }
     let selected = selection.wrappedValue
     let selectedMissing = !selected.isEmpty && !models.installed.contains(selected)
-    return VStack(alignment: .leading, spacing: 2) {
+    let hint: String? = installed.isEmpty ? "No model installed yet — install one below."
+      : selected.isEmpty ? "Choose which installed model to use."
+      : selectedMissing ? "Not installed — install it below or choose another model." : nil
+    return VStack(alignment: .leading, spacing: 4) {
       Picker(title, selection: selection) {
         if selected.isEmpty { Text("Choose a model").tag("") }
         if selectedMissing {
@@ -266,20 +314,9 @@ struct PostProcessingPageView: View {
         }
         ForEach(installed) { Text($0.displayName).tag($0.id) }
       }
-      if installed.isEmpty {
-        hint("No model installed yet — install one below.")
-      } else if selected.isEmpty {
-        hint("Choose which installed model to use.")
-      } else if selectedMissing {
-        hint("Not installed — install it below or choose another model.")
-      }
+      .flowRow(title)
+      if let hint { FlowNote(hint, systemImage: "exclamationmark.triangle.fill", tone: .warning) }
     }
-  }
-
-  private func hint(_ text: String) -> some View {
-    Text(text)
-      .font(.caption)
-      .foregroundStyle(.orange)
   }
 
   private func usage(of model: LLMModelDescriptor) -> [String] {
@@ -314,50 +351,66 @@ private struct LLMModelRow: View {
   let onRemove: () -> Void
   let onForget: (() -> Void)?
   @State private var confirmRemove = false
+  @Environment(\.flowTheme) private var theme
 
   var body: some View {
-    HStack(alignment: .top, spacing: 12) {
-      VStack(alignment: .leading, spacing: 5) {
-        HStack(spacing: 8) {
-          Text(model.displayName).font(.headline)
-          if isInstalled {
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Installed")
-          }
-          ForEach(usedFor, id: \.self) { Badge(text: $0, systemImage: "sparkles", style: .accent) }
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(alignment: .center, spacing: 8) {
+        Text(model.displayName).flowFont(.headline, design: .rounded)
+        if isInstalled {
+          Image(systemName: "checkmark.circle.fill").foregroundStyle(theme.accent).accessibilityLabel("Installed")
         }
-        Text(model.blurb).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-        FlowLayout {
-          if model.recommendedFor.contains(.auto) { Badge(text: "Best for automatic", systemImage: "star.fill", style: .positive) }
-          if model.recommendedFor.contains(.box) { Badge(text: "Best for the box", systemImage: "star.fill", style: .positive) }
-          Badge(text: model.variant, systemImage: "square.stack.3d.up")
-          Badge(text: speedText, systemImage: "speedometer")
-          Badge(text: model.downloadSize, systemImage: "arrow.down.circle")
-          Badge(text: model.license, systemImage: "doc.text")
-          if model.experimental { Badge(text: "Experimental", systemImage: "flask", style: .caution) }
-        }
+        ForEach(usedFor, id: \.self) { Badge(text: "In use: \($0)", systemImage: "sparkles", style: .accent) }
+        Spacer(minLength: 8)
+        trailing
       }
-      Spacer(minLength: 8)
-      VStack(alignment: .trailing, spacing: 6) {
-        if let progress {
-          ProgressView(value: progress).frame(width: 110)
-        } else if isInstalled {
-          Button(role: .destructive) { confirmRemove = true } label: { Image(systemName: "trash") }
-            .buttonStyle(.borderless)
-            .help("Remove model files")
-        } else {
-          Button { onInstall() } label: { Label("Install", systemImage: "arrow.down.circle") }
-            .buttonStyle(.glassProminent)
-        }
-        if let onForget, progress == nil {
-          Button("Remove from list", action: onForget).buttonStyle(.borderless).font(.caption)
-        }
+      Text(model.blurb).flowFont(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+      FlowLayout {
+        if model.recommendedFor.contains(.auto) { Badge(text: "Best for automatic", systemImage: "star.fill", style: .accent) }
+        if model.recommendedFor.contains(.box) { Badge(text: "Best for the box", systemImage: "star.fill", style: .accent) }
+        Badge(text: model.variant, systemImage: "square.stack.3d.up")
+        Badge(text: speedText, systemImage: "speedometer")
+        Badge(text: model.downloadSize, systemImage: "arrow.down.circle")
+        Badge(text: model.license, systemImage: "doc.text")
+        if model.experimental { Badge(text: "Experimental", systemImage: "flask") }
       }
-      .controlSize(.small)
     }
+    .padding(18)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .flowPanel()
     .confirmationDialog("Remove \(model.displayName)?", isPresented: $confirmRemove) {
       Button("Remove", role: .destructive, action: onRemove)
     } message: {
       Text("Frees \(model.downloadSize). You can install it again at any time.")
+    }
+  }
+
+  @ViewBuilder
+  private var trailing: some View {
+    if let progress {
+      ProgressView(value: progress).frame(width: 110)
+    } else if isInstalled || onForget != nil {
+      Menu {
+        if isInstalled {
+          Button(role: .destructive) { confirmRemove = true } label: { Label("Remove model files…", systemImage: "trash") }
+        }
+        if let onForget {
+          Button("Remove from list", action: onForget)
+        }
+      } label: {
+        Image(systemName: "ellipsis").frame(width: 18, height: 14)
+      }
+      .menuStyle(.button)
+      .buttonStyle(.flowCompact)
+      .fixedSize()
+      .accessibilityLabel("More actions for \(model.displayName)")
+      if !isInstalled {
+        Button { onInstall() } label: { Label("Install", systemImage: "arrow.down.circle") }
+          .buttonStyle(.flowPrimary)
+      }
+    } else {
+      Button { onInstall() } label: { Label("Install · \(model.downloadSize)", systemImage: "arrow.down.circle") }
+        .buttonStyle(.flowPrimary)
     }
   }
 
@@ -420,5 +473,98 @@ final class LLMModelManager {
       do { checked = try await llm.remoteInfo(link) } catch { self.error = error.localizedDescription }
       isChecking = false
     }
+  }
+}
+
+/// Edits one style: name, instruction, example, safety check.
+private struct StyleEditor: View {
+  @State var style: AIStyle
+  let isEdited: Bool
+  let isNew: Bool
+  let onSave: (AIStyle) -> Void
+  let onRestore: () -> Void
+  let onDelete: () -> Void
+  @Environment(\.dismiss) private var dismiss
+  @State private var confirmDelete = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      PageHeader(
+        title: isNew ? "New style" : style.name,
+        subtitle: style.isBuiltIn ? "Built-in style – you can change its prompt and restore it any time" : "Your own style for the box, automatic step, files, Command Mode and profiles",
+        symbol: style.symbol
+      )
+      ScrollView {
+        VStack(alignment: .leading, spacing: FlowMetrics.pillSpacing) {
+          FlowRow("Name") {
+            TextField("Name", text: $style.name)
+              .textFieldStyle(.plain)
+              .multilineTextAlignment(.trailing)
+              .frame(width: 240)
+              .disabled(style.isBuiltIn)
+          }
+          Text("Instruction").flowFont(.callout, weight: .semibold).padding(.top, 6)
+          TextEditor(text: $style.instruction)
+            .flowFont(.caption, monospaced: true)
+            .frame(minHeight: 150)
+            .scrollContentBackground(.hidden)
+            .padding(10)
+            .flowPanel()
+          Text("Example (optional) – one input and the output you want. It helps the small model a lot.")
+            .flowFont(.callout, weight: .semibold).padding(.top, 6)
+          TextEditor(text: $style.exampleInput)
+            .flowFont(.callout)
+            .frame(minHeight: 44)
+            .scrollContentBackground(.hidden)
+            .padding(10)
+            .flowPanel()
+            .overlay(alignment: .topLeading) {
+              if style.exampleInput.isEmpty { placeholder("Example input") }
+            }
+          TextEditor(text: $style.exampleOutput)
+            .flowFont(.callout)
+            .frame(minHeight: 60)
+            .scrollContentBackground(.hidden)
+            .padding(10)
+            .flowPanel()
+            .overlay(alignment: .topLeading) {
+              if style.exampleOutput.isEmpty { placeholder("Example output") }
+            }
+          FlowSegmented(selection: $style.strictness, options: GuardStrictness.allCases.map { FlowOption($0, $0.displayName) }, compact: true)
+            .flowRow("Safety check", caption: "Strict: length, numbers, terms and negations must match. Key facts: they must still appear. Length only: big changes in length. Off: for summaries and lists.")
+          Stepper("", value: $style.lengthTolerancePercent, in: 5 ... 200, step: 5)
+            .flowRow("Length tolerance ±\(style.lengthTolerancePercent) %")
+        }
+      }
+      HStack {
+        if style.isBuiltIn, isEdited {
+          Button("Restore default") { onRestore(); dismiss() }
+            .buttonStyle(.flow)
+        }
+        if style.isCustom, !isNew {
+          Button("Delete", role: .destructive) { confirmDelete = true }
+            .buttonStyle(.flowDestructive)
+        }
+        Spacer()
+        Button("Cancel") { dismiss() }
+          .buttonStyle(.flowQuiet)
+        Button("Save") { onSave(style); dismiss() }
+          .buttonStyle(.flowPrimary)
+          .keyboardShortcut(.defaultAction)
+          .disabled(style.name.trimmingCharacters(in: .whitespaces).isEmpty || style.instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      }
+    }
+    .padding(24)
+    .frame(width: 620, height: 700)
+    .background(FlowBackdrop())
+    .confirmationDialog("Delete \(style.name)?", isPresented: $confirmDelete) {
+      Button("Delete", role: .destructive) { onDelete(); dismiss() }
+    } message: {
+      Text("Selections that used it switch to Clean up.")
+    }
+  }
+
+  private func placeholder(_ text: String) -> some View {
+    Text(text).flowFont(.callout).foregroundStyle(.tertiary).padding(.horizontal, 15).padding(.vertical, 10).allowsHitTesting(false)
   }
 }

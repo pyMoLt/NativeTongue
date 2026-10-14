@@ -114,9 +114,13 @@ class KeyEventMonitorClientLive {
   private let inputMonitoringTrustProvider: @Sendable () -> Bool
   @Shared(.hotkeyPermissionState) private var hotkeyPermissionState: HotkeyPermissionState
 
-  // Permission changes do not need keypress latency. Polling every 100 ms
-  // woke the idle menu-bar app even while no dictation was active.
-  private let trustCheckIntervalNanoseconds: UInt64 = 2_000_000_000 // 2 s
+  /// Permission changes do not need keypress latency. While a permission is
+  /// missing (setup) the check runs every 2 s so granting it takes effect
+  /// quickly; once both are granted every 30 s is enough (audit L10): wake,
+  /// session switches and `tapDisabled` events already recreate the tap.
+  static func trustCheckInterval(accessibility: Bool, input: Bool) -> Duration {
+    accessibility && input ? .seconds(30) : .seconds(2)
+  }
 
   init(
     accessibilityTrustProvider: @escaping @Sendable () -> Bool = {
@@ -306,7 +310,7 @@ class KeyEventMonitorClientLive {
     await handlePermissionChange(accessibility: last.accessibility, input: last.input, reason: "initial")
 
     while !Task.isCancelled {
-      try? await Task.sleep(nanoseconds: trustCheckIntervalNanoseconds)
+      try? await Task.sleep(for: Self.trustCheckInterval(accessibility: last.accessibility, input: last.input))
       let current = (
         accessibility: currentAccessibilityTrust(),
         input: currentInputMonitoringTrust()
@@ -392,8 +396,8 @@ class KeyEventMonitorClientLive {
   @MainActor
   private func activateTapIfNeeded(reason: String) {
     if isMonitoring {
-      // The 100ms permission watchdog lands here while healthy; use it to revive taps that
-      // macOS disabled without sending a tapDisabled event (observed after sleep, #250).
+      // The permission watchdog (every 30 s once granted) lands here while healthy; use it to
+      // revive taps that macOS disabled without sending a tapDisabled event (observed after sleep, #250).
       if let eventTapPort, !CGEvent.tapIsEnabled(tap: eventTapPort) {
         CGEvent.tapEnable(tap: eventTapPort, enable: true)
         logger.notice("Re-enabled event tap that was silently disabled (reason: \(reason)).")

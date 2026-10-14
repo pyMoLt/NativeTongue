@@ -125,6 +125,9 @@ public struct StreamingSettings: Codable, Equatable, Sendable {
 	public var insertionMethod: StreamingInsertionMethod = .keyboard
 	public var appSwitchBehavior: StreamingAppSwitchBehavior = .pause
 	public var showsPendingText = true
+	/// „streich das“, „lösch das letzte Wort“, „ersetze X durch Y“ … as a separate
+	/// utterance edit the text NativeTongue typed in this session (plan B1).
+	public var correctionCommands = true
 
 	/// Catalog name of the recommended streaming model (native streaming, German).
 	public static let recommendedModel = "nemotron-3.5-streaming-multilingual-coreml"
@@ -135,6 +138,7 @@ public struct StreamingSettings: Codable, Equatable, Sendable {
 		case hotkeyBehavior, autoStopSilenceSeconds, literalStreamingInBox, model, nemotronChunkMs
 		case emulatedPauseMs, emulatedMaxBlockSeconds, keepModelPunctuation, adaptSpacingAndCase, punctuationMode, codeFormatting, literalScope
 		case lexiconCorrection, formatNumbers, voiceCommands, insertionMethod, appSwitchBehavior, showsPendingText
+		case correctionCommands
 	}
 
 	public init(from decoder: Decoder) throws {
@@ -159,5 +163,6 @@ public struct StreamingSettings: Codable, Equatable, Sendable {
 		insertionMethod = try c.decodeIfPresent(StreamingInsertionMethod.self, forKey: .insertionMethod) ?? d.insertionMethod
 		appSwitchBehavior = try c.decodeIfPresent(StreamingAppSwitchBehavior.self, forKey: .appSwitchBehavior) ?? d.appSwitchBehavior
 		showsPendingText = try c.decodeIfPresent(Bool.self, forKey: .showsPendingText) ?? d.showsPendingText
+		correctionCommands = (try? c.decodeIfPresent(Bool.self, forKey: .correctionCommands)) ?? d.correctionCommands
 	}
 }

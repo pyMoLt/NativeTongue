@@ -5,10 +5,14 @@ public enum StructuralCommand: String, Sendable, Equatable, CaseIterable {
 	case newParagraph
 }
 
-public enum EditCommand: String, Sendable, Equatable, CaseIterable {
+public enum EditCommand: Sendable, Hashable {
 	case deleteLastUtterance
 	case deleteLastSentence
 	case deleteLastWord
+	/// „lösche die letzten drei Wörter“ (2…10).
+	case deleteLastWords(Int)
+	/// „ersetze X durch Y“: the last occurrence of X (case-insensitive, whole words).
+	case replace(String, with: String)
 	case undo
 	case clearAll
 }

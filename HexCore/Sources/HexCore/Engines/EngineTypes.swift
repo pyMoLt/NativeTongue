@@ -60,11 +60,14 @@ public struct RequestOptions: Sendable, Equatable {
 	public var punctuation: PunctuationPolicy
 	/// Only filled when the user enabled the model-specific biasing option.
 	public var biasTerms: [String]
+	/// File transcription: waits behind dictation for the model.
+	public var isBackground: Bool
 
-	public init(language: String?, punctuation: PunctuationPolicy, biasTerms: [String] = []) {
+	public init(language: String?, punctuation: PunctuationPolicy, biasTerms: [String] = [], isBackground: Bool = false) {
 		self.language = language
 		self.punctuation = punctuation
 		self.biasTerms = biasTerms
+		self.isBackground = isBackground
 	}
 }
 

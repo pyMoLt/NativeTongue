@@ -38,8 +38,20 @@ struct FileTranscriptionFeature {
     var speakerNames: [Int: String] = [:]
     var diarize: Bool
     var mode: DictationMode
+    /// AI post-processing of the whole transcript (shown next to it).
+    var ai: AIResult?
 
     var speakers: [Int] { Array(Set(segments.compactMap(\.speaker))).sorted() }
+  }
+
+  /// Result of an AI run on a transcript; the timed segments stay unchanged.
+  struct AIResult: Equatable {
+    /// Name and symbol of the style that produced the result.
+    var styleName: String
+    var styleSymbol: String
+    var text: String = ""
+    var isRunning = true
+    var note: String?
   }
 
   @ObservableState
@@ -78,6 +90,13 @@ struct FileTranscriptionFeature {
     case export(Job.ID, TranscriptExporter.Format)
     case copyAll(Job.ID)
     case play(Job.ID, segment: Int)
+    /// Runs an AI style on the transcript; `instruction` non-empty = one-off own instruction.
+    case aiRun(Job.ID, styleID: String, instruction: String)
+    case aiPartial(Job.ID, String)
+    case aiFinished(Job.ID, PolishOutcome)
+    case aiCancel(Job.ID)
+    case aiDismiss(Job.ID)
+    case aiCopy(Job.ID)
     case stopPlayback
     case playbackFinished
     case installDiarization
@@ -89,8 +108,9 @@ struct FileTranscriptionFeature {
   @Dependency(\.lexicon) var lexicon
   @Dependency(\.diarization) var diarization
   @Dependency(\.pasteboard) var pasteboard
+  @Dependency(\.llm) var llm
 
-  private enum CancelID { case processing, playback }
+  private enum CancelID: Hashable { case processing, playback, ai(UUID) }
 
   var body: some ReducerOf<Self> {
     BindingReducer()
@@ -249,6 +269,60 @@ struct FileTranscriptionFeature {
             }
           }
         }
+
+      case let .aiRun(id, styleID, instruction):
+        guard let job = state.jobs[id: id], !job.segments.isEmpty else { return .none }
+        let post = state.hexSettings.postProcessing
+        guard post.enabled else {
+          state.errorMessage = "Turn on AI post-processing first (AI Post-Processing page)."
+          return .none
+        }
+        let modelID = post.boxModel.isEmpty ? post.autoModel : post.boxModel
+        guard let model = LLMModelCatalog.descriptor(id: modelID, settings: post), llm.isInstalled(model) else {
+          state.errorMessage = "Choose an installed AI model on the AI Post-Processing page (Dictation box → Model)."
+          return .none
+        }
+        let ownInstruction = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        let style = ownInstruction.isEmpty ? post.style(id: styleID) : AIStyle.oneOff(instruction: ownInstruction)
+        state.jobs[id: id]?.ai = AIResult(styleName: style.name, styleSymbol: style.symbol)
+        let text = TranscriptExporter.plainText(job.segments, speakerNames: job.speakerNames)
+        var request = PolishRequest(text: text, style: style, modelID: model.id, settings: post)
+        request.timeoutSeconds = 600
+        return .run { [llm] send in
+          let outcome = await llm.polish(request, true) { partial in
+            Task { await send(.aiPartial(id, partial)) }
+          }
+          await send(.aiFinished(id, outcome))
+        }
+        .cancellable(id: CancelID.ai(id), cancelInFlight: true)
+
+      case let .aiPartial(id, text):
+        guard state.jobs[id: id]?.ai?.isRunning == true else { return .none }
+        state.jobs[id: id]?.ai?.text = text
+        return .none
+
+      case let .aiFinished(id, outcome):
+        guard state.jobs[id: id]?.ai != nil else { return .none }
+        state.jobs[id: id]?.ai?.isRunning = false
+        if let ai = outcome.aiText, !outcome.failed {
+          state.jobs[id: id]?.ai?.text = ai
+          state.jobs[id: id]?.ai?.note = outcome.issues.first.map { "⚠︎ \($0.explanation)" }
+        } else {
+          state.jobs[id: id]?.ai?.note = "⚠︎ AI post-processing failed – the transcript is unchanged."
+        }
+        return .none
+
+      case let .aiCancel(id):
+        state.jobs[id: id]?.ai = nil
+        return .cancel(id: CancelID.ai(id))
+
+      case let .aiDismiss(id):
+        state.jobs[id: id]?.ai = nil
+        return .cancel(id: CancelID.ai(id))
+
+      case let .aiCopy(id):
+        guard let text = state.jobs[id: id]?.ai?.text, !text.isEmpty else { return .none }
+        return .run { [pasteboard] _ in await pasteboard.copy(text) }
 
       case let .copyAll(id):
         guard let job = state.jobs[id: id] else { return .none }

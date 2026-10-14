@@ -9,11 +9,19 @@ private let llmLogger = HexLog.llm
 /// One AI post-processing job.
 struct PolishRequest: Sendable {
   var text: String
-  var mode: PolishMode
+  /// The AI style (instruction, example, strictness, budget).
+  var style: AIStyle
   var modelID: String
   var settings: PostProcessingSettings
   /// Vocabulary terms in the text that must survive (safety check).
   var protectedTerms: [String] = []
+  /// Reference context for the model (app name, selection, text before the
+  /// cursor). Never edited, never checked, never stored or logged.
+  var context: String?
+  /// Overrides the style's paragraph splitting (e.g. long files).
+  var chunked: Bool?
+  /// Overrides `settings.timeoutSeconds` (long files).
+  var timeoutSeconds: Int?
 }
 
 /// Result of a job. `text` is what should be used: the AI text, or the
@@ -50,7 +58,6 @@ struct LLMClient {
   }
   var preload: @Sendable (_ modelID: String, _ settings: PostProcessingSettings) async -> Void = { _, _ in }
   var unload: @Sendable () async -> Void = {}
-  var loadedModelID: @Sendable () async -> String? = { nil }
   var isInstalled: @Sendable (_ descriptor: LLMModelDescriptor) -> Bool = { _ in false }
   var install: @Sendable (_ descriptor: LLMModelDescriptor, _ progress: @escaping @Sendable (Double) -> Void) async throws -> Void
   var remove: @Sendable (_ descriptor: LLMModelDescriptor) async throws -> Void
@@ -64,7 +71,6 @@ extension LLMClient: DependencyKey {
       polish: { await host.polish($0, keepAIResultOnIssues: $1, onText: $2) },
       preload: { await host.preload(modelID: $0, settings: $1) },
       unload: { await host.unload() },
-      loadedModelID: { await host.loadedModelID },
       isInstalled: { LLMModelInstaller.isInstalled(repository: $0.repository, baseDirectory: LLMHost.baseDirectory) },
       install: { descriptor, progress in
         _ = try await LLMModelInstaller.download(
@@ -95,7 +101,6 @@ extension LLMClient: DependencyKey {
       polish: { request, _, _ in PolishOutcome(text: request.text, original: request.text, aiText: nil, issues: [], failed: true) },
       preload: { _, _ in },
       unload: {},
-      loadedModelID: { nil },
       isInstalled: { _ in false },
       install: { _, _ in },
       remove: { _ in },
@@ -120,28 +125,35 @@ actor LLMHost {
     ((try? URL.hexModelsDirectory) ?? URL.hexModelsDirectoryPath).appendingPathComponent("llm", isDirectory: true)
   }
 
-  private let engine = LocalLLMEngine()
+  private let engine: LocalLLMEngine
+  /// Derived from the engine after each load, never assumed (audit M4).
   private(set) var loadedModelID: String?
-  private var idleTask: Task<Void, Never>?
+  private var idleTimer = IdleUnloadTimer()
+  /// Preloads and polish jobs in flight; the idle unload waits for them.
+  private var activeJobs = 0
+  private let idleDelayForTesting: Duration?
+
+  init(engine: LocalLLMEngine = LocalLLMEngine(), idleDelayForTesting: Duration? = nil) {
+    self.engine = engine
+    self.idleDelayForTesting = idleDelayForTesting
+  }
 
   func preload(modelID: String, settings: PostProcessingSettings) async {
     guard let descriptor = LLMModelCatalog.descriptor(id: modelID, settings: settings),
           LLMModelInstaller.isInstalled(repository: descriptor.repository, baseDirectory: Self.baseDirectory)
     else { return }
     guard loadedModelID != descriptor.id else { return }
+    beginJob()
+    defer { endJob(settings, afterPreload: true) }
     do {
       try await load(descriptor)
-      // Keep a hotkey preload available for the imminent dictation. The
-      // after-each-task policy applies after generation, not after preload.
-      if settings.unloadPolicy == .afterIdle { scheduleUnload(settings) }
     } catch {
       llmLogger.error("AI model preload failed: \(error.localizedDescription, privacy: .private)")
     }
   }
 
   func unload() async {
-    idleTask?.cancel()
-    idleTask = nil
+    idleTimer.cancel()
     await engine.unload()
     loadedModelID = nil
   }
@@ -157,11 +169,11 @@ actor LLMHost {
     // Exactly the model the user selected; a missing or uninstalled model
     // fails visibly (original text, ⚠︎) instead of switching models.
     guard let descriptor = LLMModelCatalog.descriptor(id: request.modelID, settings: request.settings) else { return fallback }
-    idleTask?.cancel()
-    defer { scheduleUnload(request.settings) }
+    beginJob()
+    defer { endJob(request.settings, afterPreload: false) }
     do {
       try await load(descriptor)
-      let ai = try await withTimeout(seconds: request.settings.timeoutSeconds) { [engine] in
+      let ai = try await withTimeout(seconds: request.timeoutSeconds ?? request.settings.timeoutSeconds) { [engine] in
         try await Self.generate(request, engine: engine, onText: onText)
       }
       guard !Task.isCancelled else { return fallback }
@@ -169,12 +181,12 @@ actor LLMHost {
         ? PolishGuard.check(
           original: original,
           result: ai,
-          strictness: request.settings.strictness(for: request.mode),
-          lengthTolerancePercent: request.settings.lengthTolerancePercent,
+          strictness: request.style.strictness,
+          lengthTolerancePercent: request.style.lengthTolerancePercent,
           protectedTerms: request.protectedTerms
         )
         : []
-      llmLogger.notice("AI post-processing finished; mode=\(request.mode.rawValue) issues=\(issues.count)")
+      llmLogger.notice("AI post-processing finished; style=\(request.style.isBuiltIn ? request.style.id : "custom") issues=\(issues.count)")
       let useAI = issues.isEmpty || keepAIResultOnIssues
       return PolishOutcome(text: useAI ? ai : original, original: original, aiText: ai, issues: issues, failed: false)
     } catch {
@@ -184,12 +196,15 @@ actor LLMHost {
   }
 
   private static func generate(_ request: PolishRequest, engine: LocalLLMEngine, onText: (@Sendable (String) -> Void)?) async throws -> String {
-    let system = PolishPrompt.system(for: request.mode, settings: request.settings)
-    let factor = request.settings.maxOutputFactor(for: request.mode)
-    let parts = request.mode == .clean ? PolishChunker.chunks(request.text) : [request.text]
+    let system = PolishPrompt.system(for: request.style, settings: request.settings, context: request.context)
+    let factor = request.style.outputFactor
+    let split = (request.chunked ?? request.style.chunked)
+      ? PolishChunker.split(request.text)
+      : PolishChunker.Split(chunks: [request.text], separators: [""])
+    let separators = split.separators
     var done: [String] = []
-    for part in parts {
-      let prefix = PolishChunker.join(done, original: request.text)
+    for part in split.chunks {
+      let prefix = PolishChunker.join(done, separators: separators)
       let raw = try await engine.generate(
         system: system,
         user: PolishPrompt.user(part),
@@ -197,12 +212,12 @@ actor LLMHost {
         stopSequences: PolishOutputSanitizer.generationStopSequences
       ) { partial in
         let current = PolishOutputSanitizer.clean(partial, input: part)
-        onText?(prefix.isEmpty ? current : PolishChunker.join([prefix, current], original: request.text))
+        onText?(prefix.isEmpty ? current : PolishChunker.join(done + [current], separators: separators))
       }
       try Task.checkCancellation()
       done.append(PolishOutputSanitizer.clean(raw, input: part))
     }
-    return PolishChunker.join(done, original: request.text)
+    return PolishChunker.join(done, separators: separators)
   }
 
   private func load(_ descriptor: LLMModelDescriptor) async throws {
@@ -212,25 +227,45 @@ actor LLMHost {
     }
     if loadedModelID != descriptor.id { await engine.unload() }
     try await engine.load(directory: directory)
-    loadedModelID = descriptor.id
+    // Another call may have unloaded the engine while it was loading.
+    loadedModelID = await engine.loadedDirectory == directory ? descriptor.id : nil
+    guard loadedModelID != nil else { throw LocalLLMError.notLoaded }
   }
 
-  private func scheduleUnload(_ settings: PostProcessingSettings) {
-    idleTask?.cancel()
+  private func beginJob() {
+    activeJobs += 1
+    idleTimer.cancel()
+  }
+
+  /// Applies the memory policy once no job is left. A hotkey preload stays
+  /// for the imminent dictation: "after each task" applies after generation.
+  private func endJob(_ settings: PostProcessingSettings, afterPreload: Bool) {
+    activeJobs = max(0, activeJobs - 1)
+    guard activeJobs == 0 else { return }
+    let delay: Duration
     switch settings.unloadPolicy {
     case .never:
-      idleTask = nil
+      return
     case .afterEachTask:
-      idleTask = Task { await self.unload() }
+      if afterPreload { return }
+      delay = .zero
     case .afterIdle:
-      let minutes = max(settings.idleUnloadMinutes, 1)
-      idleTask = Task {
-        try? await Task.sleep(for: .seconds(minutes * 60))
-        guard !Task.isCancelled else { return }
-        await self.unload()
-      }
+      delay = idleDelayForTesting ?? .seconds(max(settings.idleUnloadMinutes, 1) * 60)
+    }
+    idleTimer.schedule(after: delay) { [weak self] generation in
+      await self?.unloadIfIdle(generation: generation)
     }
   }
+
+  private func unloadIfIdle(generation: UInt64) async {
+    guard idleTimer.isCurrent(generation), activeJobs == 0 else { return }
+    idleTimer.detach()
+    await engine.unload()
+    loadedModelID = nil
+  }
+
+  /// Test hook: the model the host believes is loaded.
+  func currentModelID() -> String? { loadedModelID }
 }
 
 /// Runs `operation`, cancelling it after `seconds` (0 = no limit).

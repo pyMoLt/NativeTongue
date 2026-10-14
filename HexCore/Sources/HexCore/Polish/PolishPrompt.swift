@@ -21,32 +21,47 @@ public enum PolishPrompt {
 	public static let defaultRewrite = """
 	You turn a spoken, unstructured train of thought into a clear written task or instruction. Reply with the rewritten task only.
 
-	Task: say what is wanted in a short, well-ordered form; use a list when there are several steps.
+	Form:
+	- Two or more steps: a Markdown list (- item), one step per line, in the spoken order.
+	- One step: a single short sentence, no list.
+	- Write each step as a short instruction in the language of the input. German: infinitive style ("Laborwerte anschauen", "Ramipril nicht verändern"), no "Sie" form. English: imperative ("Update the README").
+	- No greeting, no letter or e-mail text, no headings, no explanations.
 
 	Allowed:
-	- Reorder, merge and shorten sentences; drop filler words, false starts and repetitions.
-	- Resolve self-corrections ("no wait, I mean …") to the final intent.
-	- Use Markdown lists (- item) for several steps.
+	- Reorder, merge and shorten sentences; drop filler words, false starts, repetitions and reminders such as "nicht vergessen".
+	- Resolve self-corrections ("nein warte", "no wait, I mean …") to the final intent.
 
-	Not allowed:
+	Keep every key point:
+	- Numbers, doses, units, times, dates, names, people and recipients ("der Praxis"), file names, code and technical terms, written exactly as dictated.
+	- Negations and exceptions with explicit words ("nicht", "kein", "außer", "not", "except"): "kein Ibuprofen mehr geben" stays "kein Ibuprofen mehr geben".
 	- Do not invent goals, details or steps the speaker did not say.
-	- Keep every key fact: numbers, doses, units, dates, names, file names, code, technical terms and negations ("not", "nicht", "kein").
-	- Do not answer the question or carry out the task. Only rewrite it.
+	- Do not answer a question or carry out the task. "Herausfinden, wie …" stays a task to find out.
 
 	Keep the language of the input: German stays German, English stays English, mixed text stays mixed.
+
+	Example input: also morgen zuerst die laborwerte anschauen dann den brief für herrn schmidt fertig machen und nicht vergessen kein ibuprofen mehr geben
+	Example output:
+	- Laborwerte anschauen
+	- Brief für Herrn Schmidt fertig machen
+	- Kein Ibuprofen mehr geben
 	"""
 
-	public static func defaultPrompt(for mode: PolishMode) -> String {
-		mode == .clean ? defaultClean : defaultRewrite
-	}
-
-	/// System prompt: custom or built-in instructions plus the user's note.
-	public static func system(for mode: PolishMode, settings: PostProcessingSettings) -> String {
-		var prompt = settings.customPrompt(for: mode)?.trimmingCharacters(in: .whitespacesAndNewlines)
-		if prompt?.isEmpty ?? true { prompt = defaultPrompt(for: mode) }
+	/// System prompt of a style: its instruction, an optional worked example,
+	/// optional reference context and the user's note.
+	public static func system(for style: AIStyle, settings: PostProcessingSettings, context: String? = nil) -> String {
+		var prompt = style.instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+		if prompt.isEmpty { prompt = AIStyleCatalog.builtIn(id: style.id)?.instruction ?? defaultClean }
+		let input = style.exampleInput.trimmingCharacters(in: .whitespacesAndNewlines)
+		let output = style.exampleOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+		if !input.isEmpty, !output.isEmpty {
+			prompt += "\n\nExample input: \(input)\nExample output:\n\(output)"
+		}
+		if let context, !context.isEmpty {
+			prompt += "\n\n" + context
+		}
 		let note = settings.personalNote.trimmingCharacters(in: .whitespacesAndNewlines)
-		guard !note.isEmpty else { return prompt! }
-		return prompt! + "\n\nAlso respect these preferences of the user:\n" + note
+		guard !note.isEmpty else { return prompt }
+		return prompt + "\n\nAlso respect these preferences of the user:\n" + note
 	}
 
 	/// User turn: the text between markers, so the model treats it as data.

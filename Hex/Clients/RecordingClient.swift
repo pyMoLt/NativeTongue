@@ -1,10 +1,3 @@
-//
-//  RecordingClient.swift
-//  Hex
-//
-//  Created by Kit Langton on 1/24/25.
-//
-
 import AppKit // For NSEvent media key simulation
 import AVFoundation
 import ComposableArchitecture

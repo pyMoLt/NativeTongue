@@ -1,26 +1,19 @@
-//
-//  HotKeyView.swift
-//  Hex
-//
-//  Created by Kit Langton on 1/30/25.
-//
-
 import HexCore
 import Inject
 import Sauce
 import SwiftUI
 
-// This view shows the actual "keys" in a more modern, subtle style.
+/// The dictation key as pill-shaped key caps (Flow design).
 struct HotKeyView: View {
   @ObserveInjection var inject
   var modifiers: Modifiers
   var key: Key?
   var isActive: Bool
+  @Environment(\.flowTheme) private var theme
 
   var body: some View {
     HStack(spacing: 6) {
       if modifiers.isHyperkey {
-        // Show Black Four Pointed Star for hyperkey
         KeyView(text: "✦")
           .transition(.blurReplace)
       } else {
@@ -29,35 +22,24 @@ struct HotKeyView: View {
             .transition(.blurReplace)
         }
       }
-      
       if let key {
         KeyView(text: key.toString)
       }
-
-      if modifiers.isEmpty && key == nil {
-        Text("")
-          .font(.system(size: 12, weight: .regular, design: .monospaced))
-          .frame(width: 48, height: 48)
-      }
-    }
-    .padding(8)
-    .frame(maxWidth: .infinity)
-    .background {
-      if isActive && key == nil && modifiers.isEmpty {
-        Text("Enter a key combination")
-          .foregroundColor(.secondary)
+      if isActive, key == nil, modifiers.isEmpty {
+        Text("Press a key combination")
+          .foregroundStyle(.secondary)
           .transition(.blurReplace)
+      } else if modifiers.isEmpty, key == nil {
+        Text("Not set").foregroundStyle(.secondary)
       }
     }
-    .background(
-      RoundedRectangle(cornerRadius: 6)
-        .fill(Color.blue.opacity(isActive ? 0.1 : 0))
-        .stroke(Color.blue.opacity(isActive ? 0.2 : 0), lineWidth: 1)
-    )
-
-    .animation(.bouncy(duration: 0.3), value: key)
-    .animation(.bouncy(duration: 0.3), value: modifiers)
-    .animation(.bouncy(duration: 0.3), value: isActive)
+    .padding(.horizontal, 8)
+    .padding(.vertical, 6)
+    .background(theme.accent.opacity(isActive ? 0.16 : 0), in: Capsule())
+    .overlay(Capsule().strokeBorder(theme.accent.opacity(isActive ? 0.45 : 0), lineWidth: 1))
+    .animation(theme.animation(.bouncy(duration: 0.3)), value: key)
+    .animation(theme.animation(.bouncy(duration: 0.3)), value: modifiers)
+    .animation(theme.animation(.bouncy(duration: 0.3)), value: isActive)
     .enableInjection()
   }
 }
@@ -65,22 +47,15 @@ struct HotKeyView: View {
 struct KeyView: View {
   @ObserveInjection var inject
   var text: String
+  @Environment(\.flowTheme) private var theme
 
   var body: some View {
     Text(text)
-      .font(.title.weight(.bold))
-      .foregroundColor(.white)
-      .frame(width: 48, height: 48)
-      .background(
-        RoundedRectangle(cornerRadius: 8)
-          .fill(
-            Color(white: 0.2)
-              .shadow(.inner(color: .white.opacity(0.3), radius: 1, y: 1))
-              .shadow(.inner(color: .white.opacity(0.1), radius: 5, y: 8))
-              .shadow(.inner(color: .black.opacity(0.3), radius: 1, y: -3))
-          )
-      )
-      .shadow(radius: 4, y: 2)
+      .flowFont(size: 17, weight: .semibold, design: .rounded)
+      .foregroundStyle(theme.accent)
+      .frame(minWidth: 38 * theme.textScale, minHeight: 32 * theme.textScale)
+      .padding(.horizontal, 4)
+      .background(theme.accent.opacity(0.14), in: Capsule())
       .enableInjection()
   }
 }

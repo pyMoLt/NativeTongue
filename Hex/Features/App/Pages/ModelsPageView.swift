@@ -5,6 +5,8 @@ import SwiftUI
 /// „Modelle“: cards grouped by purpose with badges and measured values (plan 5.10).
 struct ModelsPageView: View {
   @Bindable var store: StoreOf<ModelDownloadFeature>
+  /// Minutes after which an idle speech model is unloaded (0 = never).
+  var idleUnloadMinutes: Binding<Int>
   private let benchmarks = try? ModelBenchmarkCatalog.load()
 
   private var groups: [(LocalASRModelGroup, [LocalASRModelDescriptor])] {
@@ -16,57 +18,58 @@ struct ModelsPageView: View {
   }
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 20) {
-        PageHeader(title: "Models", subtitle: "Everything runs on this Mac. Only one model is loaded at a time.", symbol: "cpu")
-        if let error = store.downloadError {
-          Label(error, systemImage: "exclamationmark.triangle.fill")
-            .font(.callout)
-            .foregroundStyle(.red)
+    FlowPage("Models", subtitle: "Everything runs on this Mac. Only one speech model is loaded at a time.", symbol: "cpu") {
+      if let error = store.downloadError {
+        FlowNote(error, systemImage: "exclamationmark.triangle.fill", tone: .warning)
+      }
+      RecommendationsGroup()
+      FlowGroup("Memory", footer: "Saves memory. The model loads again the next time you press the dictation key.") {
+        Picker("Unload idle model", selection: idleUnloadMinutes) {
+          Text("Never").tag(0)
+          Text("After 2 minutes").tag(2)
+          Text("After 5 minutes").tag(5)
+          Text("After 10 minutes").tag(10)
+          Text("After 30 minutes").tag(30)
         }
-        RecommendationsCard()
-        ForEach(groups, id: \.0) { group, models in
-          VStack(alignment: .leading, spacing: 10) {
-            Text(group.title).font(.title3.weight(.semibold))
-            ForEach(models) { model in
-              ModelCard(
-                model: model,
-                isInstalled: isInstalled(model),
-                isNormalModel: store.hexSettings.selectedModel == model.internalName,
-                isLiteralModel: store.hexSettings.model(for: .literal) == model.internalName,
-                isStreamingModel: store.hexSettings.model(for: .streaming) == model.internalName,
-                isDownloading: store.downloadingModelName == model.internalName,
-                progress: store.downloadProgress,
-                measurement: benchmarks?.measurement(for: model.internalName, configuration: .punctuationSuppressed)
-                  ?? benchmarks?.measurement(for: model.internalName, configuration: .natural),
-                benchmarks: benchmarks,
-                biasingEnabled: store.hexSettings.isBiasingEnabled(for: model.internalName),
-                onInstall: { store.send(.downloadModel(model.internalName)) },
-                onCancel: { store.send(.cancelDownload) },
-                onDelete: { store.send(.deleteModel(model.internalName)) },
-                onUseNormal: { store.send(.selectModel(model.internalName)) },
-                onUseLiteral: {
-                  store.$hexSettings.withLock { settings in
-                    settings.literalModel = settings.selectedModel == model.internalName ? "" : model.internalName
-                  }
-                },
-                onUseStreaming: {
-                  store.$hexSettings.withLock { settings in
-                    settings.streaming.model = model.internalName == StreamingSettings.recommendedModel ? "" : model.internalName
-                  }
-                },
-                onBiasing: { value in store.$hexSettings.withLock { $0.modelBiasing[model.internalName] = value } }
-              )
-            }
+        .flowRow("Unload an idle model")
+      }
+      ForEach(groups, id: \.0) { group, models in
+        FlowGroup(group.title) {
+          ForEach(models) { model in
+            ModelCard(
+              model: model,
+              isInstalled: isInstalled(model),
+              isNormalModel: store.hexSettings.selectedModel == model.internalName,
+              isLiteralModel: store.hexSettings.model(for: .literal) == model.internalName,
+              isStreamingModel: store.hexSettings.model(for: .streaming) == model.internalName,
+              isDownloading: store.downloadingModelName == model.internalName,
+              progress: store.downloadProgress,
+              measurement: benchmarks?.measurement(for: model.internalName, configuration: .punctuationSuppressed)
+                ?? benchmarks?.measurement(for: model.internalName, configuration: .natural),
+              benchmarks: benchmarks,
+              biasingEnabled: store.hexSettings.isBiasingEnabled(for: model.internalName),
+              onInstall: { store.send(.downloadModel(model.internalName)) },
+              onCancel: { store.send(.cancelDownload) },
+              onDelete: { store.send(.deleteModel(model.internalName)) },
+              onUseNormal: { store.send(.selectModel(model.internalName)) },
+              onUseLiteral: {
+                store.$hexSettings.withLock { settings in
+                  settings.literalModel = settings.selectedModel == model.internalName ? "" : model.internalName
+                }
+              },
+              onUseStreaming: {
+                store.$hexSettings.withLock { settings in
+                  settings.streaming.model = model.internalName == StreamingSettings.recommendedModel ? "" : model.internalName
+                }
+              },
+              onBiasing: { value in store.$hexSettings.withLock { $0.modelBiasing[model.internalName] = value } }
+            )
           }
         }
-        if let benchmarks {
-          Text("Measurements: one speaker, \(benchmarks.literalCommandReferenceCount) literal commands, \(benchmarks.terminologyReferenceCount) domain terms, measured \(benchmarks.measuredAt). Memory = peak process memory; Core ML / Neural Engine memory may not be fully included.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
       }
-      .padding(LocalASRDesign.pagePadding)
+      if let benchmarks {
+        FlowNote("Measurements: one speaker, \(benchmarks.literalCommandReferenceCount) literal commands, \(benchmarks.terminologyReferenceCount) domain terms, measured \(benchmarks.measuredAt). Memory = peak process memory; Core ML / Neural Engine memory may not be fully included.")
+      }
     }
     .task {
       if store.availableModels.isEmpty { store.send(.fetchModels) }
@@ -80,7 +83,7 @@ struct ModelsPageView: View {
 
 /// Which model to pick for which mode, at a glance (audit A14: per mode,
 /// not one global "recommended").
-private struct RecommendationsCard: View {
+private struct RecommendationsGroup: View {
   private var rows: [(String, String, [LocalASRModelDescriptor])] {
     let all = LocalASRModelCatalog.bundled
     return [
@@ -91,17 +94,12 @@ private struct RecommendationsCard: View {
   }
 
   var body: some View {
-    Card(title: "Recommended per mode", systemImage: "star") {
-      VStack(alignment: .leading, spacing: 8) {
-        ForEach(rows, id: \.0) { title, symbol, models in
-          HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Label(title, systemImage: symbol)
-              .font(.callout.weight(.semibold))
-              .frame(width: 110, alignment: .leading)
-            Text(models.map { $0.displayName.components(separatedBy: " · ").first ?? $0.displayName }.joined(separator: ", "))
-              .font(.callout)
-              .foregroundStyle(.secondary)
-          }
+    FlowGroup("Recommended per mode") {
+      ForEach(rows, id: \.0) { title, symbol, models in
+        FlowRow(title, systemImage: symbol) {
+          Text(models.map { $0.displayName.components(separatedBy: " · ").first ?? $0.displayName }.joined(separator: ", "))
+            .flowFont(.callout)
+            .foregroundStyle(.secondary)
         }
       }
     }
@@ -128,51 +126,48 @@ private struct ModelCard: View {
   let onBiasing: (Bool) -> Void
   @State private var confirmDelete = false
   @State private var showDetails = false
+  @Environment(\.flowTheme) private var theme
 
   private var supportsBiasing: Bool {
     model.capabilities.contextPrompt || !model.capabilities.biasing.isEmpty
   }
 
   var body: some View {
-    Card {
-      HStack(alignment: .top, spacing: 14) {
-        VStack(alignment: .leading, spacing: 8) {
-          header
-          if let blurb = model.blurb {
-            Text(blurb)
-              .font(.callout)
-              .foregroundStyle(.secondary)
-              .fixedSize(horizontal: false, vertical: true)
-          }
-          FlowBadges(model: model)
-          if let measurement, let benchmarks {
-            HStack(spacing: 16) {
-              metric("Commands", "\(measurement.literalCommandsRecognized)/\(benchmarks.literalCommandReferenceCount)")
-              metric("Terms", "\(measurement.terminologyCorrect)/\(benchmarks.terminologyReferenceCount)")
-              metric("WER", "\(Self.decimal(measurement.wordErrorRatePercent)) %")
-              metric("RAM", "\(Self.decimal(measurement.peakProcessRSSGB)) GB")
-              metric("\(benchmarks.terminologyAudioSeconds) s audio", "\(Self.decimal(measurement.transcriptionSeconds)) s")
-            }
-            .padding(.top, 2)
-          } else {
-            Text("Not measured yet on this Mac.")
-              .font(.caption)
-              .foregroundStyle(.tertiary)
-          }
-          if supportsBiasing {
-            Toggle("Context biasing with your vocabulary (experimental)", isOn: Binding(get: { biasingEnabled }, set: onBiasing))
-              .toggleStyle(.switch)
-              .controlSize(.small)
-              .font(.callout)
-          }
-          DisclosureGroup(isExpanded: $showDetails) {
-            details.padding(.top, 4)
-          } label: {
-            Text("Details").font(.caption.weight(.medium)).foregroundStyle(.secondary)
-          }
+    FlowBlock(padding: 18) {
+      header
+      if let blurb = model.blurb {
+        Text(blurb)
+          .flowFont(.callout)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+      ModelChips(model: model)
+      if let measurement, let benchmarks {
+        HStack(spacing: 18) {
+          metric("Commands", "\(measurement.literalCommandsRecognized)/\(benchmarks.literalCommandReferenceCount)")
+          metric("Terms", "\(measurement.terminologyCorrect)/\(benchmarks.terminologyReferenceCount)")
+          metric("WER", "\(Self.decimal(measurement.wordErrorRatePercent)) %")
+          metric("RAM", "\(Self.decimal(measurement.peakProcessRSSGB)) GB")
+          metric("\(benchmarks.terminologyAudioSeconds) s audio", "\(Self.decimal(measurement.transcriptionSeconds)) s")
         }
-        Spacer(minLength: 8)
-        actions
+      }
+      if isInstalled {
+        usePills
+      }
+      if supportsBiasing, isInstalled {
+        HStack {
+          Text("Context biasing with your vocabulary (experimental)").flowFont(.callout)
+          Spacer()
+          Toggle("", isOn: Binding(get: { biasingEnabled }, set: onBiasing))
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .labelsHidden()
+        }
+      }
+      DisclosureGroup(isExpanded: $showDetails) {
+        details.padding(.top, 4)
+      } label: {
+        Text("Details").flowFont(.caption, weight: .medium).foregroundStyle(.secondary)
       }
     }
     .confirmationDialog("Remove \(model.displayName)?", isPresented: $confirmDelete) {
@@ -182,32 +177,133 @@ private struct ModelCard: View {
     }
   }
 
+  // MARK: Header
+
   private var header: some View {
-    HStack(spacing: 8) {
-      Text(model.displayName).font(.headline)
-      RuntimeChip(backend: model.backend)
+    HStack(alignment: .center, spacing: 8) {
+      Text(model.displayName)
+        .flowFont(.headline, design: .rounded)
+        .lineLimit(2)
       if isInstalled {
         Image(systemName: "checkmark.circle.fill")
-          .foregroundStyle(.green)
+          .foregroundStyle(theme.accent)
           .help("Installed")
           .accessibilityLabel("Installed")
       }
-      if isNormalModel, !model.streamingOnly { Badge(text: "Normal", systemImage: "waveform", style: .accent) }
-      if isLiteralModel, !model.streamingOnly { Badge(text: "Literal", systemImage: "paragraphsign", style: .accent) }
-      if isStreamingModel { Badge(text: "Streaming", systemImage: "dot.radiowaves.left.and.right", style: .accent) }
+      Spacer(minLength: 8)
+      trailingAction
     }
   }
 
+  @ViewBuilder
+  private var trailingAction: some View {
+    if isDownloading {
+      HStack(spacing: 8) {
+        ProgressView(value: progress).frame(width: 110)
+        Button("Cancel", action: onCancel).buttonStyle(.flowCompact)
+      }
+    } else if isInstalled {
+      // Removing is tucked into a menu, away from the "Use for" buttons.
+      Menu {
+        Button(role: .destructive) { confirmDelete = true } label: {
+          Label("Remove model…", systemImage: "trash")
+        }
+      } label: {
+        Image(systemName: "ellipsis")
+          .frame(width: 18, height: 14)
+      }
+      .menuStyle(.button)
+      .buttonStyle(.flowCompact)
+      .fixedSize()
+      .help("More")
+      .accessibilityLabel("More actions for \(model.displayName)")
+    } else {
+      Button(action: onInstall) {
+        Label("Install · \(model.storageSize)", systemImage: "arrow.down.circle")
+      }
+      .buttonStyle(.flowPrimary)
+    }
+  }
+
+  // MARK: Use for
+
+  private var usePills: some View {
+    HStack(spacing: 6) {
+      Text("Use for")
+        .flowFont(.caption, weight: .semibold)
+        .foregroundStyle(.secondary)
+        .frame(width: 52, alignment: .leading)
+      if !model.streamingOnly {
+        usePill("Normal", "waveform", selected: isNormalModel, action: onUseNormal)
+        usePill("Literal", "paragraphsign", selected: isLiteralModel, action: onUseLiteral)
+      }
+      if model.streaming != .none {
+        usePill("Streaming", "dot.radiowaves.left.and.right", selected: isStreamingModel, action: onUseStreaming)
+      }
+      // Always three equal slots, so the pills line up across all cards.
+      let shown = (model.streamingOnly ? 0 : 2) + (model.streaming == .none ? 0 : 1)
+      ForEach(0 ..< max(0, 3 - shown), id: \.self) { _ in
+        Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
+      }
+    }
+  }
+
+  private func usePill(_ title: String, _ symbol: String, selected: Bool, action: @escaping () -> Void) -> some View {
+    Button { if !selected { action() } } label: {
+      HStack(spacing: 5) {
+        Image(systemName: selected ? "checkmark" : symbol).flowFont(.caption, weight: .semibold)
+        Text(title).flowFont(.callout, weight: selected ? .semibold : .regular)
+      }
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 6)
+      .foregroundStyle(selected ? Color.white : Color.primary)
+      .background {
+        if selected {
+          Capsule().fill(LinearGradient(colors: [theme.accent, theme.companion], startPoint: .leading, endPoint: .trailing))
+        }
+      }
+      .contentShape(Capsule())
+    }
+    .buttonStyle(.plain)
+    .flowSurface(Capsule(), interactive: !selected)
+    .accessibilityAddTraits(selected ? .isSelected : [])
+    .accessibilityLabel(selected ? "\(title) model (in use)" : "Use for \(title)")
+  }
+
+  // MARK: Details
+
   private var details: some View {
     Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
+      detailRow("Spoken punctuation", Self.literalText(model.literalRating))
+      detailRow("Streaming", Self.streamingText(model.streaming))
       detailRow("Runtime", model.backend.displayName)
       detailRow("Precision", model.precision)
       detailRow("Size", "\(model.size) · \(model.storageSize)")
       detailRow("License", model.license)
       detailRow("Source", model.revision.map { "\(model.repository) @ \($0.prefix(8))" } ?? model.repository)
       detailRow("Languages", model.languages.joined(separator: ", "))
+      if measurement == nil {
+        detailRow("Measured", "Not measured yet on this Mac")
+      }
     }
-    .font(.caption)
+    .flowFont(.caption)
+  }
+
+  static func literalText(_ rating: LocalASRLiteralRating) -> String {
+    switch rating {
+    case .reliable: "Very reliable in Literal mode"
+    case .limited: "Works; the model sometimes sets marks on its own"
+    case .unverified: "Not tested yet"
+    case .unsuitable: "Better for Normal mode"
+    }
+  }
+
+  static func streamingText(_ support: LocalASRStreamingSupport) -> String {
+    switch support {
+    case .native: "Live while you speak"
+    case .emulated: "Typed after short pauses"
+    case .none: "Not available"
+    }
   }
 
   private func detailRow(_ title: String, _ value: String) -> some View {
@@ -217,54 +313,14 @@ private struct ModelCard: View {
     }
   }
 
-  @ViewBuilder
-  private var actions: some View {
-    VStack(alignment: .trailing, spacing: 6) {
-      if isDownloading {
-        ProgressView(value: progress)
-          .frame(width: 120)
-        Button("Cancel", action: onCancel).buttonStyle(.glass).controlSize(.small)
-      } else if isInstalled {
-        if !model.streamingOnly {
-          Button(isNormalModel ? "Normal model ✓" : "Use for Normal", action: onUseNormal)
-            .buttonStyle(.glass)
-            .disabled(isNormalModel)
-          Button(isLiteralModel ? "Literal model ✓" : "Use for Literal", action: onUseLiteral)
-            .buttonStyle(.glass)
-            .disabled(isLiteralModel)
-        }
-        if model.streaming != .none {
-          Button(isStreamingModel ? "Streaming model ✓" : "Use for Streaming", action: onUseStreaming)
-            .buttonStyle(.glass)
-            .disabled(isStreamingModel)
-        }
-        Button(role: .destructive) { confirmDelete = true } label: {
-          Image(systemName: "trash")
-        }
-        .buttonStyle(.borderless)
-        .help("Remove model")
-        .accessibilityLabel("Remove \(model.displayName)")
-      } else {
-        Button {
-          onInstall()
-        } label: {
-          Label("Install", systemImage: "arrow.down.circle")
-        }
-        .buttonStyle(.glassProminent)
-        Text(model.storageSize).font(.caption2).foregroundStyle(.secondary)
-      }
-    }
-    .controlSize(.small)
-  }
-
   static func decimal(_ value: Double) -> String {
     value.formatted(.number.precision(.fractionLength(1)))
   }
 
   private func metric(_ title: String, _ value: String) -> some View {
     VStack(alignment: .leading, spacing: 1) {
-      Text(value).font(.callout.monospacedDigit().weight(.semibold))
-      Text(title).font(.caption2).foregroundStyle(.secondary)
+      Text(value).flowFont(.callout, weight: .semibold, monospacedDigit: true)
+      Text(title).flowFont(.caption2).foregroundStyle(.secondary)
     }
   }
 }
@@ -285,39 +341,38 @@ private struct RuntimeChip: View {
   }
 
   var body: some View {
-    Label(label.0, systemImage: label.1)
-      .font(.caption2.weight(.medium))
-      .foregroundStyle(.secondary)
-      .padding(.horizontal, 6)
-      .padding(.vertical, 2)
-      .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.3)))
+    Badge(text: label.0, systemImage: label.1)
   }
 }
 
-private struct FlowBadges: View {
+/// Positive "best for" chips in the accent colour, then neutral facts.
+struct ModelChips: View {
   let model: LocalASRModelDescriptor
 
   var body: some View {
     FlowLayout {
-      ForEach(recommendations, id: \.self) { mode in
-        Badge(text: "Best for \(mode)", systemImage: "star.fill", style: .positive)
+      ForEach(model.bestFor, id: \.self) { mode in
+        Badge(text: "Best for \(mode)", systemImage: "star.fill", style: .accent)
       }
-      model.literalRating.badge
-      model.streaming.badge
+      RuntimeChip(backend: model.backend)
+      if model.streaming == .native { Badge(text: "Live streaming", systemImage: "dot.radiowaves.left.and.right") }
       if model.capabilities.wordTimings { Badge(text: "Timestamps", systemImage: "clock") }
       if model.capabilities.supportsAutoLanguage { Badge(text: "Auto language", systemImage: "globe") }
-      if model.capabilities.contextPrompt || !model.capabilities.biasing.isEmpty { Badge(text: "Biasing", systemImage: "text.book.closed") }
+      if model.capabilities.contextPrompt || !model.capabilities.biasing.isEmpty { Badge(text: "Vocabulary biasing", systemImage: "text.book.closed") }
       let codes = model.languages.filter { $0.count <= 3 }.map { $0.uppercased() }
       let extra = model.languages.count - codes.count
       Badge(text: codes.prefix(4).joined(separator: " ") + (codes.count > 4 ? " +\(codes.count - 4)" : "") + (extra > 0 ? " +more" : ""), systemImage: "character.bubble")
     }
   }
+}
 
-  private var recommendations: [String] {
+extension LocalASRModelDescriptor {
+  /// Modes this model is recommended for, in display order.
+  var bestFor: [String] {
     var modes: [String] = []
-    if model.recommendedFor.contains(.normal) { modes.append("Normal") }
-    if model.recommendedFor.contains(.literal) { modes.append("Literal") }
-    if model.recommendedForStreaming { modes.append("Streaming") }
+    if recommendedFor.contains(.normal) { modes.append("Normal") }
+    if recommendedFor.contains(.literal) { modes.append("Literal") }
+    if recommendedForStreaming { modes.append("Streaming") }
     return modes
   }
 }

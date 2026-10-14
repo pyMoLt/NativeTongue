@@ -29,17 +29,17 @@ struct AutoDownloadBannerView: View {
 	var body: some View {
 		HStack(alignment: .top, spacing: 10) {
 			Image(systemName: iconName)
-				.font(.system(size: 16, weight: .semibold))
+				.flowFont(size: 16, weight: .semibold)
 				.foregroundStyle(accentColor)
 
 			VStack(alignment: .leading, spacing: 6) {
 				Text(title)
-					.font(.system(size: 12, weight: .semibold))
+					.flowFont(size: 12, weight: .semibold)
 					.foregroundColor(.primary)
 
 				if let subtitle {
 					Text(subtitle)
-						.font(.system(size: 11))
+						.flowFont(size: 11)
 						.foregroundStyle(.secondary)
 				}
 

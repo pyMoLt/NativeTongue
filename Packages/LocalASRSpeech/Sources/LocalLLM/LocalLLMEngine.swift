@@ -20,8 +20,6 @@ public enum LocalLLMError: Error, LocalizedError {
 /// Holds at most one model. Generation is greedy (temperature 0) and never
 /// uses the network: weights and tokenizer come from an installed folder.
 public actor LocalLLMEngine {
-	public static let shared = LocalLLMEngine()
-
 	private var container: ModelContainer?
 	public private(set) var loadedDirectory: URL?
 
@@ -63,12 +61,14 @@ public actor LocalLLMEngine {
 			let input = LMInput(tokens: MLXArray(ids))
 			let parameters = GenerateParameters(maxTokens: maxTokens, temperature: 0)
 			var result = ""
+			let longestStop = stopSequences.map(\.count).max() ?? 0
 			let stream = try MLXLMCommon.generate(input: input, cache: nil, parameters: parameters, context: context)
 			for await item in stream {
 				if Task.isCancelled { break }
 				guard case let .chunk(chunk) = item else { continue }
 				result += chunk
-				if let stop = stopSequences.first(where: { result.contains($0) }), let range = result.range(of: stop) {
+				// Only the new end can complete a stop sequence (was a scan of the whole text per token).
+				if longestStop > 0, let range = Self.stopRange(in: result, stopSequences: stopSequences, window: longestStop + chunk.count) {
 					result = String(result[..<range.lowerBound])
 					break
 				}
@@ -79,6 +79,14 @@ public actor LocalLLMEngine {
 		// Do not keep the generation buffers around between tasks.
 		MLX.Memory.clearCache()
 		return output
+	}
+
+	/// The earliest stop sequence that ends within the last `window` characters.
+	static func stopRange(in text: String, stopSequences: [String], window: Int) -> Range<String.Index>? {
+		let start = text.index(text.endIndex, offsetBy: -min(window, text.count))
+		return stopSequences
+			.compactMap { text.range(of: $0, range: start..<text.endIndex) }
+			.min { $0.lowerBound < $1.lowerBound }
 	}
 
 	/// Chat template with reasoning ("thinking") disabled; models whose

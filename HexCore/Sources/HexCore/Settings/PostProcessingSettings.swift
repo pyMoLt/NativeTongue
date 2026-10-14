@@ -1,20 +1,5 @@
 import Foundation
 
-/// What the AI post-processing step may do (plan 2.5, section 3.2).
-public enum PolishMode: String, Codable, CaseIterable, Equatable, Sendable {
-	/// Minimal edits: word errors, punctuation, capitalisation, paragraphs, spelled letters.
-	case clean
-	/// Turns a spoken train of thought into a clear task.
-	case rewrite
-
-	public var displayName: String {
-		switch self {
-		case .clean: "Clean up"
-		case .rewrite: "Rewrite as task"
-		}
-	}
-}
-
 /// How strictly the safety check compares the AI result with the original.
 public enum GuardStrictness: String, Codable, CaseIterable, Equatable, Sendable {
 	/// Length, numbers/units, vocabulary terms, negations and code must match.
@@ -23,12 +8,15 @@ public enum GuardStrictness: String, Codable, CaseIterable, Equatable, Sendable 
 	case keyFacts
 	/// Only a large change in length is flagged.
 	case lengthOnly
+	/// No check (summaries, fact lists, own instructions).
+	case off
 
 	public var displayName: String {
 		switch self {
 		case .strict: "Strict"
 		case .keyFacts: "Key facts"
 		case .lengthOnly: "Length only"
+		case .off: "Off"
 		}
 	}
 }
@@ -86,28 +74,31 @@ public struct PostProcessingSettings: Codable, Equatable, Sendable {
 
 	public var autoEnabled = false
 	public var autoScope: PolishAutoScope = .normalOnly
-	public var autoMode: PolishMode = .clean
+	/// AI style of the automatic step (see `AIStyleCatalog`).
+	public var autoStyleID = AIStyleCatalog.cleanID
 	public var autoModel = ""
 	public var minimumWords = 4
 	public var timeoutSeconds = 15
 
 	public var boxButtonEnabled = true
-	public var boxDefaultMode: PolishMode = .clean
+	/// Style the ✨ button uses on click; the menu offers all styles.
+	public var boxStyleID = AIStyleCatalog.cleanID
 	public var boxModel = ""
 	public var boxShowsDiffAutomatically = false
 
+	/// Master switch of the safety check; each style sets its own strictness.
 	public var guardEnabled = true
-	public var cleanStrictness: GuardStrictness = .strict
-	public var rewriteStrictness: GuardStrictness = .keyFacts
-	public var lengthTolerancePercent = 25
 
-	/// nil = built-in prompt (see `PolishPrompt`).
-	public var customCleanPrompt: String?
-	public var customRewritePrompt: String?
-	/// "What matters to me" — appended to both prompts.
+	/// Built-in styles the user edited (same id as the built-in).
+	public var editedStyles: [AIStyle] = []
+	/// Styles the user created.
+	public var customStyles: [AIStyle] = []
+	/// "What matters to me" — appended to every style.
 	public var personalNote = ""
-	public var cleanMaxOutputFactor = 1.5
-	public var rewriteMaxOutputFactor = 1.2
+	/// Command Mode (C3): rewrite selected text by voice; off by default.
+	public var commandModeEnabled = false
+	/// Context from the text field (C4); off by default.
+	public var context = ContextSettings()
 
 	public var unloadPolicy: LLMUnloadPolicy = .afterIdle
 	public var idleUnloadMinutes = 5
@@ -117,53 +108,139 @@ public struct PostProcessingSettings: Codable, Equatable, Sendable {
 
 	public init() {}
 
-	public func strictness(for mode: PolishMode) -> GuardStrictness {
-		mode == .clean ? cleanStrictness : rewriteStrictness
+	// MARK: Styles
+
+	/// Built-in styles (with the user's edits) followed by the user's own.
+	public var allStyles: [AIStyle] {
+		AIStyleCatalog.builtIns.map { builtIn in editedStyles.first { $0.id == builtIn.id } ?? builtIn } + customStyles
 	}
 
-	public func maxOutputFactor(for mode: PolishMode) -> Double {
-		mode == .clean ? cleanMaxOutputFactor : rewriteMaxOutputFactor
+	/// The style with this id; unknown ids fall back to "Clean up".
+	public func style(id: String) -> AIStyle {
+		allStyles.first { $0.id == id } ?? allStyles[0]
 	}
 
-	public func customPrompt(for mode: PolishMode) -> String? {
-		mode == .clean ? customCleanPrompt : customRewritePrompt
+	public var autoStyle: AIStyle { style(id: autoStyleID) }
+	public var boxStyle: AIStyle { style(id: boxStyleID) }
+
+	public func isEdited(_ id: String) -> Bool {
+		editedStyles.contains { $0.id == id }
+	}
+
+	/// Stores a built-in edit or a user style.
+	public mutating func save(_ style: AIStyle) {
+		if style.isBuiltIn {
+			editedStyles.removeAll { $0.id == style.id }
+			if style != AIStyleCatalog.builtIn(id: style.id) { editedStyles.append(style) }
+		} else if let index = customStyles.firstIndex(where: { $0.id == style.id }) {
+			customStyles[index] = style
+		} else {
+			customStyles.append(style)
+		}
+	}
+
+	public mutating func restoreDefault(_ id: String) {
+		editedStyles.removeAll { $0.id == id }
+	}
+
+	/// Deletes a user style; selections that used it fall back to "Clean up".
+	public mutating func deleteStyle(_ id: String) {
+		guard AIStyleCatalog.builtIn(id: id) == nil else { return }
+		customStyles.removeAll { $0.id == id }
+		if autoStyleID == id { autoStyleID = AIStyleCatalog.cleanID }
+		if boxStyleID == id { boxStyleID = AIStyleCatalog.cleanID }
 	}
 
 	private enum CodingKeys: String, CodingKey {
-		case enabled, autoEnabled, autoScope, autoMode, autoModel, minimumWords, timeoutSeconds
-		case boxButtonEnabled, boxDefaultMode, boxModel, boxShowsDiffAutomatically
-		case guardEnabled, cleanStrictness, rewriteStrictness, lengthTolerancePercent
-		case customCleanPrompt, customRewritePrompt, personalNote, cleanMaxOutputFactor, rewriteMaxOutputFactor
+		case enabled, autoEnabled, autoScope, autoStyleID, autoModel, minimumWords, timeoutSeconds
+		case boxButtonEnabled, boxStyleID, boxModel, boxShowsDiffAutomatically
+		case guardEnabled, editedStyles, customStyles, personalNote, context, commandModeEnabled
 		case unloadPolicy, idleUnloadMinutes, preloadOnHotkey, customModels
 	}
 
-	/// Every field falls back to its default, so new settings never break old files.
+	/// Settings written before 2.6 (fixed modes instead of styles).
+	private enum LegacyKeys: String, CodingKey {
+		case autoMode, boxDefaultMode, cleanStrictness, rewriteStrictness, lengthTolerancePercent
+		case customCleanPrompt, customRewritePrompt, cleanMaxOutputFactor, rewriteMaxOutputFactor
+	}
+
+	public func encode(to encoder: Encoder) throws {
+		var c = encoder.container(keyedBy: CodingKeys.self)
+		try c.encode(enabled, forKey: .enabled)
+		try c.encode(autoEnabled, forKey: .autoEnabled)
+		try c.encode(autoScope, forKey: .autoScope)
+		try c.encode(autoStyleID, forKey: .autoStyleID)
+		try c.encode(autoModel, forKey: .autoModel)
+		try c.encode(minimumWords, forKey: .minimumWords)
+		try c.encode(timeoutSeconds, forKey: .timeoutSeconds)
+		try c.encode(boxButtonEnabled, forKey: .boxButtonEnabled)
+		try c.encode(boxStyleID, forKey: .boxStyleID)
+		try c.encode(boxModel, forKey: .boxModel)
+		try c.encode(boxShowsDiffAutomatically, forKey: .boxShowsDiffAutomatically)
+		try c.encode(guardEnabled, forKey: .guardEnabled)
+		try c.encode(editedStyles, forKey: .editedStyles)
+		try c.encode(customStyles, forKey: .customStyles)
+		try c.encode(personalNote, forKey: .personalNote)
+		try c.encode(context, forKey: .context)
+		try c.encode(commandModeEnabled, forKey: .commandModeEnabled)
+		try c.encode(unloadPolicy, forKey: .unloadPolicy)
+		try c.encode(idleUnloadMinutes, forKey: .idleUnloadMinutes)
+		try c.encode(preloadOnHotkey, forKey: .preloadOnHotkey)
+		try c.encode(customModels, forKey: .customModels)
+	}
+
+	/// Every field falls back to its default, so new settings never break old
+	/// files; settings from before 2.6 are moved onto the styles.
 	public init(from decoder: Decoder) throws {
 		let c = try decoder.container(keyedBy: CodingKeys.self)
 		let d = PostProcessingSettings()
-		enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? d.enabled
-		autoEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoEnabled) ?? d.autoEnabled
-		autoScope = try c.decodeIfPresent(PolishAutoScope.self, forKey: .autoScope) ?? d.autoScope
-		autoMode = try c.decodeIfPresent(PolishMode.self, forKey: .autoMode) ?? d.autoMode
-		autoModel = try c.decodeIfPresent(String.self, forKey: .autoModel) ?? d.autoModel
-		minimumWords = try c.decodeIfPresent(Int.self, forKey: .minimumWords) ?? d.minimumWords
-		timeoutSeconds = try c.decodeIfPresent(Int.self, forKey: .timeoutSeconds) ?? d.timeoutSeconds
-		boxButtonEnabled = try c.decodeIfPresent(Bool.self, forKey: .boxButtonEnabled) ?? d.boxButtonEnabled
-		boxDefaultMode = try c.decodeIfPresent(PolishMode.self, forKey: .boxDefaultMode) ?? d.boxDefaultMode
-		boxModel = try c.decodeIfPresent(String.self, forKey: .boxModel) ?? d.boxModel
-		boxShowsDiffAutomatically = try c.decodeIfPresent(Bool.self, forKey: .boxShowsDiffAutomatically) ?? d.boxShowsDiffAutomatically
-		guardEnabled = try c.decodeIfPresent(Bool.self, forKey: .guardEnabled) ?? d.guardEnabled
-		cleanStrictness = try c.decodeIfPresent(GuardStrictness.self, forKey: .cleanStrictness) ?? d.cleanStrictness
-		rewriteStrictness = try c.decodeIfPresent(GuardStrictness.self, forKey: .rewriteStrictness) ?? d.rewriteStrictness
-		lengthTolerancePercent = try c.decodeIfPresent(Int.self, forKey: .lengthTolerancePercent) ?? d.lengthTolerancePercent
-		customCleanPrompt = try c.decodeIfPresent(String.self, forKey: .customCleanPrompt)
-		customRewritePrompt = try c.decodeIfPresent(String.self, forKey: .customRewritePrompt)
-		personalNote = try c.decodeIfPresent(String.self, forKey: .personalNote) ?? d.personalNote
-		cleanMaxOutputFactor = try c.decodeIfPresent(Double.self, forKey: .cleanMaxOutputFactor) ?? d.cleanMaxOutputFactor
-		rewriteMaxOutputFactor = try c.decodeIfPresent(Double.self, forKey: .rewriteMaxOutputFactor) ?? d.rewriteMaxOutputFactor
-		unloadPolicy = try c.decodeIfPresent(LLMUnloadPolicy.self, forKey: .unloadPolicy) ?? d.unloadPolicy
-		idleUnloadMinutes = try c.decodeIfPresent(Int.self, forKey: .idleUnloadMinutes) ?? d.idleUnloadMinutes
-		preloadOnHotkey = try c.decodeIfPresent(Bool.self, forKey: .preloadOnHotkey) ?? d.preloadOnHotkey
-		customModels = try c.decodeIfPresent([CustomLLMModel].self, forKey: .customModels) ?? d.customModels
+		func value<T: Decodable>(_ key: CodingKeys, _ fallback: T) -> T {
+			(try? c.decodeIfPresent(T.self, forKey: key)) ?? fallback
+		}
+		enabled = value(.enabled, d.enabled)
+		autoEnabled = value(.autoEnabled, d.autoEnabled)
+		autoScope = value(.autoScope, d.autoScope)
+		autoModel = value(.autoModel, d.autoModel)
+		minimumWords = value(.minimumWords, d.minimumWords)
+		timeoutSeconds = value(.timeoutSeconds, d.timeoutSeconds)
+		boxButtonEnabled = value(.boxButtonEnabled, d.boxButtonEnabled)
+		boxModel = value(.boxModel, d.boxModel)
+		boxShowsDiffAutomatically = value(.boxShowsDiffAutomatically, d.boxShowsDiffAutomatically)
+		guardEnabled = value(.guardEnabled, d.guardEnabled)
+		editedStyles = value(.editedStyles, d.editedStyles)
+		customStyles = value(.customStyles, d.customStyles)
+		personalNote = value(.personalNote, d.personalNote)
+		context = value(.context, d.context)
+		commandModeEnabled = value(.commandModeEnabled, d.commandModeEnabled)
+		unloadPolicy = value(.unloadPolicy, d.unloadPolicy)
+		idleUnloadMinutes = value(.idleUnloadMinutes, d.idleUnloadMinutes)
+		preloadOnHotkey = value(.preloadOnHotkey, d.preloadOnHotkey)
+		customModels = value(.customModels, d.customModels)
+
+		let legacy = try decoder.container(keyedBy: LegacyKeys.self)
+		func legacyMode(_ key: LegacyKeys) -> String? {
+			(try? legacy.decodeIfPresent(String.self, forKey: key)).flatMap { $0 == "rewrite" ? AIStyleCatalog.taskID : $0 == "clean" ? AIStyleCatalog.cleanID : nil }
+		}
+		autoStyleID = (try? c.decodeIfPresent(String.self, forKey: .autoStyleID)) ?? legacyMode(.autoMode) ?? d.autoStyleID
+		boxStyleID = (try? c.decodeIfPresent(String.self, forKey: .boxStyleID)) ?? legacyMode(.boxDefaultMode) ?? d.boxStyleID
+
+		// Pre-2.6 prompt, strictness and budget edits become edited built-in styles.
+		if !c.contains(.editedStyles) {
+			let tolerance = try? legacy.decodeIfPresent(Int.self, forKey: .lengthTolerancePercent)
+			for (id, promptKey, strictKey, factorKey) in [
+				(AIStyleCatalog.cleanID, LegacyKeys.customCleanPrompt, LegacyKeys.cleanStrictness, LegacyKeys.cleanMaxOutputFactor),
+				(AIStyleCatalog.taskID, .customRewritePrompt, .rewriteStrictness, .rewriteMaxOutputFactor),
+			] {
+				guard var style = AIStyleCatalog.builtIn(id: id) else { continue }
+				if let prompt = (try? legacy.decodeIfPresent(String.self, forKey: promptKey)) ?? nil,
+				   !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+					style.instruction = prompt
+				}
+				if let strictness = (try? legacy.decodeIfPresent(GuardStrictness.self, forKey: strictKey)) ?? nil { style.strictness = strictness }
+				if let factor = (try? legacy.decodeIfPresent(Double.self, forKey: factorKey)) ?? nil { style.outputFactor = factor }
+				if let tolerance = tolerance ?? nil { style.lengthTolerancePercent = tolerance }
+				save(style)
+			}
+		}
 	}
 }

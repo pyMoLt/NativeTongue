@@ -5,6 +5,8 @@ public enum CommandAction: Sendable, Equatable {
 	case edit(EditCommand)
 	case format(FormatCommand)
 	case box(BoxCommand)
+	/// A text snippet's trigger: the expanded snippet text (plan B6).
+	case snippet(String)
 }
 
 /// Spoken command tables (German + English). Data only; matching lives in the
@@ -43,7 +45,7 @@ public enum CommandGrammar {
 		(Phrase("neuer Absatz"), .newParagraph), (Phrase("neuen Absatz"), .newParagraph),
 		(Phrase("neue Absatz"), .newParagraph), (Phrase("nächster Absatz"), .newParagraph),
 		(Phrase("new paragraph", english: true), .newParagraph), (Phrase("next paragraph", english: true), .newParagraph),
-		(Phrase("neue Zeile"), .newLine), (Phrase("neuer Zeile"), .newLine), (Phrase("nächste Zeile"), .newLine),
+		(Phrase("neue Zeile"), .newLine), (Phrase("neuer Zeile"), .newLine), (Phrase("neuen Zeile"), .newLine), (Phrase("nächste Zeile"), .newLine),
 		(Phrase("Zeilenumbruch"), .newLine),
 		(Phrase("new line", english: true), .newLine), (Phrase("next line", english: true), .newLine),
 		(Phrase("line break", english: true), .newLine),
@@ -58,15 +60,106 @@ public enum CommandGrammar {
 	public static let edit: [(Phrase, EditCommand)] = [
 		(Phrase("streich das"), .deleteLastUtterance), (Phrase("streiche das"), .deleteLastUtterance),
 		(Phrase("lösch das"), .deleteLastUtterance), (Phrase("lösche das"), .deleteLastUtterance),
+		// Common ASR spellings of the same phrase.
+		(Phrase("streich dass"), .deleteLastUtterance), (Phrase("streiche dass"), .deleteLastUtterance),
+		(Phrase("lösch dass"), .deleteLastUtterance), (Phrase("lösche dass"), .deleteLastUtterance),
+		(Phrase("strich das"), .deleteLastUtterance), (Phrase("streicht das"), .deleteLastUtterance),
+		(Phrase("das war falsch"), .deleteLastUtterance), (Phrase("das ist falsch"), .deleteLastUtterance),
 		(Phrase("scratch that", english: true), .deleteLastUtterance), (Phrase("delete that", english: true), .deleteLastUtterance),
+		(Phrase("scratch this", english: true), .deleteLastUtterance), (Phrase("that was wrong", english: true), .deleteLastUtterance),
 		(Phrase("streich den letzten Satz"), .deleteLastSentence), (Phrase("streiche den letzten Satz"), .deleteLastSentence),
-		(Phrase("lösche den letzten Satz"), .deleteLastSentence), (Phrase("delete last sentence", english: true), .deleteLastSentence),
+		(Phrase("lösche den letzten Satz"), .deleteLastSentence), (Phrase("lösch den letzten Satz"), .deleteLastSentence),
+		(Phrase("letzten Satz löschen"), .deleteLastSentence),
+		(Phrase("delete last sentence", english: true), .deleteLastSentence), (Phrase("delete the last sentence", english: true), .deleteLastSentence),
 		(Phrase("lösche das letzte Wort"), .deleteLastWord), (Phrase("lösch das letzte Wort"), .deleteLastWord),
-		(Phrase("streich das letzte Wort"), .deleteLastWord), (Phrase("delete last word", english: true), .deleteLastWord),
-		(Phrase("rückgängig"), .undo), (Phrase("mach das rückgängig"), .undo),
-		(Phrase("undo that", english: true), .undo), (Phrase("undo", english: true), .undo),
-		(Phrase("alles löschen"), .clearAll), (Phrase("clear all", english: true), .clearAll),
+		(Phrase("streich das letzte Wort"), .deleteLastWord), (Phrase("streiche das letzte Wort"), .deleteLastWord),
+		(Phrase("lösche letztes Wort"), .deleteLastWord), (Phrase("lösch letztes Wort"), .deleteLastWord),
+		(Phrase("letztes Wort löschen"), .deleteLastWord), (Phrase("das letzte Wort löschen"), .deleteLastWord),
+		(Phrase("delete last word", english: true), .deleteLastWord), (Phrase("delete the last word", english: true), .deleteLastWord),
+		(Phrase("rückgängig"), .undo), (Phrase("mach das rückgängig"), .undo), (Phrase("rückgängig machen"), .undo),
+		(Phrase("mach rückgängig"), .undo), (Phrase("zurück"), .undo),
+		(Phrase("undo that", english: true), .undo), (Phrase("undo", english: true), .undo), (Phrase("go back", english: true), .undo),
+		(Phrase("alles löschen"), .clearAll), (Phrase("von vorn"), .clearAll), (Phrase("von vorne"), .clearAll),
+		(Phrase("noch mal von vorn"), .clearAll), (Phrase("noch mal von vorne"), .clearAll),
+		(Phrase("nochmal von vorn"), .clearAll), (Phrase("nochmal von vorne"), .clearAll),
+		(Phrase("clear all", english: true), .clearAll), (Phrase("start over", english: true), .clearAll),
 	]
+
+	/// Shown on the commands page next to the fixed phrases.
+	public static let parameterizedEditExamples: [(Phrase, EditCommand)] = [
+		(Phrase("lösche die letzten drei Wörter"), .deleteLastWords(3)),
+		(Phrase("delete the last three words", english: true), .deleteLastWords(3)),
+		(Phrase("ersetze Montag durch Dienstag"), .replace("Montag", with: "Dienstag")),
+		(Phrase("replace Monday with Tuesday", english: true), .replace("Monday", with: "Tuesday")),
+	]
+
+	/// An edit command spoken as a whole utterance: fixed phrases, „lösche die
+	/// letzten N Wörter“ (N = 2…10) and „ersetze X durch Y“ / „replace X with Y“.
+	/// `text` keeps the original spelling for the replacement.
+	public static func editCommand(_ text: String, english: Bool) -> EditCommand? {
+		let words = normalizedWords(text)
+		guard !words.isEmpty else { return nil }
+		if let fixed = isolated(words, in: edit, english: english) { return fixed }
+		if let count = lastWordsCount(words, english: english) { return .deleteLastWords(count) }
+		return replacement(text, english: english)
+	}
+
+	private static let germanSmallNumbers: [String: Int] = [
+		"zwei": 2, "drei": 3, "vier": 4, "fünf": 5, "sechs": 6, "sieben": 7, "acht": 8, "neun": 9, "zehn": 10,
+	]
+	private static let englishSmallNumbers: [String: Int] = [
+		"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+	]
+
+	private static func lastWordsCount(_ words: [String], english: Bool) -> Int? {
+		func number(_ word: String, table: [String: Int]) -> Int? {
+			if let value = Int(word), (2...10).contains(value) { return value }
+			return table[word]
+		}
+		// lösch(e)/streich(e) [die] letzten N Wörter
+		if ["lösche", "lösch", "streiche", "streich"].contains(words.first ?? "") {
+			var rest = Array(words.dropFirst())
+			if rest.first == "die" { rest.removeFirst() }
+			if rest.count == 3, rest[0] == "letzten", ["wörter", "worte"].contains(rest[2]),
+			   let count = number(rest[1], table: germanSmallNumbers) { return count }
+		}
+		// letzten N Wörter löschen
+		if words.count == 4, words[0] == "letzten", ["wörter", "worte"].contains(words[2]), words[3] == "löschen",
+		   let count = number(words[1], table: germanSmallNumbers) { return count }
+		// delete/scratch [the] last N words
+		if english, ["delete", "scratch", "remove"].contains(words.first ?? "") {
+			var rest = Array(words.dropFirst())
+			if rest.first == "the" { rest.removeFirst() }
+			if rest.count == 3, rest[0] == "last", rest[2] == "words",
+			   let count = number(rest[1], table: englishSmallNumbers) { return count }
+		}
+		return nil
+	}
+
+	/// „ersetze X durch Y“, „ersetz X mit Y“, „replace X with Y“. Both sides are
+	/// short (≤ 6 words) so ordinary sentences are not taken for commands.
+	private static func replacement(_ text: String, english: Bool) -> EditCommand? {
+		let trimmed = text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".,;:!?")))
+		var patterns = [#"^(?:ersetze|ersetz|ersetzt)\s+(.+?)\s+(?:durch|mit)\s+(.+)$"#]
+		if english { patterns.append(#"^replace\s+(.+?)\s+(?:with|by)\s+(.+)$"#) }
+		for pattern in patterns {
+			guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+			      let match = regex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+			      let oldRange = Range(match.range(at: 1), in: trimmed), let newRange = Range(match.range(at: 2), in: trimmed)
+			else { continue }
+			let old = cleanReplacementSide(String(trimmed[oldRange]))
+			let new = cleanReplacementSide(String(trimmed[newRange]))
+			let oldWords = normalizedWords(old), newWords = normalizedWords(new)
+			guard !oldWords.isEmpty, !newWords.isEmpty, oldWords.count <= 6, newWords.count <= 6, oldWords != newWords else { return nil }
+			return .replace(old, with: new)
+		}
+		return nil
+	}
+
+	/// Quotes and edge punctuation are not part of the words to replace.
+	private static func cleanReplacementSide(_ text: String) -> String {
+		text.trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\"„“”‚‘’'«».,;:!?")))
+	}
 
 	// MARK: Format (literal)
 
@@ -111,19 +204,22 @@ public enum CommandGrammar {
 			("Punkt", .period, false), ("period", .period, true), ("full stop", .period, true),
 			("Komma", .comma, false), ("Kommer", .comma, false), ("Beistrich", .comma, false), ("comma", .comma, true),
 			("Doppelpunkt", .colon, false), ("Doppel Punkt", .colon, false), ("colon", .colon, true),
-			("Semikolon", .semicolon, false), ("Strichpunkt", .semicolon, false), ("semicolon", .semicolon, true),
-			("Fragezeichen", .question, false), ("question mark", .question, true),
-			("Ausrufezeichen", .exclamation, false), ("exclamation mark", .exclamation, true), ("exclamation point", .exclamation, true),
-			("Bindestrich", .hyphen, false), ("binde strich", .hyphen, false), ("hyphen", .hyphen, true),
-			("Gedankenstrich", .dash, false), ("em dash", .dash, true), ("en dash", .dash, true), ("dash", .dash, true),
-			("Schrägstrich", .slash, false), ("slash", .slash, true),
+			("Semikolon", .semicolon, false), ("Semi Kolon", .semicolon, false), ("Strichpunkt", .semicolon, false), ("Strich Punkt", .semicolon, false),
+			("semicolon", .semicolon, true), ("semi colon", .semicolon, true),
+			("Fragezeichen", .question, false), ("Frage Zeichen", .question, false), ("question mark", .question, true),
+			("Ausrufezeichen", .exclamation, false), ("Ausrufe Zeichen", .exclamation, false), ("Ausruf Zeichen", .exclamation, false),
+			("exclamation mark", .exclamation, true), ("exclamation point", .exclamation, true),
+			("Bindestrich", .hyphen, false), ("binde strich", .hyphen, false), ("Binde Stich", .hyphen, false), ("hyphen", .hyphen, true),
+			("Gedankenstrich", .dash, false), ("Gedanken Strich", .dash, false), ("em dash", .dash, true), ("en dash", .dash, true), ("dash", .dash, true),
+			("Schrägstrich", .slash, false), ("Schräg Strich", .slash, false), ("slash", .slash, true),
 			("Backslash", .backslash, false), ("umgekehrter Schrägstrich", .backslash, false),
-			("Unterstrich", .underscore, false), ("underscore", .underscore, true),
+			("Unterstrich", .underscore, false), ("Unter Strich", .underscore, false), ("underscore", .underscore, true),
 			("at Zeichen", .at, false), ("Klammeraffe", .at, false), ("at sign", .at, true),
 			("Und Zeichen", .ampersand, false), ("ampersand", .ampersand, true),
 			("Prozentzeichen", .percent, false), ("percent sign", .percent, true),
 			("Klammer auf", .parenOpen, false), ("runde Klammer auf", .parenOpen, false), ("öffnende Klammer", .parenOpen, false),
-			("Klammer zu", .parenClose, false), ("Klamme zu", .parenClose, false), ("runde Klammer zu", .parenClose, false),
+			("Klammer zu", .parenClose, false), ("Klamme zu", .parenClose, false), ("Klammern zu", .parenClose, false), ("runde Klammer zu", .parenClose, false),
+			("Klammern auf", .parenOpen, false),
 			("schließende Klammer", .parenClose, false),
 			("open parenthesis", .parenOpen, true), ("open paren", .parenOpen, true),
 			("close parenthesis", .parenClose, true), ("close paren", .parenClose, true),
@@ -132,6 +228,8 @@ public enum CommandGrammar {
 			("geschweifte Klammer auf", .braceOpen, false), ("geschweifte Klammer zu", .braceClose, false),
 			("open brace", .braceOpen, true), ("close brace", .braceClose, true),
 			("Anführungszeichen auf", .quoteOpen, false), ("Anführungszeichen zu", .quoteClose, false),
+			("Anführungs Zeichen auf", .quoteOpen, false), ("Anführungs Zeichen zu", .quoteClose, false),
+			("Gänsefüßchen auf", .quoteOpen, false), ("Gänsefüßchen zu", .quoteClose, false),
 			("Zitat Anfang", .quoteOpen, false), ("Zitat Ende", .quoteClose, false),
 			("open quote", .quoteOpen, true), ("close quote", .quoteClose, true),
 			("begin quote", .quoteOpen, true), ("end quote", .quoteClose, true),

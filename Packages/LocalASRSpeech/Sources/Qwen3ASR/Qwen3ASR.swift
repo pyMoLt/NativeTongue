@@ -612,6 +612,8 @@ public class Qwen3ASRModel {
             // pick, so greedy stays bit-identical.
             generatedTokens.append(nextToken)
             if nextToken == eosToken { break }
+            // NativeTongue: Escape cancels the dictation; stop decoding too.
+            if Task.isCancelled { break }
 
             guard let advancedCache = cacheN1, let advancedToken = nextTokenArrN1 else {
                 // Final iteration without speculative work — nothing to
@@ -680,6 +682,7 @@ public class Qwen3ASRModel {
         var allTokens: [[Int32]] = (0..<B).map { _ in [] }
 
         for step in 0..<maxTokens {
+            if step > 0, Task.isCancelled { break }  // NativeTongue: Escape stops decoding
             var nextItemTokenIds: [MLXArray]?
             var nextItemCaches: [[(MLXArray, MLXArray)]]?
             var nextBatchTokenIds: MLXArray?
@@ -818,6 +821,7 @@ public class Qwen3ASRModel {
         asyncEval(currentTokenIds, batchKVCache)
 
         for step in 0..<maxTokens {
+            if step > 0, Task.isCancelled { break }  // NativeTongue: Escape stops decoding
             var nextTokenIdsN1: MLXArray?
             var cacheN1: [(MLXArray, MLXArray)]?
 

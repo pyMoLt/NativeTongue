@@ -45,6 +45,7 @@ public enum PolishGuard {
 	) -> [PolishGuardIssue] {
 		let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
 		guard !trimmed.isEmpty else { return [PolishGuardIssue(kind: .empty)] }
+		guard strictness != .off else { return [] }
 		var issues: [PolishGuardIssue] = []
 
 		if strictness != .keyFacts {
@@ -186,13 +187,26 @@ public enum PolishGuard {
 	private static let negations: Set<String> = [
 		"nicht", "kein", "keine", "keinen", "keinem", "keiner", "keines", "nie", "niemals", "nichts", "weder",
 		"not", "no", "never", "none", "nothing", "neither", "nor",
+		// Exceptions carry the same meaning ("aber nicht die vom Monatsende" → "außer die vom Monatsende").
+		"außer", "ausser", "ausgenommen", "ausnahme", "except", "excluding",
 	]
 
+	/// Reminders ("nicht vergessen", "vergiss nicht", "don't forget") are not
+	/// negations of content; a rewrite as task legitimately drops them.
 	static func negationCount(_ text: String) -> Int {
 		let lower = text.lowercased()
 		let tokens = lower.components(separatedBy: CharacterSet.letters.inverted).filter { !$0.isEmpty }
-		let contractions = lower.components(separatedBy: .whitespacesAndNewlines).filter { $0.contains("n't") }.count
-		return tokens.filter(negations.contains).count + contractions
+		let words = lower.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+		// "nicht (zu) vergessen", "don't forget" or "vergiss nicht".
+		func isReminder(_ index: Int, in list: [String]) -> Bool {
+			func word(_ i: Int) -> String { list[i].trimmingCharacters(in: .letters.inverted) }
+			let following = (index + 1 ..< min(list.count, index + 3)).map(word)
+			if following.contains(where: { ["vergessen", "forget"].contains($0) }) { return true }
+			return index > 0 && ["vergiss", "vergesst"].contains(word(index - 1))
+		}
+		let plain = tokens.indices.filter { negations.contains(tokens[$0]) && !isReminder($0, in: tokens) }.count
+		let contractions = words.indices.filter { words[$0].contains("n't") && !isReminder($0, in: words) }.count
+		return plain + contractions
 	}
 
 	/// `backtick spans` and file names such as ContentView.swift.
@@ -211,14 +225,35 @@ public enum PolishGuard {
 
 /// Splits long dictations so a small model never has to rewrite pages at once.
 public enum PolishChunker {
+	/// Chunks plus the separator that followed each one in the input
+	/// (`"\n\n"` between paragraphs, `" "` inside a split paragraph); the last
+	/// separator is empty. `join` restores exactly this structure (audit M11).
+	public struct Split: Equatable, Sendable {
+		public var chunks: [String]
+		public var separators: [String]
+
+		public init(chunks: [String], separators: [String]) {
+			self.chunks = chunks
+			self.separators = separators
+		}
+	}
+
 	/// Paragraphs are kept whole when possible; long ones split at sentence ends.
 	public static func chunks(_ text: String, maxWords: Int = 160) -> [String] {
-		guard PolishGuard.words(text).count > maxWords else { return [text] }
-		var chunks: [String] = []
+		split(text, maxWords: maxWords).chunks
+	}
+
+	public static func split(_ text: String, maxWords: Int = 160) -> Split {
+		guard PolishGuard.words(text).count > maxWords else { return Split(chunks: [text], separators: [""]) }
+		var result = Split(chunks: [], separators: [])
+		func emit(_ chunk: String, separator: String) {
+			result.chunks.append(chunk)
+			result.separators.append(separator)
+		}
 		var current: [String] = []
 		var count = 0
 		func flush() {
-			if !current.isEmpty { chunks.append(current.joined(separator: "\n\n")) }
+			if !current.isEmpty { emit(current.joined(separator: "\n\n"), separator: "\n\n") }
 			current = []
 			count = 0
 		}
@@ -231,14 +266,14 @@ public enum PolishChunker {
 				for sentence in sentences(paragraph) {
 					let words = PolishGuard.words(sentence).count
 					if sentenceWords + words > maxWords, !sentenceChunk.isEmpty {
-						chunks.append(sentenceChunk.trimmingCharacters(in: .whitespaces))
+						emit(sentenceChunk.trimmingCharacters(in: .whitespaces), separator: " ")
 						sentenceChunk = ""
 						sentenceWords = 0
 					}
 					sentenceChunk += sentence
 					sentenceWords += words
 				}
-				if !sentenceChunk.isEmpty { chunks.append(sentenceChunk.trimmingCharacters(in: .whitespaces)) }
+				if !sentenceChunk.isEmpty { emit(sentenceChunk.trimmingCharacters(in: .whitespaces), separator: "\n\n") }
 				continue
 			}
 			if count + paragraphWords > maxWords { flush() }
@@ -246,7 +281,8 @@ public enum PolishChunker {
 			count += paragraphWords
 		}
 		flush()
-		return chunks
+		if !result.separators.isEmpty { result.separators[result.separators.count - 1] = "" }
+		return result
 	}
 
 	static func sentences(_ text: String) -> [String] {
@@ -263,8 +299,14 @@ public enum PolishChunker {
 		return result
 	}
 
-	/// Re-joins chunk results with the separators the input used.
-	public static func join(_ parts: [String], original: String) -> String {
-		parts.joined(separator: original.contains("\n\n") ? "\n\n" : " ")
+	/// Re-joins (possibly fewer, still running) chunk results with the separators
+	/// the input used at each boundary.
+	public static func join(_ parts: [String], separators: [String]) -> String {
+		var text = ""
+		for (index, part) in parts.enumerated() {
+			text += part
+			if index < parts.count - 1 { text += separators[safe: index] ?? " " }
+		}
+		return text
 	}
 }

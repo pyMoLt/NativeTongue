@@ -156,4 +156,24 @@ final class UISnapshotTests: XCTestCase {
     onboarding.accessibilityPermission = .notDetermined
     try render(OnboardingView(store: makeStore(onboarding)), name: "13-onboarding", size: NSSize(width: 620, height: 470))
   }
+
+  /// Pages changed in 2.6 stage B (commands, vocabulary with snippets and
+  /// learned corrections, recording key behaviour).
+  func testRenderStageBPages() throws {
+    var vocabulary = appState(tab: .vocabulary, mode: .normal)
+    vocabulary.lexicon.snippets = [
+      TextSnippet(trigger: "meine Adresse", text: "Alex Example\n123 Example Street\n10115 Berlin"),
+      TextSnippet(trigger: "Grußformel", text: "Viele Grüße\n\nAlex"),
+      TextSnippet(trigger: "meine E-Mail", text: ""),
+    ]
+    vocabulary.lexicon.learnedCorrections = [
+      LearnedCorrection(original: "WhisprKit", replacement: "WhisperKit", count: 2),
+      LearnedCorrection(original: "Vox Drill", replacement: "Voxtral", count: 1, declined: true),
+    ]
+    try render(AppView(store: makeStore(vocabulary)), name: "b-vocabulary", size: NSSize(width: 1_000, height: 1_700))
+    try render(AppView(store: makeStore(appState(tab: .commands, mode: .normal))), name: "b-commands", size: NSSize(width: 1_000, height: 1_500))
+    var recording = appState(tab: .recording, mode: .normal)
+    recording.settings.hexSettings.hotkeyTapToggle = true
+    try render(AppView(store: makeStore(recording)), name: "b-recording", size: NSSize(width: 1_000, height: 1_300))
+  }
 }

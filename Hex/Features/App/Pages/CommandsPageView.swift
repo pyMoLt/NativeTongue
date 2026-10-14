@@ -37,8 +37,8 @@ struct CommandsPageView: View {
     return [
       Group(id: "structure", title: "Structure", note: "Normal + Literal · as a separate utterance with a pause before and after", rows:
         rows(CommandGrammar.structural + CommandGrammar.structuralIsolatedOnly, modes: "N · L") { $0 == .newLine ? "New line ↵" : "New paragraph ¶" }),
-      Group(id: "edit", title: "Editing", note: "Normal + Literal · as a separate utterance", rows:
-        rows(CommandGrammar.edit, modes: "N · L") { Self.editName($0) }),
+      Group(id: "edit", title: "Editing", note: "Normal + Literal + Streaming · as a separate utterance · in the box, on your own streamed text, and right after inserting into another app (same text field only)", rows:
+        rows((CommandGrammar.edit + CommandGrammar.parameterizedEditExamples).map { ($0.0, Self.editName($0.1)) }, modes: "N · L · S") { $0 }),
       Group(id: "punctuation", title: "Punctuation", note: "Literal only · anywhere in a sentence", rows:
         rows(CommandGrammar.punctuation, modes: "L") { "\($0.glyph(language: "de"))  \(Self.punctuationName($0))" }),
       Group(id: "format", title: "Format", note: "Literal · also available in the dictation box toolbar", rows:
@@ -57,25 +57,29 @@ struct CommandsPageView: View {
   }
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 18) {
-        PageHeader(title: "Commands", subtitle: "What you can say – and when it counts as a command", symbol: "command")
-        switches
-        TextField("Search commands", text: $search)
-          .textFieldStyle(.roundedBorder)
-          .frame(maxWidth: 280)
-        ForEach(groups) { group in
-          let rows = filtered(group.rows)
-          if !rows.isEmpty {
-            Card(title: group.title) {
-              Text(group.note).font(.caption).foregroundStyle(.secondary)
-              Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 16, verticalSpacing: 7) {
+    FlowPage("Commands", subtitle: "What you can say – and when it counts as a command", symbol: "command") {
+      switches
+      FlowGroup("Reference") {
+        HStack(spacing: 8) {
+          Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+          TextField("Search commands", text: $search)
+            .textFieldStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 9)
+        .flowPill()
+      }
+      ForEach(groups) { group in
+        let rows = filtered(group.rows)
+        if !rows.isEmpty {
+          FlowGroup(group.title, footer: group.note) {
+            FlowBlock {
+              Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 16, verticalSpacing: 8) {
                 GridRow {
-                  Text("Action").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                  Text("German").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                  Text("English").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                  Text("Action").flowFont(.caption, weight: .semibold).foregroundStyle(.secondary)
+                  Text("German").flowFont(.caption, weight: .semibold).foregroundStyle(.secondary)
+                  Text("English").flowFont(.caption, weight: .semibold).foregroundStyle(.secondary)
                 }
-                Divider().gridCellColumns(3)
                 ForEach(rows) { row in
                   GridRow {
                     Text(row.action).fontWeight(.medium).frame(minWidth: 150, alignment: .leading)
@@ -83,22 +87,20 @@ struct CommandsPageView: View {
                     Text(row.english.joined(separator: ", "))
                       .foregroundStyle(store.hexSettings.englishCommandsEnabled ? .secondary : .tertiary)
                   }
-                  .font(.callout)
+                  .flowFont(.callout)
                 }
               }
             }
           }
         }
       }
-      .padding(LocalASRDesign.pagePadding)
     }
   }
 
   private var switches: some View {
-    Card(title: "Behavior", systemImage: "slider.horizontal.3") {
-      VStack(alignment: .leading, spacing: 6) {
-        HStack {
-          Text("Command pause")
+    FlowGroup("Behaviour") {
+      FlowRow("Command pause", caption: "How long you pause before and after “new paragraph”, “scratch that” etc. for it to count as a command. Inside a sentence it stays text.") {
+        HStack(spacing: 10) {
           Slider(
             value: Binding(
               get: { store.hexSettings.spokenCommandPauseSeconds },
@@ -107,32 +109,34 @@ struct CommandsPageView: View {
             in: 0.25 ... 1.2,
             step: 0.05
           )
+          .frame(width: 160)
           Text("\(Int((store.hexSettings.spokenCommandPauseSeconds * 1_000).rounded())) ms")
             .monospacedDigit()
-            .frame(width: 64, alignment: .trailing)
+            .foregroundStyle(.secondary)
+            .frame(width: 56, alignment: .trailing)
         }
-        Text("How long you pause before and after “new paragraph”, “scratch that” etc. for it to count as a command. Inside a sentence it stays text.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
       }
-      Divider()
-      toggle("Formatting for AI agents & code (Normal)", \.agentFormattingEnabled,
+      toggle("Formatting for AI agents and code (Normal)", \.agentFormattingEnabled,
              "File names (“ContentView dot swift”), camelCase/snake_case, backticks, /commands.")
       toggle("Format numbers and units", \.numberFormattingEnabled,
              "“two point five milligrams” → 2.5 mg, dates, percentages.")
-      toggle("Recognize English commands", \.englishCommandsEnabled,
+      toggle("Recognise English commands", \.englishCommandsEnabled,
              "Also “new paragraph”, “period”, “scratch that” …")
+      toggle("Also understand spoken punctuation in Normal mode", \.textProcessing.spokenPunctuationInNormal,
+             "“Komma”, “Doppelpunkt”, “Fragezeichen” become marks in Normal mode too. If the model already set the same mark, you get only one. “a period”, “das Komma” stay words.")
+      toggle("Resolve self-corrections", \.textProcessing.resolveSelfCorrections,
+             "“on Tuesday, no, on Wednesday” → “on Wednesday”. Only when both sides are the same kind (day, date, time, amount, vocabulary term).")
+      toggle("Correction commands while streaming", \.streaming.correctionCommands,
+             "“scratch that”, “delete the last three words” remove text NativeTongue typed in this session — never anything else.")
     }
   }
 
   private func toggle(_ title: String, _ keyPath: WritableKeyPath<HexSettings, Bool>, _ caption: String) -> some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Toggle(title, isOn: Binding(
-        get: { store.hexSettings[keyPath: keyPath] },
-        set: { value in store.$hexSettings.withLock { $0[keyPath: keyPath] = value } }
-      ))
-      .toggleStyle(.switch)
-      Text(caption).font(.caption).foregroundStyle(.secondary)
+    Toggle(isOn: Binding(
+      get: { store.hexSettings[keyPath: keyPath] },
+      set: { value in store.$hexSettings.withLock { $0[keyPath: keyPath] = value } }
+    )) {
+      FlowLabel(title, caption: caption)
     }
   }
 
@@ -141,8 +145,10 @@ struct CommandsPageView: View {
     case .deleteLastUtterance: "Delete last utterance"
     case .deleteLastSentence: "Delete last sentence"
     case .deleteLastWord: "Delete last word"
+    case .deleteLastWords: "Delete last N words (2–10)"
+    case .replace: "Replace X with Y (last occurrence)"
     case .undo: "Undo"
-    case .clearAll: "Clear all"
+    case .clearAll: "Clear all / start over"
     }
   }
 

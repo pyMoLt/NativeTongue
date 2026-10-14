@@ -1,4 +1,4 @@
-# SwiftLint configuration for Hex
+# SwiftLint configuration for NativeTongue
 
 disabled_rules:
   - trailing_whitespace

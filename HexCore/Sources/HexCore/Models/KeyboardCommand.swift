@@ -1,7 +1,3 @@
-//
-//  KeyboardCommand.swift
-//  HexCore
-//
 //  Created for auto-send feature
 //
 

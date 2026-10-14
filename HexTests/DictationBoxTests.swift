@@ -83,13 +83,19 @@ final class DictationBoxFeatureTests: XCTestCase {
 
   private func makeStore(
     pasted: LockIsolated<[RichPastePayload]> = .init([]),
-    learned: LockIsolated<[LexiconEntry]> = .init([])
+    learned: LockIsolated<[LexiconEntry]> = .init([]),
+    counted: [LearnedCorrection] = [],
+    recorded: LockIsolated<[[LearnedCorrection]]> = .init([]),
+    resolved: LockIsolated<[([LearnedCorrection], [LearnedCorrection])]> = .init([])
   ) -> TestStoreOf<DictationBoxFeature> {
     let store = TestStore(initialState: DictationBoxFeature.State(hexSettings: Shared(value: HexSettings()))) {
       DictationBoxFeature()
     } withDependencies: {
       $0.pasteboard.pasteRich = { payload in pasted.withValue { $0.append(payload) } }
       $0.lexicon.addUserEntries = { entries in learned.withValue { $0 += entries } }
+      $0.lexicon.userLexicon = { UserLexicon(learnedCorrections: counted) }
+      $0.lexicon.recordCorrections = { pairs in recorded.withValue { $0.append(pairs) }; return pairs }
+      $0.lexicon.resolveCorrections = { accepted, declined in resolved.withValue { $0.append((accepted, declined)) } }
       $0.lexicon.suggestions = { _, _ in
         [Suggestion(term: "Rivaroxaban", score: 0.95, isUser: false, lang: "de", category: "drug")]
       }
@@ -102,6 +108,46 @@ final class DictationBoxFeatureTests: XCTestCase {
     let url = FileManager.default.temporaryDirectory.appendingPathComponent("box-\(UUID().uuidString).wav")
     try Data([0]).write(to: url)
     return url
+  }
+
+  func testCommandModeTurnsTheDictationIntoAnInstructionForTheSelection() async throws {
+    var settings = HexSettings()
+    settings.postProcessing.enabled = true
+    settings.postProcessing.commandModeEnabled = true
+    settings.postProcessing.boxModel = "qwen35-4b-4bit"
+    // `presentCommand` starts from a fresh state that reads the shared settings.
+    @Shared(.hexSettings) var shared: HexSettings
+    $shared.withLock { $0 = settings }
+    let seen = LockIsolated<[PolishRequest]>([])
+    let store = TestStore(initialState: DictationBoxFeature.State()) {
+      DictationBoxFeature()
+    } withDependencies: {
+      $0.lexicon.userLexicon = { UserLexicon() }
+      $0.llm.isInstalled = { _ in true }
+      $0.llm.polish = { request, keep, _ in
+        seen.withValue { $0.append(request) }
+        XCTAssertTrue(keep)
+        return PolishOutcome(text: "- Eins\n- Zwei", original: request.text, aiText: "- Eins\n- Zwei", issues: [], failed: false)
+      }
+    }
+    store.exhaustivity = .off
+    await store.send(.presentCommand(targetBundleID: "com.apple.TextEdit", targetAppName: "TextEdit", selection: "eins und zwei"))
+    XCTAssertTrue(store.state.isCommandMode)
+    XCTAssertEqual(store.state.text.string, "eins und zwei")
+
+    // A dictation is the instruction, not more text.
+    let audio = try tempAudio()
+    await store.send(.dictationFinished(output("als Liste", mode: .normal), audio))
+    await store.receive(\.commandRun)
+    await store.receive(\.aiFinished)
+    XCTAssertEqual(store.state.instruction.lowercased(), "als liste")
+    XCTAssertEqual(store.state.text.string.contains("Eins"), true)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: audio.path), "the instruction recording is deleted at once")
+    let request = try XCTUnwrap(seen.value.first)
+    XCTAssertEqual(request.text, "eins und zwei")
+    XCTAssertTrue(request.style.instruction.lowercased().contains("instruction: als liste"))
+    XCTAssertEqual(request.style.strictness, .off)
+    XCTAssertEqual(store.state.aiPhase, .done, "the comparison is offered before ✓ replaces the selection")
   }
 
   func testDictationsCollectAndConfirmPastesRichTextAndRemovesAudio() async throws {
@@ -125,11 +171,29 @@ final class DictationBoxFeatureTests: XCTestCase {
     XCTAssertFalse(store.state.isDictationBoxPresented)
   }
 
+  /// Plan B1: „ersetze X durch Y“ and „lösche die letzten N Wörter“ on box text.
+  func testReplaceAndDeleteLastWordsInBox() async throws {
+    let store = makeStore()
+    await store.send(.present(targetBundleID: nil, targetAppName: nil, mode: .normal))
+    await store.send(.dictationFinished(output("Termin am Montag um zehn Uhr", mode: .normal), try tempAudio()))
+    var replace = DictationDocument()
+    replace.apply(.replace("Montag", with: "Dienstag"))
+    await store.send(.dictationFinished(DictationSessionOutput(document: replace, language: "de", text: ""), try tempAudio()))
+    XCTAssertEqual(store.state.text.string, "Termin am Dienstag um zehn Uhr")
+    var delete = DictationDocument()
+    delete.apply(.deleteLastWords(2))
+    await store.send(.dictationFinished(DictationSessionOutput(document: delete, language: "de", text: ""), try tempAudio()))
+    XCTAssertEqual(store.state.text.string, "Termin am Dienstag um")
+    XCTAssertEqual(store.state.plainTextForCommands, "Termin am Dienstag um")
+  }
+
   /// B4: a selection at recording start is replaced by the next dictation only.
   func testRedictationReplacesSelectionAndOffersLexicon() async throws {
     let learned = LockIsolated<[LexiconEntry]>([])
-    let store = makeStore(learned: learned)
+    // Corrected once before: the second time NativeTongue asks (plan B8).
+    let store = makeStore(learned: learned, counted: [LearnedCorrection(original: "Gwen", replacement: "Qwen")])
     await store.send(.present(targetBundleID: nil, targetAppName: nil, mode: .literal))
+    await store.receive(\.learnedLoaded)
     await store.send(.dictationFinished(output("wir nutzen Gwen heute"), try tempAudio()))
     let range = (store.state.text.string as NSString).range(of: "Gwen")
     await store.send(.selectionChanged(range))
@@ -147,8 +211,9 @@ final class DictationBoxFeatureTests: XCTestCase {
   }
 
   func testManualMultiwordReplacementOffersOptionalLexiconAlias() async throws {
-    let store = makeStore()
+    let store = makeStore(counted: [LearnedCorrection(original: "Vox Drill", replacement: "Voxtral")])
     await store.send(.present(targetBundleID: nil, targetAppName: nil, mode: .normal))
+    await store.receive(\.learnedLoaded)
     await store.send(.dictationFinished(output("wir nutzen Vox Drill heute", mode: .normal), try tempAudio()))
     let range = (store.state.text.string as NSString).range(of: "Vox Drill")
     await store.send(.selectionChanged(range))
@@ -158,6 +223,39 @@ final class DictationBoxFeatureTests: XCTestCase {
     XCTAssertEqual(store.state.learnCandidates.first?.replacement, "Voxtral")
     await store.send(.confirmTapped)
     XCTAssertEqual(store.state.phase, .learning)
+  }
+
+  /// Plan B8: the first manual correction is only counted; from the threshold
+  /// on NativeTongue asks, and unticked pairs are not offered again.
+  func testCorrectionsAreCountedAndOfferedFromTheThreshold() async throws {
+    let recorded = LockIsolated<[[LearnedCorrection]]>([])
+    let resolved = LockIsolated<[([LearnedCorrection], [LearnedCorrection])]>([])
+    let first = makeStore(recorded: recorded)
+    await first.send(.present(targetBundleID: nil, targetAppName: nil, mode: .normal))
+    await first.receive(\.learnedLoaded)
+    await first.send(.dictationFinished(output("wir nutzen Vox Drill heute", mode: .normal), try tempAudio()))
+    let range = (first.state.text.string as NSString).range(of: "Vox Drill")
+    await first.send(.selectionChanged(range))
+    let changed = first.state.text.string.replacingOccurrences(of: "Vox Drill", with: "Voxtral")
+    await first.send(.textEdited(BoxText(NSAttributedString(string: changed)), selection: NSRange(location: range.location + 7, length: 0)))
+    await first.send(.confirmTapped)
+    XCTAssertNotEqual(first.state.phase, .learning, "first time: counted, not asked")
+    await first.receive(\.close)
+    XCTAssertEqual(recorded.value.first?.map(\.original), ["Vox Drill"])
+
+    let second = makeStore(counted: [LearnedCorrection(original: "Vox Drill", replacement: "Voxtral")], resolved: resolved)
+    await second.send(.present(targetBundleID: nil, targetAppName: nil, mode: .normal))
+    await second.receive(\.learnedLoaded)
+    await second.send(.dictationFinished(output("wir nutzen Vox Drill heute", mode: .normal), try tempAudio()))
+    await second.send(.selectionChanged(range))
+    await second.send(.textEdited(BoxText(NSAttributedString(string: changed)), selection: NSRange(location: range.location + 7, length: 0)))
+    await second.send(.confirmTapped)
+    XCTAssertEqual(second.state.phase, .learning)
+    await second.send(.binding(.set(\.learnCandidates[0].isSelected, false)))
+    await second.send(.learnConfirmed)
+    await second.receive(\.close)
+    await second.finish()
+    XCTAssertEqual(resolved.value.first?.1.map(\.original), ["Vox Drill"], "unticked → not offered again")
   }
 
   /// B3: hovering a misrecognized word offers the lexicon term; click replaces.

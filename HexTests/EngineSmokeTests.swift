@@ -285,7 +285,7 @@ final class EngineSmokeTests: XCTestCase {
 				settings.postProcessing.autoScope = .normalAndLiteralWithoutBox
 				let aiRequest = try XCTUnwrap(TranscriptionFeature.automaticPolish(for: output.text, settings: settings))
 				let protected = userEntries.map(\.term).filter { output.text.localizedCaseInsensitiveContains($0) }
-				let request = PolishRequest(text: aiRequest.text, mode: aiRequest.mode, modelID: aiRequest.modelID,
+				let request = PolishRequest(text: aiRequest.text, style: aiRequest.style, modelID: aiRequest.modelID,
 				                            settings: aiRequest.settings, protectedTerms: protected)
 				let polished = await llm.polish(request, keepAIResultOnIssues: false, onText: nil)
 				try polished.text.write(to: report.appendingPathComponent("\(label)-full-ai.txt"), atomically: true, encoding: .utf8)
@@ -327,7 +327,7 @@ final class EngineSmokeTests: XCTestCase {
 		try Data([0]).write(to: audio)
 		await store.send(.dictationFinished(output, audio))
 		let before = store.state.text.string
-		await store.send(.aiTapped(.clean))
+		await store.send(.aiTapped("clean"))
 		await store.receive(\.aiFinished, timeout: .seconds(60))
 		let after = store.state.text.string
 		let report = URL(fileURLWithPath: "/private/tmp/NativeTongue-QA-20261003", isDirectory: true)
@@ -594,7 +594,7 @@ final class EngineSmokeTests: XCTestCase {
 		} else {
 			let root = URL(fileURLWithPath: #filePath)
 				.deletingLastPathComponent() // HexTests
-				.deletingLastPathComponent() // hex-fork
+				.deletingLastPathComponent() // repository root
 				.deletingLastPathComponent() // Local_ASR
 			fixtureDirectory = root.appendingPathComponent("dev-docs/04-tests/audio", isDirectory: true)
 		}

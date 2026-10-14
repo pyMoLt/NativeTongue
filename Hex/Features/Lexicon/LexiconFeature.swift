@@ -8,6 +8,11 @@ struct LexiconFeature {
   @ObservableState
   struct State: Equatable {
     var userEntries: [LexiconEntry] = []
+    /// Text snippets (plan B6) and counted box corrections (plan B8); saved
+    /// together with the entries in the user lexicon.
+    var snippets: [TextSnippet] = []
+    var learnedCorrections: [LearnedCorrection] = []
+    var snippetExamplesAdded = false
     var packs: [LexiconPackInfo] = []
     var searchText = ""
     var selection: Set<LexiconEntry.ID> = []
@@ -18,6 +23,11 @@ struct LexiconFeature {
     var isImporting = false
     var errorMessage: String?
     @Shared(.hexSettings) var hexSettings: HexSettings
+
+    /// The user lexicon as saved, from the current state.
+    var userLexicon: UserLexicon {
+      UserLexicon(entries: userEntries, snippets: snippets, snippetExamplesAdded: snippetExamplesAdded, learnedCorrections: learnedCorrections)
+    }
 
     var filteredEntries: [LexiconEntry] {
       let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
@@ -40,6 +50,10 @@ struct LexiconFeature {
     case importFinished(String?)
     case removePack(String)
     case failed(String)
+    case addSnippet
+    case updateSnippet(TextSnippet)
+    case deleteSnippet(TextSnippet.ID)
+    case deleteLearnedCorrection(LearnedCorrection.ID)
   }
 
   @Dependency(\.lexicon) var lexicon
@@ -56,10 +70,34 @@ struct LexiconFeature {
 
       case let .loaded(user, packs):
         state.userEntries = user.entries
+        state.snippets = user.snippets
+        state.learnedCorrections = user.learnedCorrections
+        state.snippetExamplesAdded = user.snippetExamplesAdded
         state.packs = packs
         let installed = Set(packs.map(\.id))
         state.$hexSettings.withLock { $0.activeLexiconPacks.removeAll { !installed.contains($0) } }
-        return .none
+        guard !user.snippetExamplesAdded else { return .none }
+        // Offer the examples once; they stay inactive until they have a text.
+        state.snippets += TextSnippet.examples(english: state.hexSettings.outputLanguage == "en")
+        state.snippetExamplesAdded = true
+        return save(state.userLexicon)
+
+      case .addSnippet:
+        state.snippets.append(TextSnippet(trigger: "", text: ""))
+        return save(state.userLexicon)
+
+      case let .updateSnippet(snippet):
+        guard let index = state.snippets.firstIndex(where: { $0.id == snippet.id }) else { return .none }
+        state.snippets[index] = snippet
+        return save(state.userLexicon, reload: false)
+
+      case let .deleteSnippet(id):
+        state.snippets.removeAll { $0.id == id }
+        return save(state.userLexicon)
+
+      case let .deleteLearnedCorrection(id):
+        state.learnedCorrections.removeAll { $0.id == id }
+        return save(state.userLexicon)
 
       case .addDraft:
         let term = state.draftTerm.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -83,14 +121,12 @@ struct LexiconFeature {
         guard !selection.isEmpty else { return .none }
         state.userEntries.removeAll { selection.contains($0.id) }
         state.selection = []
-        let lexiconValue = UserLexicon(entries: state.userEntries)
-        return save { try await lexicon.saveUserLexicon(lexiconValue) }
+        return save(state.userLexicon)
 
       case let .updateEntry(id, entry):
         guard let index = state.userEntries.firstIndex(where: { $0.id == id }) else { return .none }
         state.userEntries[index] = entry
-        let lexiconValue = UserLexicon(entries: state.userEntries)
-        return save { try await lexicon.saveUserLexicon(lexiconValue) }
+        return save(state.userLexicon)
 
       case let .setPackActive(id, active):
         state.$hexSettings.withLock { settings in
@@ -136,6 +172,18 @@ struct LexiconFeature {
     .run { send in
       await send(.loaded(await lexicon.userLexicon(), await lexicon.installedPacks()))
     }
+  }
+
+  /// Saves the whole user lexicon (entries, snippets, learned corrections).
+  /// Typing in a snippet field saves without reloading, so the field keeps its focus.
+  private func save(_ value: UserLexicon, reload: Bool = true) -> Effect<Action> {
+    guard reload else {
+      return .run { send in
+        do { try await lexicon.saveUserLexicon(value) } catch { await send(.failed("Saving failed: \(error.localizedDescription)")) }
+      }
+      .cancellable(id: "lexicon-save", cancelInFlight: true)
+    }
+    return save { try await lexicon.saveUserLexicon(value) }
   }
 
   private func save(_ operation: @escaping @Sendable () async throws -> Void) -> Effect<Action> {

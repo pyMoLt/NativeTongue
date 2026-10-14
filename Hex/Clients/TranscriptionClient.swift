@@ -1,10 +1,3 @@
-//
-//  TranscriptionClient.swift
-//  Hex
-//
-//  Created by Kit Langton on 1/24/25.
-//
-
 import AVFoundation
 import Dependencies
 import DependenciesMacros
@@ -63,7 +56,13 @@ struct TranscriptionClient {
   var prewarm: @Sendable (String) async throws -> Void
 
   /// Unloads whatever model is resident (idle timeout, memory pressure).
+  /// Waits for running jobs first.
   var unloadModel: @Sendable () async -> Void
+
+  /// A native streaming engine takes the speech-model slot: running jobs
+  /// finish, the batch model is unloaded and batch jobs wait until release.
+  var reserveForStreaming: @Sendable () async throws -> Void = {}
+  var releaseForStreaming: @Sendable () async -> Void = {}
 
   /// Name of the resident model, if any.
   var loadedModel: @Sendable () async -> String? = { nil }
@@ -88,6 +87,8 @@ extension TranscriptionClient: DependencyKey {
       transcribeSamples: { _, _, _ in throw NSError(domain: "TranscriptionClient.testValue", code: 1) },
       prewarm: { _ in throw NSError(domain: "TranscriptionClient.testValue", code: 1) },
       unloadModel: {},
+      reserveForStreaming: {},
+      releaseForStreaming: {},
       loadedModel: { nil },
       configureIdleUnload: { _ in },
       processFootprintBytes: { nil }
@@ -105,6 +106,8 @@ extension TranscriptionClient: DependencyKey {
       transcribeSamples: { try await live.transcribe(samples: $0, model: $1, options: $2) },
       prewarm: { try await live.prewarm(model: $0) },
       unloadModel: { await live.unloadModel() },
+      reserveForStreaming: { try await live.reserveForStreaming() },
+      releaseForStreaming: { await live.releaseForStreaming() },
       loadedModel: { await live.loadedModelName() },
       configureIdleUnload: { await live.configureIdleUnload(minutes: $0) },
       processFootprintBytes: { await live.processFootprintBytes() }
@@ -135,11 +138,15 @@ actor TranscriptionClientLive {
   /// Punctuation-only token IDs per Whisper model (literal-mode decoder mask).
   private var whisperPunctuationTokens: [String: [Int]] = [:]
   private var isInstallingModel = false
-  private var activeTranscriptions = 0
-  private var prewarmTask: Task<Void, Error>?
+  /// One model job at a time (load, transcription, unload, streaming
+  /// reservation). Later jobs wait instead of failing with "busy" (audit M3);
+  /// interactive jobs go before waiting background (file) jobs.
+  private var jobRunning = false
+  private var jobWaiters: [(background: Bool, continuation: CheckedContinuation<Void, Never>)] = []
+  /// A native streaming engine owns the speech-model slot (audit M10).
+  private var streamingReserved = false
   private var idleUnloadMinutes = 10
-  private var idleUnloadTask: Task<Void, Never>?
-  private var idleUnloadGeneration: UInt64 = 0
+  private var idleUnloadTimer = IdleUnloadTimer()
   private let idleUnloadDelayForTesting: Duration?
 
   init(idleUnloadDelayForTesting: Duration? = nil) {
@@ -163,7 +170,7 @@ actor TranscriptionClientLive {
   /// Installs (only when explicitly requested by the model UI) and loads a model.
   /// Inference uses `loadInstalledModel` instead and never downloads.
   func downloadAndLoadModel(variant: String, progressCallback: @escaping (Progress) -> Void) async throws {
-    guard !isInstallingModel, activeTranscriptions == 0, prewarmTask == nil else {
+    guard !isInstallingModel, !jobRunning else {
       throw operationBusyError()
     }
     isInstallingModel = true
@@ -275,7 +282,7 @@ actor TranscriptionClientLive {
 
   /// Deletes a model from disk if it exists
   func deleteModel(variant: String) async throws {
-    guard !isInstallingModel, activeTranscriptions == 0, prewarmTask == nil else {
+    guard !isInstallingModel, !jobRunning else {
       throw operationBusyError()
     }
     let descriptor = try LocalASRModelCatalog.descriptor(named: variant)
@@ -385,7 +392,6 @@ actor TranscriptionClientLive {
     options: ASRTranscriptionOptions,
     progressCallback: @escaping (Progress) -> Void
   ) async throws -> TranscriptionOutput {
-    if let prewarmTask { try await prewarmTask.value }
     let model = await resolveVariant(model)
     let descriptor = try LocalASRModelCatalog.descriptor(named: model)
     if descriptor.backend == .cohereMLX || descriptor.backend == .appleSpeechAnalyzer {
@@ -401,15 +407,8 @@ actor TranscriptionClientLive {
       )
     }
 
-    guard !isInstallingModel, activeTranscriptions == 0 else {
-      throw operationBusyError()
-    }
-    activeTranscriptions += 1
-    cancelIdleUnload()
-    defer {
-      activeTranscriptions -= 1
-      scheduleIdleUnload()
-    }
+    try await beginJob(background: false)
+    defer { endJob() }
 
     let startAll = Date()
     if descriptor.backend == .parakeetFluidAudioCoreML {
@@ -517,23 +516,70 @@ actor TranscriptionClientLive {
   func prewarm(model: String) async throws {
     let model = await resolveVariant(model)
     guard !model.isEmpty else { return }
-    if let prewarmTask { try await prewarmTask.value }
-    guard !isInstallingModel, activeTranscriptions == 0 else { throw operationBusyError() }
-    cancelIdleUnload()
-    let task = Task { [self] in
-      defer {
-        prewarmTask = nil
-        scheduleIdleUnload()
-      }
-      try await loadInstalledModel(variant: model) { _ in }
-    }
-    prewarmTask = task
-    try await task.value
+    try await beginJob(background: false)
+    defer { endJob() }
+    try await loadInstalledModel(variant: model) { _ in }
   }
 
+  /// Unloads the resident model once running jobs are done (never a silent no-op, audit M10).
   func unloadModel() async {
-    guard !isInstallingModel, activeTranscriptions == 0, prewarmTask == nil else { return }
+    guard (try? await beginJob(background: false, honorsCancellation: false)) != nil else { return }
+    defer { endJob() }
     await unloadCurrentModel()
+  }
+
+  /// A native streaming engine (Nemotron, Voxtral) is about to load: waits for
+  /// running jobs, unloads the batch model and keeps the slot until
+  /// `releaseForStreaming`; batch jobs wait meanwhile (audit M10).
+  func reserveForStreaming() async throws {
+    try await beginJob(background: false)
+    await unloadCurrentModel()
+    streamingReserved = true
+  }
+
+  func releaseForStreaming() {
+    guard streamingReserved else { return }
+    streamingReserved = false
+    endJob()
+  }
+
+  // MARK: - Job queue
+
+  /// Runs `body` as one model job (tests use it to observe the queue).
+  func runJob<T: Sendable>(background: Bool, _ body: @Sendable () async throws -> T) async throws -> T {
+    try await beginJob(background: background)
+    defer { endJob() }
+    return try await body()
+  }
+
+  private func beginJob(background: Bool, honorsCancellation: Bool = true) async throws {
+    if isInstallingModel { throw operationBusyError() }
+    if jobRunning {
+      await withCheckedContinuation { continuation in
+        if !background, let index = jobWaiters.firstIndex(where: \.background) {
+          jobWaiters.insert((background, continuation), at: index)
+        } else {
+          jobWaiters.append((background, continuation))
+        }
+      }
+      // `endJob` handed the slot over; `jobRunning` stays true.
+    } else {
+      jobRunning = true
+    }
+    cancelIdleUnload()
+    if honorsCancellation, Task.isCancelled {
+      endJob()
+      throw CancellationError()
+    }
+  }
+
+  private func endJob() {
+    if jobWaiters.isEmpty {
+      jobRunning = false
+      scheduleIdleUnload()
+    } else {
+      jobWaiters.removeFirst().continuation.resume()
+    }
   }
 
   func loadedModelName() -> String? { currentModelName }
@@ -546,14 +592,8 @@ actor TranscriptionClientLive {
   func processFootprintBytes() -> UInt64? { ProcessMemoryMeter.currentFootprintBytes() }
 
   func transcribe(samples: [Float], model: String, options: RequestOptions) async throws -> EngineResult {
-    if let prewarmTask { try await prewarmTask.value }
-    guard !isInstallingModel, activeTranscriptions == 0 else { throw operationBusyError() }
-    activeTranscriptions += 1
-    cancelIdleUnload()
-    defer {
-      activeTranscriptions -= 1
-      scheduleIdleUnload()
-    }
+    try await beginJob(background: options.isBackground)
+    defer { endJob() }
 
     let model = await resolveVariant(model)
     let descriptor = try LocalASRModelCatalog.descriptor(named: model)
@@ -663,6 +703,9 @@ actor TranscriptionClientLive {
     if descriptor.streamingOnly {
       throw Self.streamingOnlyError(descriptor)
     }
+    // Never next to a resident streaming engine, also when the batch model
+    // itself stays the same (audit M10).
+    await StreamingEngineHost.shared.unloadAll()
     if descriptor.backend == .parakeetFluidAudioCoreML {
       if currentModelName != variant { await unloadCurrentModel() }
       try await parakeet.loadInstalled(modelName: variant, progress: progressCallback)
@@ -857,11 +900,9 @@ actor TranscriptionClientLive {
   }
 
   private func cancelIdleUnload() {
-    // A canceled timer may already have resumed and queued an actor call.
-    // Invalidate that call as well, not only the sleeping task.
-    idleUnloadGeneration &+= 1
-    idleUnloadTask?.cancel()
-    idleUnloadTask = nil
+    // A canceled timer may already have resumed and queued an actor call;
+    // the generation check invalidates that call as well.
+    idleUnloadTimer.cancel()
   }
 
   private func scheduleIdleUnload() {
@@ -869,26 +910,20 @@ actor TranscriptionClientLive {
     guard let modelName = currentModelName,
           idleUnloadMinutes > 0,
           !isInstallingModel,
-          prewarmTask == nil,
-          activeTranscriptions == 0 else { return }
-    let minutes = idleUnloadMinutes
-    let generation = idleUnloadGeneration
-    let delay = idleUnloadDelayForTesting ?? .seconds(minutes * 60)
-    idleUnloadTask = Task { [weak self] in
-      do { try await Task.sleep(for: delay) }
-      catch { return }
+          !jobRunning else { return }
+    let delay = idleUnloadDelayForTesting ?? .seconds(idleUnloadMinutes * 60)
+    idleUnloadTimer.schedule(after: delay) { [weak self] generation in
       await self?.unloadIfStillIdle(modelName: modelName, generation: generation)
     }
   }
 
   private func unloadIfStillIdle(modelName: String, generation: UInt64) async {
-    guard generation == idleUnloadGeneration,
+    guard idleUnloadTimer.isCurrent(generation),
           currentModelName == modelName,
           !isInstallingModel,
-          prewarmTask == nil,
-          activeTranscriptions == 0 else { return }
+          !jobRunning else { return }
     // Avoid canceling the timer task while it awaits the model unload.
-    idleUnloadTask = nil
+    idleUnloadTimer.detach()
     await unloadCurrentModel()
     modelsLogger.info("Unloaded idle ASR model")
     // Free the vocabulary index too; the next hotkey press rebuilds it (audit A13).

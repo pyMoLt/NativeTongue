@@ -1,5 +1,4 @@
 build/
-updates/
 .vscode
 .DS_Store
 
@@ -8,16 +7,9 @@ updates/
 *.xcworkspace/xcuserdata/
 *.xcuserstate
 buildServer.json
-bin
 scripts/*
 !scripts/build-dist.sh
-tools
-ExportOptions.plist
 HexCore/.build
-HexCore/.swiftpm/xcode/xcuserdata/kit.xcuserdatad/xcschemes
-FluidAudio/
-node_modules/
-.npm-cache/
 .tmp/
 
 # Agent files
@@ -25,6 +17,8 @@ AGENTS.md
 PROGRESS.md
 PROGRESS-LOG.md
 
-# Local ASR fork
+# NativeTongue
 dist/
 Packages/*/.build/
+HexCore/.swiftpm/xcode/xcuserdata/
+*.profraw

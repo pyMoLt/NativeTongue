@@ -12,6 +12,63 @@ import Sauce
 import Testing
 
 struct HotKeyProcessorTests {
+    // MARK: - Hold to talk, tap to toggle (plan B9)
+
+    @Test
+    func tapToggle_shortTapLocksAndNextPressStops_modifierOnly() throws {
+        runScenario(
+            hotkey: HotKey(key: nil, modifiers: [.option]),
+            tapToggleEnabled: true,
+            steps: [
+                ScenarioStep(time: 0.0, key: nil, modifiers: [.option], expectedOutput: .startRecording, expectedIsMatched: true),
+                ScenarioStep(time: 0.15, key: nil, modifiers: [], expectedOutput: nil, expectedIsMatched: true),
+                ScenarioStep(time: 4.0, key: nil, modifiers: [.option], expectedOutput: .stopRecording, expectedIsMatched: false),
+                ScenarioStep(time: 4.1, key: nil, modifiers: [], expectedOutput: nil, expectedIsMatched: false),
+            ]
+        )
+    }
+
+    @Test
+    func tapToggle_holdIsPushToTalk_standard() throws {
+        runScenario(
+            hotkey: HotKey(key: .a, modifiers: [.command]),
+            tapToggleEnabled: true,
+            steps: [
+                ScenarioStep(time: 0.0, key: .a, modifiers: [.command], expectedOutput: .startRecording, expectedIsMatched: true),
+                ScenarioStep(time: 1.2, key: nil, modifiers: [.command], expectedOutput: .stopRecording, expectedIsMatched: false),
+            ]
+        )
+    }
+
+    @Test
+    func tapToggle_quickDoubleTapDoesNotLeaveALockBehind() throws {
+        // Tap (lock), tap (stop): never a stuck recording.
+        runScenario(
+            hotkey: HotKey(key: nil, modifiers: [.option]),
+            tapToggleEnabled: true,
+            steps: [
+                ScenarioStep(time: 0.0, key: nil, modifiers: [.option], expectedOutput: .startRecording, expectedIsMatched: true),
+                ScenarioStep(time: 0.1, key: nil, modifiers: [], expectedOutput: nil, expectedIsMatched: true),
+                ScenarioStep(time: 0.2, key: nil, modifiers: [.option], expectedOutput: .stopRecording, expectedIsMatched: false),
+                ScenarioStep(time: 0.3, key: nil, modifiers: [], expectedOutput: nil, expectedIsMatched: false),
+                ScenarioStep(time: 1.0, key: nil, modifiers: [.option], expectedOutput: .startRecording, expectedIsMatched: true),
+            ]
+        )
+    }
+
+    @Test
+    func tapToggle_escapeCancelsALockedRecording() throws {
+        runScenario(
+            hotkey: HotKey(key: nil, modifiers: [.option]),
+            tapToggleEnabled: true,
+            steps: [
+                ScenarioStep(time: 0.0, key: nil, modifiers: [.option], expectedOutput: .startRecording, expectedIsMatched: true),
+                ScenarioStep(time: 0.1, key: nil, modifiers: [], expectedOutput: nil, expectedIsMatched: true),
+                ScenarioStep(time: 2.0, key: .escape, modifiers: [], expectedOutput: .cancel, expectedIsMatched: false),
+            ]
+        )
+    }
+
     // MARK: - Standard HotKey (key + modifiers) Tests
 
     // Tests a single key press that matches the hotkey
@@ -640,6 +697,7 @@ func runScenario(
     hotkey: HotKey,
     useDoubleTapOnly: Bool = false,
     doubleTapLockEnabled: Bool = true,
+    tapToggleEnabled: Bool = false,
     steps: [ScenarioStep]
 ) {
     // Sort steps by time, just in case they're not in ascending order
@@ -658,6 +716,7 @@ func runScenario(
             doubleTapLockEnabled: doubleTapLockEnabled
         )
     }
+    processor.tapToggleEnabled = tapToggleEnabled
 
     // We'll step through each event
     for step in sortedSteps {

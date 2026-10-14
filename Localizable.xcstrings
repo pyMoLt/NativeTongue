@@ -304,18 +304,6 @@
     "Enabled" : {
 
     },
-    "Ensure Hex can access your microphone and system accessibility features." : {
-      "comment" : "Footer for permissions section in settings",
-      "extractionState" : "stale",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sicherstellen, dass Hex dein Mikrofon und Systemweite Bedienungshilfen benutzen kann."
-          }
-        }
-      }
-    },
     "Enter a key combination" : {
       "comment" : "Replacement text to be shown when hotkey selection is active.",
       "localizations" : {
@@ -349,17 +337,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zugelassen"
-          }
-        }
-      }
-    },
-    "Hex is open source" : {
-      "comment" : "In about section in settings.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hex ist Open Source"
           }
         }
       }
@@ -403,9 +380,6 @@
 
     },
     "Input Device" : {
-
-    },
-    "Input Monitoring is required so Hex can listen for your hotkey." : {
 
     },
     "Keep the microphone warm and prepend a short in-memory buffer for near-instant capture. macOS will keep showing the microphone indicator while this mode is armed." : {
@@ -580,9 +554,6 @@
       }
     },
     "Preview" : {
-
-    },
-    "Quit Hex" : {
 
     },
     "Refresh available input devices" : {

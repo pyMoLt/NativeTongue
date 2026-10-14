@@ -6,14 +6,25 @@ import UniformTypeIdentifiers
 struct FileTranscriptionView: View {
   @Bindable var store: StoreOf<FileTranscriptionFeature>
   @State private var isDropTargeted = false
+  @State private var customPromptJobID: FileTranscriptionFeature.Job.ID?
+  @State private var customPrompt = ""
 
   var body: some View {
-    HSplitView {
-      queue
-        .frame(minWidth: 250, idealWidth: 280, maxWidth: 360)
-      editor
-        .frame(minWidth: 420, maxWidth: .infinity)
+    VStack(alignment: .leading, spacing: FlowMetrics.groupSpacing) {
+      PageHeader(title: "Files", subtitle: "Transcribe recordings and videos on this Mac", symbol: "waveform.badge.plus")
+      HStack(alignment: .top, spacing: 12) {
+        queue
+          .frame(width: 270)
+        editor
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+          .flowPanel()
+      }
+      .frame(maxHeight: .infinity)
     }
+    .padding(.horizontal, FlowMetrics.pagePadding)
+    .padding(.top, 30)
+    .padding(.bottom, FlowMetrics.pagePadding)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .task { store.send(.task) }
     .fileImporter(
       isPresented: $store.isImporterPresented,
@@ -21,6 +32,10 @@ struct FileTranscriptionView: View {
       allowsMultipleSelection: true
     ) { result in
       if case let .success(urls) = result { store.send(.addFiles(urls)) }
+    }
+    .sheet(isPresented: Binding(get: { customPromptJobID != nil }, set: { if !$0 { customPromptJobID = nil } })) {
+      customPromptSheet
+        .flowThemed(store.hexSettings.appearance)
     }
     .alert("Files", isPresented: Binding(
       get: { store.errorMessage != nil },
@@ -35,8 +50,7 @@ struct FileTranscriptionView: View {
   // MARK: Queue
 
   private var queue: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      PageHeader(title: "Files", subtitle: "Transcribe recordings on this Mac", symbol: "waveform.badge.plus")
+    VStack(alignment: .leading, spacing: FlowMetrics.pillSpacing) {
       dropZone
       options
       List(selection: Binding(get: { store.selectedJobID }, set: { store.send(.selectJob($0)) })) {
@@ -54,13 +68,16 @@ struct FileTranscriptionView: View {
         }
       }
       .listStyle(.inset)
+      .scrollContentBackground(.hidden)
       .overlay {
         if store.jobs.isEmpty {
           Text("No files yet").foregroundStyle(.tertiary)
         }
       }
+      .padding(6)
+      .frame(maxHeight: .infinity)
+      .flowPanel()
     }
-    .padding(16)
   }
 
   private var dropZone: some View {
@@ -68,19 +85,21 @@ struct FileTranscriptionView: View {
       store.send(.binding(.set(\.isImporterPresented, true)))
     } label: {
       VStack(spacing: 6) {
-        Image(systemName: "square.and.arrow.down.on.square").font(.title2)
-        Text("Drop audio or video files here").font(.callout.weight(.medium))
-        Text("or click to choose · m4a, mp3, wav, aiff, mp4, mov").font(.caption).foregroundStyle(.secondary)
+        Image(systemName: "square.and.arrow.down.on.square").flowFont(.title2)
+        Text("Drop audio or video files here").flowFont(.callout, weight: .medium)
+        Text("or click to choose · m4a, mp3, wav, aiff, mp4, mov").flowFont(.caption).foregroundStyle(.secondary)
       }
       .frame(maxWidth: .infinity)
       .padding(.vertical, 18)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .background(
-      RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
-        .foregroundStyle(isDropTargeted ? Color.accentColor : Color.secondary.opacity(0.4))
+    .flowSurface(RoundedRectangle(cornerRadius: FlowMetrics.panelRadius, style: .continuous), highlighted: isDropTargeted)
+    .overlay(
+      RoundedRectangle(cornerRadius: FlowMetrics.panelRadius - 4, style: .continuous)
+        .strokeBorder(style: StrokeStyle(lineWidth: 1.2, dash: [6, 4]))
+        .foregroundStyle(isDropTargeted ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.secondary.opacity(0.35)))
+        .padding(5)
     )
     .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
       Task {
@@ -100,33 +119,23 @@ struct FileTranscriptionView: View {
   }
 
   private var options: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Picker("Mode", selection: $store.modeForFiles) {
-        Text("Normal").tag(DictationMode.normal)
-        Text("Literal").tag(DictationMode.literal)
-      }
-      .pickerStyle(.segmented)
-      HStack {
-        Toggle("Separate speakers", isOn: $store.diarizeByDefault)
-          .toggleStyle(.switch)
-          .controlSize(.small)
-          .disabled(!store.isDiarizationInstalled)
-        Spacer()
-        if !store.isDiarizationInstalled {
-          if store.isInstallingDiarization {
-            ProgressView(value: store.diarizationProgress).frame(width: 70)
-          } else {
-            Button("Install…") { store.send(.installDiarization) }
-              .buttonStyle(.glass)
-              .controlSize(.small)
-              .help("Downloads the speaker separation models once. Nothing else is downloaded.")
-          }
+    VStack(alignment: .leading, spacing: FlowMetrics.pillSpacing) {
+      FlowSegmented(selection: $store.modeForFiles, options: [FlowOption(DictationMode.normal, "Normal"), FlowOption(DictationMode.literal, "Literal")], compact: true)
+        .flowRow("Mode")
+      FlowRow("Separate speakers") {
+        if store.isDiarizationInstalled {
+          Toggle("", isOn: $store.diarizeByDefault)
+            .toggleStyle(.switch)
+            .controlSize(.small)
+        } else if store.isInstallingDiarization {
+          ProgressView(value: store.diarizationProgress).frame(width: 70)
+        } else {
+          Button("Install…") { store.send(.installDiarization) }
+            .buttonStyle(.flowCompact)
+            .help("Downloads the speaker separation models once. Nothing else is downloaded.")
         }
       }
-      .font(.callout)
-      Text("Applies to files added next. Model: \((try? LocalASRModelCatalog.descriptor(named: store.hexSettings.selectedModel))?.displayName ?? "none")")
-        .font(.caption)
-        .foregroundStyle(.secondary)
+      FlowNote("Applies to files added next · \((try? LocalASRModelCatalog.descriptor(named: store.hexSettings.selectedModel))?.displayName.components(separatedBy: " · ").first ?? "no model")")
     }
   }
 
@@ -137,7 +146,9 @@ struct FileTranscriptionView: View {
     if let job = store.selectedJob {
       VStack(spacing: 0) {
         editorHeader(job)
-        Divider()
+        if let ai = job.ai {
+          aiPanel(job, ai)
+        }
         switch job.status {
         case .done where job.segments.isEmpty:
           placeholder("No speech found", symbol: "waveform.slash")
@@ -178,10 +189,10 @@ struct FileTranscriptionView: View {
   private func editorHeader(_ job: FileTranscriptionFeature.Job) -> some View {
     HStack(spacing: 10) {
       VStack(alignment: .leading, spacing: 2) {
-        Text(job.name).font(.headline).lineLimit(1)
+        Text(job.name).flowFont(.headline, design: .rounded).lineLimit(1)
         Text([job.duration.map { TranscriptExporter.clock($0) }, job.mode == .literal ? "Literal" : "Normal",
               job.diarize ? "speakers separated" : nil].compactMap { $0 }.joined(separator: " · "))
-          .font(.caption)
+          .flowFont(.caption)
           .foregroundStyle(.secondary)
       }
       Spacer()
@@ -197,6 +208,26 @@ struct FileTranscriptionView: View {
         }
         .fixedSize()
       }
+      Menu {
+        ForEach(store.hexSettings.postProcessing.allStyles) { style in
+          Button {
+            store.send(.aiRun(job.id, styleID: style.id, instruction: ""))
+          } label: {
+            Label(style.name, systemImage: style.symbol)
+          }
+        }
+        Divider()
+        Button {
+          customPromptJobID = job.id
+        } label: {
+          Label("Own instruction…", systemImage: "pencil.and.list.clipboard")
+        }
+      } label: {
+        Label("AI", systemImage: "sparkles")
+      }
+      .fixedSize()
+      .disabled(job.segments.isEmpty || job.ai?.isRunning == true)
+      .help("Post-process the transcript with the local AI model")
       Button {
         store.send(.copyAll(job.id))
       } label: {
@@ -213,9 +244,91 @@ struct FileTranscriptionView: View {
       .fixedSize()
       .disabled(job.segments.isEmpty)
     }
-    .buttonStyle(.glass)
+    .buttonStyle(.flowCompact)
+    .menuStyle(.button)
     .padding(.horizontal, 20)
-    .padding(.vertical, 12)
+    .padding(.top, 16)
+    .padding(.bottom, 6)
+  }
+
+  private func aiPanel(_ job: FileTranscriptionFeature.Job, _ ai: FileTranscriptionFeature.AIResult) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 8) {
+        Label(ai.styleName, systemImage: ai.styleSymbol)
+          .flowFont(.subheadline, weight: .semibold, design: .rounded)
+          .foregroundStyle(.tint)
+        if ai.isRunning { ProgressView().controlSize(.small) }
+        Spacer()
+        if ai.isRunning {
+          Button("Stop") { store.send(.aiCancel(job.id)) }
+            .buttonStyle(.flowCompact)
+        } else {
+          Button {
+            store.send(.aiCopy(job.id))
+          } label: {
+            Label("Copy", systemImage: "doc.on.doc")
+          }
+          .buttonStyle(.flowCompact)
+          .disabled(ai.text.isEmpty)
+          Button {
+            store.send(.aiDismiss(job.id))
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .buttonStyle(.flowQuiet)
+          .help("Close the AI result")
+          .accessibilityLabel("Close the AI result")
+        }
+      }
+      ScrollView {
+        Text(ai.text.isEmpty ? "Working on it …" : ai.text)
+          .flowFont(.callout)
+          .foregroundStyle(ai.text.isEmpty ? .secondary : .primary)
+          .textSelection(.enabled)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .frame(maxHeight: 220)
+      if let note = ai.note {
+        Text(note).flowFont(.caption).foregroundStyle(.orange)
+      }
+      Text("The transcript and its timings stay unchanged; export uses the transcript.")
+        .flowFont(.caption)
+        .foregroundStyle(.secondary)
+    }
+    .padding(14)
+    .flowSurface(RoundedRectangle(cornerRadius: 18, style: .continuous), highlighted: true)
+    .padding(.horizontal, 14)
+    .padding(.bottom, 6)
+  }
+
+  private var customPromptSheet: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      PageHeader(title: "Own instruction", subtitle: "Tell the local AI what to do with this transcript", symbol: "pencil.and.list.clipboard")
+      TextEditor(text: $customPrompt)
+        .flowFont(.callout)
+        .scrollContentBackground(.hidden)
+        .padding(10)
+        .frame(minHeight: 120)
+        .flowPanel()
+      Text("For example: “List all open questions”, “Write a short protocol with decisions and tasks” or “Translate into English”.")
+        .flowFont(.caption)
+        .foregroundStyle(.secondary)
+      HStack {
+        Spacer()
+        Button("Cancel") { customPromptJobID = nil }
+          .buttonStyle(.flowQuiet)
+        Button("Run") {
+          if let id = customPromptJobID { store.send(.aiRun(id, styleID: "", instruction: customPrompt)) }
+          customPromptJobID = nil
+        }
+        .buttonStyle(.flowPrimary)
+        .keyboardShortcut(.defaultAction)
+        .disabled(customPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      }
+    }
+    .padding(24)
+    .frame(width: 520)
+    .background(FlowBackdrop())
   }
 
   private func renameSpeaker(job: FileTranscriptionFeature.Job, speaker: Int) {
@@ -242,7 +355,7 @@ struct FileTranscriptionView: View {
 
   private func placeholder(_ text: String, symbol: String) -> some View {
     VStack(spacing: 10) {
-      Image(systemName: symbol).font(.largeTitle).foregroundStyle(.tertiary)
+      Image(systemName: symbol).flowFont(.largeTitle).foregroundStyle(.tertiary)
       Text(text).foregroundStyle(.secondary).multilineTextAlignment(.center)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -271,7 +384,7 @@ private struct JobRow: View {
       statusIcon.frame(width: 18)
       VStack(alignment: .leading, spacing: 2) {
         Text(job.name).lineLimit(1).truncationMode(.middle)
-        Text(detail).font(.caption).foregroundStyle(.secondary)
+        Text(detail).flowFont(.caption).foregroundStyle(.secondary)
       }
     }
     .padding(.vertical, 2)
@@ -314,8 +427,8 @@ private struct SegmentRow: View {
     HStack(alignment: .top, spacing: 12) {
       Button(action: onPlay) {
         HStack(spacing: 4) {
-          Image(systemName: isPlaying ? "stop.fill" : "play.fill").font(.caption2)
-          Text(TranscriptExporter.clock(segment.start)).font(.caption.monospacedDigit())
+          Image(systemName: isPlaying ? "stop.fill" : "play.fill").flowFont(.caption2)
+          Text(TranscriptExporter.clock(segment.start)).flowFont(.caption, monospacedDigit: true)
         }
         .frame(width: 64, alignment: .leading)
       }
@@ -325,11 +438,11 @@ private struct SegmentRow: View {
       .accessibilityLabel(isPlaying ? "Stop playback" : "Play from \(TranscriptExporter.clock(segment.start))")
       VStack(alignment: .leading, spacing: 3) {
         if let speakerName {
-          Text(speakerName).font(.caption.weight(.semibold)).foregroundStyle(.tint)
+          Text(speakerName).flowFont(.caption, weight: .semibold).foregroundStyle(.tint)
         }
         TextField("", text: $text, axis: .vertical)
           .textFieldStyle(.plain)
-          .font(.body)
+          .flowFont(.body)
           .onSubmit { onEdit(text) }
           .onChange(of: text) { _, newValue in
             if newValue != segment.text { onEdit(newValue) }

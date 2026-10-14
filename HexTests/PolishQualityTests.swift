@@ -63,7 +63,7 @@ final class PolishQualityTests: XCTestCase {
       ranAny = true
       let host = LLMHost()
       let result = await run(label: "Qwen3.5 2B 8-bit (automatic, production host, keep AI result)") { input in
-        let outcome = await host.polish(PolishRequest(text: input, mode: .clean, modelID: descriptor.id, settings: settings), keepAIResultOnIssues: true, onText: nil)
+        let outcome = await host.polish(PolishRequest(text: input, style: AIStyleCatalog.clean, modelID: descriptor.id, settings: settings), keepAIResultOnIssues: true, onText: nil)
         return (outcome.aiText ?? "(failed) " + outcome.text, outcome.issues)
       }
       report += result.report
@@ -77,9 +77,9 @@ final class PolishQualityTests: XCTestCase {
       try await engine.load(directory: fourB)
       let result = await run(label: "Qwen3.5 4B 4-bit (box)") { input in
         let raw = (try? await engine.generate(
-          system: PolishPrompt.system(for: .clean, settings: settings),
+          system: PolishPrompt.system(for: AIStyleCatalog.clean, settings: settings),
           user: PolishPrompt.user(input),
-          maxTokens: PolishPrompt.maxTokens(for: input, factor: settings.cleanMaxOutputFactor),
+          maxTokens: PolishPrompt.maxTokens(for: input, factor: AIStyleCatalog.clean.outputFactor),
           stopSequences: PolishOutputSanitizer.generationStopSequences
         )) ?? ""
         let text = PolishOutputSanitizer.clean(raw, input: input)

@@ -1,10 +1,3 @@
-//
-//  PasteboardClient.swift
-//  Hex
-//
-//  Created by Kit Langton on 1/24/25.
-//
-
 import ComposableArchitecture
 import Dependencies
 import DependenciesMacros
@@ -28,6 +21,9 @@ struct PasteboardClient {
     var paste: @Sendable (String) async -> Void
     var pasteRich: @Sendable (RichPastePayload) async -> Void
     var copy: @Sendable (String) async -> Void
+    /// Copy for a moment only (streaming fallback): clipboard managers are asked
+    /// not to keep it (transient/concealed markers).
+    var copyTransient: @Sendable (String) async -> Void
     var sendKeyboardCommand: @Sendable (KeyboardCommand) async -> Void
 }
 
@@ -43,6 +39,9 @@ extension PasteboardClient: DependencyKey {
             },
             copy: { text in
                 await live.copy(text: text)
+            },
+            copyTransient: { text in
+                await live.copy(text: text, transient: true)
             },
             sendKeyboardCommand: { command in
                 await live.sendKeyboardCommand(command)
@@ -121,10 +120,27 @@ struct PasteboardClientLive {
     }
     
     @MainActor
-    func copy(text: String) async {
+    func copy(text: String, transient: Bool = false) async {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        pasteboard.writeObjects([Self.dictationItem(plain: text, transient: transient)])
+    }
+
+    /// nspasteboard.org markers: clipboard managers (Paste, Raycast, Alfred …)
+    /// skip such items, so temporary dictations stay out of their history (audit M7).
+    static let transientMarkerTypes: [NSPasteboard.PasteboardType] = [
+        NSPasteboard.PasteboardType("org.nspasteboard.TransientType"),
+        NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"),
+    ]
+
+    static func dictationItem(plain: String, rtf: Data? = nil, transient: Bool) -> NSPasteboardItem {
+        let item = NSPasteboardItem()
+        if let rtf { item.setData(rtf, forType: .rtf) }
+        item.setString(plain, forType: .string)
+        if transient {
+            for type in transientMarkerTypes { item.setData(Data(), forType: type) }
+        }
+        return item
     }
     
     @MainActor
@@ -248,10 +264,8 @@ struct PasteboardClientLive {
         let snapshot = PasteboardSnapshot(pasteboard: pasteboard)
         let before = pasteboard.changeCount
         pasteboard.clearContents()
-        let item = NSPasteboardItem()
-        if let rtf = payload.rtf { item.setData(rtf, forType: .rtf) }
-        item.setString(payload.plain, forType: .string)
-        pasteboard.writeObjects([item])
+        // Kept on purpose only when the user asked to keep dictations on the clipboard.
+        pasteboard.writeObjects([Self.dictationItem(plain: payload.plain, rtf: payload.rtf, transient: !hexSettings.copyToClipboard)])
         _ = await waitForPasteboardCommit(targetChangeCount: max(pasteboard.changeCount, before + 1))
         let dictationChangeCount = pasteboard.changeCount
         let pasteSucceeded = await performPaste(payload.plain)
@@ -313,7 +327,7 @@ struct PasteboardClientLive {
     private func writeAndTrackChangeCount(pasteboard: NSPasteboard, text: String) -> Int {
         let before = pasteboard.changeCount
         pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        pasteboard.writeObjects([Self.dictationItem(plain: text, transient: !hexSettings.copyToClipboard)])
         let after = pasteboard.changeCount
         if after == before {
             // Ensure we always advance by at least one to avoid infinite waits if the system

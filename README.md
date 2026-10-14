@@ -1,122 +1,130 @@
-# NativeTongue
+<p align="center">
+  <img src=".github/assets/icon.png" width="128" height="128" alt="NativeTongue icon">
+</p>
 
-**Private, on-device dictation for macOS.** NativeTongue turns speech into text in German and English, supports spoken editing and formatting commands, and transcribes audio or video files. It is built with Swift, SwiftUI, AppKit and The Composable Architecture.
+<h1 align="center">NativeTongue</h1>
 
-The app targets Apple Silicon and macOS 26 or newer. Development and hands-on validation have focused on an M5 Pro with 48 GB of unified memory. NativeTongue is under active development; it is not a finished, broadly validated public release.
+<p align="center">
+  <strong>Private dictation for macOS. Your voice never leaves your Mac.</strong><br>
+  German and English · spoken commands · local AI clean-up · file transcription
+</p>
+
+<p align="center">
+  <a href="https://github.com/pyMoLt/NativeTongue/releases/latest"><img src="https://img.shields.io/github/v/release/pyMoLt/NativeTongue?label=download&color=6c5ce7" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/macOS-26%2B-555" alt="macOS 26+">
+  <img src="https://img.shields.io/badge/Apple%20Silicon-only-555" alt="Apple Silicon">
+  <img src="https://img.shields.io/badge/Swift-6-f05138" alt="Swift 6">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-555" alt="MIT license"></a>
+</p>
+
+<p align="center">
+  <img src=".github/assets/overview.jpg" width="860" alt="NativeTongue main window">
+</p>
+
+Hold a key, speak, let go: NativeTongue types what you said into whatever app you are using. Speech recognition, commands, formatting, vocabulary and the optional AI step all run on your Mac. There is no account, no cloud service, no telemetry and no automatic update check.
 
 ## Features
 
-### Dictation
+**Dictation**
+- **Normal** mode for natural text, **Literal** mode for exact spoken punctuation and formatting, **Streaming** mode that types while you speak.
+- Hold the key to talk or tap to toggle; Esc cancels.
+- Spoken commands in German and English: new paragraph, delete that, scratch that, formatting, self-corrections ("no, I mean …").
+- Numbers, units, times, money, ordinals and phone numbers are written the way you expect. Text snippets expand on a spoken trigger.
 
-- A configurable global hotkey supports press-and-release dictation and a double-tap recording lock.
-- **Normal mode** is intended for natural text, everyday writing and code.
-- **Literal mode** suppresses model-generated punctuation where the selected engine supports it. Spoken punctuation and commands produce the requested characters.
-- **Streaming mode** (2.5, off by default) types words into the frontmost app while you speak; you can pause, type and keep talking. Native streaming with Nemotron 3.5 Multilingual, Voxtral Mini 4B Realtime or Apple SpeechAnalyzer; other models type a block after each pause.
-- **AI post-processing** (2.5, off by default) runs a small local MLX language model after dictation — automatically or via ✨ in the dictation box — to clean up the text or rewrite it as a task. A safety check keeps the original when numbers, doses, terms or negations would change.
-- German and English commands can insert paragraphs and lines, edit recent text, format the Dictation Box and express common punctuation.
-- Audio pauses, rather than transcript punctuation, determine command boundaries. The default command pause is 450 ms.
-- Number and unit formatting, optional AI-agent/code formatting, and vocabulary correction run locally.
-- The optional **Dictation Box** collects dictations for review. It supports rich text, Markdown and plain-text output, suggestions, re-dictation of a selection, spelling mode, undo and explicit insert or discard actions.
-- NativeTongue restores the previous clipboard contents after text insertion.
+**Your words**
+- Personal vocabulary with aliases and phonetic hints, optional domain packs (medicine, anatomy, technology). Corrections you make in the dictation box can be learned.
+- **Profiles** per app: Mail, Coding, AI prompt, Medical or your own. Each sets mode, vocabulary, AI style and context, and is chosen by the app you dictate into.
 
-### Models
+**Local AI (optional, off by default)**
+- A small language model on your Mac cleans up dictations: Clean up, Clean sentences, E-mail, Short message, Note, Key facts, Rewrite as task, Prompt, or your own style.
+- **Command Mode**: select text, hold the Command Mode key and say what to do with it.
+- A safety check keeps your original text when numbers, doses, terms or negations would change.
 
-The bundled model catalog lists each model's backend, language coverage, precision, estimated storage, license, capabilities and Literal-mode rating.
+**Review and files**
+- The **Dictation Box** collects dictations for review before inserting them, with rich text, Markdown or plain text, suggestions, re-dictation and spelling mode.
+- Transcribe audio and video files, optionally separate speakers, and export TXT, Markdown, SRT or VTT.
 
-| Model family | Local runtime | Current catalog options |
+**Made to feel at home**
+- Light, dark or system appearance, accent colours, glass strength and a text size that follows macOS or is set by hand.
+
+<p align="center">
+  <img src=".github/assets/ai.jpg" width="420" alt="AI post-processing settings">
+  <img src=".github/assets/profiles.jpg" width="420" alt="Profiles">
+</p>
+<p align="center">
+  <img src=".github/assets/models.jpg" width="420" alt="Models">
+  <img src=".github/assets/appearance.jpg" width="420" alt="Appearance settings">
+</p>
+
+## Models
+
+Pick the speech model that suits you; the app recommends one per mode. Models are downloaded only when you press Install, and at most one speech model is kept in memory.
+
+| Family | Runtime | Good for |
 |---|---|---|
-| Whisper | WhisperKit with Core ML | Tiny, Base, Large v3, Large v3 Turbo, including catalogued precision variants |
-| Parakeet | FluidAudio with Core ML | TDT v2, TDT v3 and Ultra |
-| Qwen3-ASR | MLX | 0.6B and 1.7B |
-| Cohere Transcribe | MLX | 2B 8-bit |
-| Canary and Omi Medical | FluidAudio with Core ML | Canary 1B v2 and English clinical Omi |
-| Apple SpeechAnalyzer | Apple Speech framework | On-device German and English dictation assets |
+| Parakeet (TDT v2, v3, Ultra) | FluidAudio · Core ML | Fast everyday dictation |
+| Whisper (Large v3, Large v3 Turbo and smaller) | WhisperKit · Core ML | Literal mode, many languages |
+| Qwen3-ASR (0.6B, 1.7B) | MLX | English and Asian languages |
+| Nemotron 3.5 Streaming, Voxtral Mini 4B Realtime | Core ML · MLX | Streaming mode |
+| Apple SpeechAnalyzer | Apple Speech | No extra download size |
 
-Model downloads are explicit user actions in the Models screen. Inference requires installed assets and does not fetch missing model files. At most one ASR model is kept resident; an idle timeout can unload it.
+The optional AI step uses a local MLX language model (for example Qwen3.5 4B) that you install from the app.
 
-### Vocabulary and files
+## Install
 
-- Add personal terms and aliases, or import optional vocabulary packs for medicine, anatomy and technology. Packs are read from files selected by the user.
-- Import and queue audio or video files, review the transcript, optionally separate speakers, and export TXT, Markdown, SRT or VTT.
-- Transcript history is off by default. If enabled, it is stored locally. Temporary recovery audio is also local.
+1. Download `NativeTongue-<version>.zip` from [Releases](https://github.com/pyMoLt/NativeTongue/releases/latest), unzip it and move **NativeTongue.app** to Applications.
+2. The app is not notarized by Apple, so macOS blocks the first start. Open it once, then go to **System Settings → Privacy & Security** and click **Open Anyway**.
+3. Grant **Microphone** and **Accessibility** (and Input Monitoring if asked), pick a model under **Models** and hold the dictation key (⌥ by default).
 
-### Interface
+Requirements: a Mac with Apple Silicon and macOS 26 or newer. Speech models take about 70 MB to 3 GB of disk space.
 
-NativeTongue is a menu-bar app with a main window for dictation, models, commands, vocabulary, files, history and settings. A recording HUD and menu-bar panel show the current state and recent transcript.
+## Privacy
 
-## Requirements and permissions
+| What | Where it goes |
+|---|---|
+| Audio, transcripts, vocabulary, AI prompts and results | Stay on your Mac |
+| History | Off by default; stored locally when enabled |
+| Network | Only when you install a model (Hugging Face, FluidAudio model hub) or Apple speech assets |
 
-- Apple Silicon Mac running macOS 26 or newer.
-- Microphone permission for voice capture.
-- Accessibility permission for system-wide text insertion. macOS may also request Input Monitoring for the global hotkey.
-- Full Xcode.app to build the app from source.
-- Model weights are separate downloads; storage requirements depend on the chosen models and optional speaker-separation assets.
+NativeTongue never logs transcript text, audio, clipboard content or context from your text fields.
 
-## How it works
+## Build from source
 
-1. The hotkey starts local audio capture. Audio is converted to mono 16 kHz samples for the recognition pipeline.
-2. After recording stops, the session runner segments speech using measured audio pauses.
-3. A local engine transcribes the recording. Engines with word timings can transcribe the whole clip once and align words to pauses; engines without them are called per utterance.
-4. Deterministic command parsing, punctuation handling, number formatting and the local lexicon build the final document.
-5. Normal mode inserts text directly. Literal mode can open the Dictation Box for review before insertion.
+You need the full Xcode (not just the command-line tools). The Xcode project and some internal identifiers keep their original names; the app itself is NativeTongue.
 
-The app is divided between the SwiftUI/AppKit application and the reusable HexCore logic package. Detailed component responsibilities are in [docs/architecture.md](docs/architecture.md).
-
-## Network and privacy
-
-NativeTongue has no app-owned transcription API, cloud speech service, telemetry service or automatic updater. It does not send recorded audio or transcript text to a server during local inference.
-
-Network access is used only when the user starts an installation:
-
-| Destination or service | Purpose | Started by |
-|---|---|---|
-| [Hugging Face Hub](https://huggingface.co) and its file-delivery redirects | Model weights and tokenizer assets specified by the bundled catalog or a model adapter | Install a model in the app |
-| FluidAudio ModelHub, which uses Hugging Face by default | Parakeet, Canary, Omi and optional speaker-separation model assets | Install that model or speaker-separation support |
-| Apple Speech AssetInventory | Apple-managed SpeechAnalyzer assets for supported languages | Install Apple SpeechAnalyzer in the model screen |
-| No network service | Vocabulary packs are imported from local files; there is no pack-fetch endpoint | Choose files in the import dialog |
-
-These downloads reveal normal connection metadata and the requested public model or asset to the respective provider. Downloaded assets are used locally afterward. See [docs/network-and-privacy.md](docs/network-and-privacy.md) for the data-flow audit and boundaries.
-
-## Build and test
-
-Open the Xcode project and build the NativeTongue app target. The app target uses retained internal Xcode identifiers; the displayed app name is NativeTongue and the bundle identifier remains com.localasr.LocalASR to preserve existing settings and installed models.
-
-~~~bash
-# Debug app build (Apple Silicon)
+```bash
+# App (Debug)
 xcodebuild -scheme Hex -configuration Debug \
   -destination 'platform=macOS,arch=arm64' \
   -derivedDataPath /private/tmp/NativeTongue-DD \
   -skipMacroValidation -skipPackagePluginValidation \
-  CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CODE_SIGN_STYLE=Manual build
+  CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CODE_SIGN_STYLE=Manual build-for-testing
 
-# Pure logic package tests
+# Logic package tests
 swift test --package-path HexCore --scratch-path /private/tmp/NativeTongue-HexCore
-~~~
 
-To run one app test suite, replace SuiteName with its XCTest suite name:
+# Release app into dist/ (add --install to copy it to /Applications)
+scripts/build-dist.sh
+```
 
-~~~bash
-xcodebuild test -scheme Hex \
-  -destination 'platform=macOS,arch=arm64' \
-  -derivedDataPath /private/tmp/NativeTongue-DD \
-  -skipMacroValidation CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CODE_SIGN_STYLE=Manual \
-  -only-testing:HexTests/SuiteName
-~~~
+| Folder | Contents |
+|---|---|
+| `Hex/` | SwiftUI/AppKit app, features (TCA), model clients |
+| `HexCore/` | Dictation pipeline, commands, numbers, lexicon, AI styles, profiles, tests |
+| `HexTests/` | App and integration tests |
+| `Packages/LocalASRSpeech/` | Vendored Qwen3-ASR runtime, local LLM and streaming engines |
 
-This repository currently has no tracked GitHub Actions workflow files or automatic update service. `scripts/build-dist.sh [--install]` builds the local release bundle. See [docs/release-process.md](docs/release-process.md) before preparing a distributable build.
+## Versions
 
-## Validation status
+| Version | Highlights |
+|---|---|
+| **3.0** | New design, appearance and text size, AI styles, profiles per app, Command Mode, context |
+| **2.5** | Streaming mode, local AI post-processing |
+| **2.0** | Rebuilt dictation core: Normal/Literal, commands, Dictation Box, vocabulary, files |
+| **1.0** | First standalone version with an offline model catalog |
 
-The application has been built and run on Apple Silicon. As of 2.5.0 the HexCore suite (XCTest and Swift Testing) and the app suite run green; model-backed app tests (speech models, a local MLX language model, emulated streaming) run against installed models and are skipped otherwise. Microphone, permissions, live streaming into other apps and system-wide insertion still need a manual check. See [docs/release-pipeline-status.md](docs/release-pipeline-status.md) for the current validation and release status.
+See the [changelog](CHANGELOG.md) for details.
 
-## Project map
+## Credits and license
 
-- Hex/ — SwiftUI/AppKit application, TCA features and model adapters (internal target name)
-- HexCore/ — dictation pipeline, hotkey logic, command grammar, lexicon and unit tests
-- HexTests/ — application feature and integration tests
-- Packages/LocalASRSpeech/ — vendored Qwen3-ASR MLX runtime
-- Hex/Resources/Data/models.json — bundled model catalog
-- docs/ — architecture, privacy, hotkey, audio-preparation and release documentation
-- CHANGELOG.md and Hex/Resources/changelog.md — repository and in-app NativeTongue notes
-
-NativeTongue's Swift application code is licensed under MIT. Model weights and third-party runtimes have separate terms; check the model catalog before installing a model.
+NativeTongue is MIT licensed. It started as a fork of [Hex](https://github.com/kitlangton/Hex) by Kit Langton (MIT) and has since been rebuilt. It uses [WhisperKit](https://github.com/argmaxinc/WhisperKit), [FluidAudio](https://github.com/FluidInference/FluidAudio), [MLX Swift](https://github.com/ml-explore/mlx-swift) and [The Composable Architecture](https://github.com/pointfreeco/swift-composable-architecture). Model weights have their own licenses, shown in the app before installing.

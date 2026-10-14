@@ -45,6 +45,14 @@ struct DictationSessionRunner {
     var agentFormatting = true
     var englishCommands = true
     var boxOpen = false
+    /// Box text or the last insertion; see `DictationSessionOptions.editTarget`.
+    var editTarget: String?
+    var resolveSelfCorrections = true
+    /// Lowercased user vocabulary terms (self-corrections between terms).
+    var vocabulary: Set<String> = []
+    var spokenPunctuationInNormal = false
+    /// Normalized trigger words → snippet text (plan B6).
+    var snippets: [[String]: String] = [:]
   }
 
   /// Rendered session plus bookkeeping for the hotkey flow.
@@ -89,25 +97,29 @@ struct DictationSessionRunner {
       activePacks: request.activePacks,
       autoReplacePackTermsInLiteral: request.autoReplacePackTerms
     ))
-    let document = DictationSessionProcessor.makeDocument(
-      from: aligned,
-      options: DictationSessionOptions(
-        mode: request.mode,
-        commandPauseMs: request.commandPauseMs,
-        englishCommands: request.englishCommands,
-        language: language,
-        formatNumbers: request.formatNumbers,
-        agentFormatting: request.agentFormatting && request.mode == .normal,
-        boxOpen: request.boxOpen
-      ),
-      corrector: corrector
+    var sessionOptions = DictationSessionOptions(
+      mode: request.mode,
+      commandPauseMs: request.commandPauseMs,
+      englishCommands: request.englishCommands,
+      language: language,
+      formatNumbers: request.formatNumbers,
+      agentFormatting: request.agentFormatting && request.mode == .normal,
+      boxOpen: request.boxOpen,
+      editTarget: request.editTarget,
+      resolveSelfCorrections: request.resolveSelfCorrections && !request.bypassFormatting,
+      vocabulary: request.vocabulary
     )
+    sessionOptions.spokenPunctuationInNormal = request.spokenPunctuationInNormal && !request.bypassFormatting
+    if !request.bypassFormatting { sessionOptions.snippets = request.snippets }
+    let document = DictationSessionProcessor.makeDocument(from: aligned, options: sessionOptions, corrector: corrector)
     let text = document.render(AssemblerOptions(language: language, mode: request.mode))
     let markdown = document.render(AssemblerOptions(language: language, mode: request.mode, format: .markdown))
     let rawText = aligned.map(\.text).joined(separator: " ")
     return DictationSessionOutput(
       document: document, language: language, text: text, markdown: markdown, rawText: rawText,
-      uncertainWords: await collector.words
+      // Low engine confidence, or probably a vocabulary term (orange marker,
+      // the hover suggestions offer the term; plan B7).
+      uncertainWords: await collector.words + document.hints.map(\.word)
     )
   }
 

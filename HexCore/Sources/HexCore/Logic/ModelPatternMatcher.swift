@@ -1,7 +1,3 @@
-//
-//  ModelPatternMatcher.swift
-//  HexCore
-//
 //  Shared utility for matching model names using glob patterns (fnmatch).
 //
 

@@ -5,11 +5,15 @@ public struct AlignedUtterance: Sendable, Equatable {
 	public let utterance: Utterance
 	public let text: String
 	public let language: String?
+	/// Silence before each whitespace-separated word of `text` in ms (nil =
+	/// unknown), from the engine's word timestamps (plan B3).
+	public let wordGapsMs: [Int?]?
 
-	public init(utterance: Utterance, text: String, language: String? = nil) {
+	public init(utterance: Utterance, text: String, language: String? = nil, wordGapsMs: [Int?]? = nil) {
 		self.utterance = utterance
 		self.text = text
 		self.language = language
+		self.wordGapsMs = wordGapsMs
 	}
 }
 
@@ -33,6 +37,17 @@ public struct DictationSessionOptions: Sendable, Equatable {
 	public var agentFormatting: Bool
 	public var boxOpen: Bool
 	public var sampleRate: Int
+	/// Text outside this dictation that edit commands may refer to: the box
+	/// text, or the last insertion in another app. „ersetze X durch Y“ is only
+	/// a command when X occurs here or in the dictation itself.
+	public var editTarget: String?
+	/// Plan B2; `vocabulary` holds lowercased user terms.
+	public var resolveSelfCorrections: Bool
+	public var vocabulary: Set<String>
+	/// Plan B4: spoken punctuation also in Normal mode.
+	public var spokenPunctuationInNormal = false
+	/// Normalized trigger words → snippet text (plan B6).
+	public var snippets: [[String]: String] = [:]
 
 	public init(
 		mode: DictationMode,
@@ -42,7 +57,10 @@ public struct DictationSessionOptions: Sendable, Equatable {
 		formatNumbers: Bool = true,
 		agentFormatting: Bool = true,
 		boxOpen: Bool = false,
-		sampleRate: Int = 16_000
+		sampleRate: Int = 16_000,
+		editTarget: String? = nil,
+		resolveSelfCorrections: Bool = false,
+		vocabulary: Set<String> = []
 	) {
 		self.mode = mode
 		self.commandPauseMs = commandPauseMs
@@ -52,6 +70,9 @@ public struct DictationSessionOptions: Sendable, Equatable {
 		self.agentFormatting = agentFormatting
 		self.boxOpen = boxOpen
 		self.sampleRate = sampleRate
+		self.editTarget = editTarget
+		self.resolveSelfCorrections = resolveSelfCorrections
+		self.vocabulary = vocabulary
 	}
 }
 
@@ -86,6 +107,8 @@ public enum DictationSessionProcessor {
 		guard !words.isEmpty, Double(timedCount) / Double(words.count) >= minimumTimedFraction else { return nil }
 
 		var grouped = Array(repeating: [String](), count: utterances.count)
+		var gaps = Array(repeating: [Int?](), count: utterances.count)
+		var lastEnd = Array(repeating: Double?.none, count: utterances.count)
 		var current = 0
 		for word in words {
 			if isTimed(word) {
@@ -93,12 +116,21 @@ public enum DictationSessionProcessor {
 				current = nearestUtterance(to: midpoint, in: utterances, sampleRate: sampleRate, notBefore: current)
 			}
 			grouped[current].append(word.text)
+			// One gap per whitespace-separated piece, so it lines up with the text.
+			let pieces = word.text.split(whereSeparator: { $0.isWhitespace }).count
+			guard pieces > 0 else { continue }
+			var gap: Int?
+			if isTimed(word), let previous = lastEnd[current] { gap = max(0, Int(((word.start - previous) * 1_000).rounded())) }
+			gaps[current].append(gap)
+			gaps[current] += Array(repeating: 0, count: pieces - 1)
+			if isTimed(word) { lastEnd[current] = word.end }
 		}
-		return zip(utterances, grouped).map { utterance, words in
+		return (0..<utterances.count).map { index in
 			AlignedUtterance(
-				utterance: utterance,
-				text: words.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines),
-				language: result.detectedLanguage
+				utterance: utterances[index],
+				text: grouped[index].joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines),
+				language: result.detectedLanguage,
+				wordGapsMs: gaps[index]
 			)
 		}
 	}
@@ -126,23 +158,35 @@ public enum DictationSessionProcessor {
 		corrector: LexiconCorrector? = nil
 	) -> DictationDocument {
 		let alignedUtterances = joinSplitPhrases(alignedUtterances, language: options.language, englishCommands: options.englishCommands)
-			.map { AlignedUtterance(utterance: $0.utterance, text: HallucinationFilter.collapsingRepetitionLoops($0.text), language: $0.language) }
+			.map { item in
+				let collapsed = HallucinationFilter.collapsingRepetitionLoops(item.text)
+				// Word gaps only stay valid while the words are unchanged.
+				return AlignedUtterance(utterance: item.utterance, text: collapsed, language: item.language,
+				                        wordGapsMs: collapsed == item.text ? item.wordGapsMs : nil)
+			}
 		var document = DictationDocument()
 		let classifierContext = ClassifierContext(
 			mode: options.mode,
 			commandPauseMs: options.commandPauseMs,
 			englishCommands: options.englishCommands,
-			boxOpen: options.boxOpen
+			boxOpen: options.boxOpen,
+			snippets: options.snippets
 		)
 		for item in alignedUtterances {
 			let durationMs = item.utterance.range.count * 1_000 / max(options.sampleRate, 1)
 			if HallucinationFilter.shouldDrop(text: item.text, utteranceDurationMs: durationMs) { continue }
-			let classification = UtteranceClassifier.classify(
+			var classification = UtteranceClassifier.classify(
 				text: item.text,
 				pauseBeforeMs: item.utterance.pauseBeforeMs,
 				pauseAfterMs: item.utterance.pauseAfterMs,
 				context: classifierContext
 			)
+			// „Ersetze den Reifen durch einen neuen.“ is dictation unless the
+			// words to replace actually exist.
+			if case let .command(.edit(.replace(old, _))) = classification,
+			   !document.contains(phrase: old), !(options.editTarget.map { TextEditPlanner.contains(old, in: $0) } ?? false) {
+				classification = .dictation(leading: nil, text: item.text, trailing: nil)
+			}
 			if case let .command(.edit(command)) = classification {
 				document.apply(command)
 				continue
@@ -156,12 +200,21 @@ public enum DictationSessionProcessor {
 				language: item.language ?? options.language,
 				englishCommands: options.englishCommands,
 				formatNumbers: options.formatNumbers,
-				agentFormatting: options.agentFormatting
+				agentFormatting: options.agentFormatting,
+				resolveSelfCorrections: options.resolveSelfCorrections,
+				vocabulary: options.vocabulary,
+				commandPauseMs: options.commandPauseMs,
+				// Pauses are only meaningful while the body is the whole utterance.
+				wordGapsMs: { if case let .dictation(nil, body, nil) = classification, body == item.text { return item.wordGapsMs } else { return nil } }()
 			)
-			var tokens = DictationTextPipeline.tokens(for: classification, options: pipelineOptions)
+			var effectiveOptions = pipelineOptions
+			effectiveOptions.spokenPunctuationInNormal = options.spokenPunctuationInNormal
+			var tokens = DictationTextPipeline.tokens(for: classification, options: effectiveOptions)
 			var corrections: [LexiconCorrection] = []
 			if let corrector, case .dictation = classification {
-				(tokens, corrections) = corrector.correct(tokens)
+				let result = corrector.correctWithHints(tokens)
+				(tokens, corrections) = (result.tokens, result.corrections)
+				document.record(result.hints)
 			}
 			document.append(utteranceID: item.utterance.id, tokens: tokens, corrections: corrections)
 		}

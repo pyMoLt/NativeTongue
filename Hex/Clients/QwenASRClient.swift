@@ -261,9 +261,10 @@ actor QwenASRClient {
 			progress(mapped)
 		}
 		loadedModelName = descriptor.internalName
-		// 1 GB MLX scratch cache instead of the library's 4 GB: the decoder
+		// At most 1 GB MLX scratch cache instead of the library's 4 GB: the decoder
 		// working set is far smaller; measured peak was 8.6 GB with the default.
-		MLXMemoryControl.setCacheLimit(1 << 30)
+		// Never raises the app policy (512 MB, `MLXMemoryPolicy`).
+		MLXMemoryControl.capCacheLimit(1 << 30)
 		progress(completedProgress())
 	}
 

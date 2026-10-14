@@ -385,6 +385,18 @@ enum BoxTextEditing {
     string.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
   }
 
+  /// „ersetze X durch Y“: the last whole-word occurrence (case-insensitive),
+  /// keeping the formatting of the replaced text. Nil when X does not occur.
+  static func replaceLast(_ old: String, with new: String, in text: NSAttributedString) -> NSAttributedString? {
+    let string = text.string
+    guard let range = TextEditPlanner.lastRange(of: old, in: string) else { return nil }
+    let nsRange = NSRange(range, in: string)
+    let result = NSMutableAttributedString(attributedString: text)
+    let attributes = result.attributes(at: nsRange.location, effectiveRange: nil)
+    result.replaceCharacters(in: nsRange, with: NSAttributedString(string: new, attributes: attributes))
+    return result
+  }
+
   static func deleteLastWord(_ text: NSAttributedString) -> NSAttributedString {
     let result = NSMutableAttributedString(attributedString: text)
     let string = result.string as NSString

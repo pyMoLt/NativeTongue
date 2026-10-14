@@ -35,4 +35,14 @@ final class PasteboardSnapshotTests: XCTestCase {
     XCTAssertTrue(PasteboardClientLive.shouldRestoreSnapshot(currentChangeCount: 12, dictationChangeCount: 12))
     XCTAssertFalse(PasteboardClientLive.shouldRestoreSnapshot(currentChangeCount: 13, dictationChangeCount: 12))
   }
+
+  func testTemporaryDictationIsMarkedTransientAndConcealed() {
+    let item = PasteboardClientLive.dictationItem(plain: "Diktat", transient: true)
+    XCTAssertEqual(item.string(forType: .string), "Diktat")
+    for type in PasteboardClientLive.transientMarkerTypes {
+      XCTAssertTrue(item.types.contains(type), type.rawValue)
+    }
+    let kept = PasteboardClientLive.dictationItem(plain: "Diktat", transient: false)
+    XCTAssertFalse(kept.types.contains(PasteboardClientLive.transientMarkerTypes[0]))
+  }
 }

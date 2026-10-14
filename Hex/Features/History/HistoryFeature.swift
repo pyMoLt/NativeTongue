@@ -227,13 +227,13 @@ struct TranscriptView: View {
 	var body: some View {
 		VStack(alignment: .leading, spacing: 0) {
 			Text(transcript.text)
-				.font(.body)
+				.flowFont(.body)
 				.lineLimit(nil)
 				.fixedSize(horizontal: false, vertical: true)
-				.padding(.trailing, 40) // Space for buttons
-				.padding(12)
-
-			Divider()
+				.textSelection(.enabled)
+				.padding(.horizontal, 16)
+				.padding(.top, 14)
+				.padding(.bottom, 6)
 
 			HStack {
 				HStack(spacing: 6) {
@@ -256,7 +256,7 @@ struct TranscriptView: View {
 					Text("•")
 					Text(String(format: "%.1fs", transcript.duration))
 				}
-				.font(.subheadline)
+				.flowFont(.caption)
 				.foregroundStyle(.secondary)
 
 				Spacer()
@@ -269,7 +269,7 @@ struct TranscriptView: View {
 						HStack(spacing: 4) {
 							Image(systemName: showCopied ? "checkmark" : "doc.on.doc.fill")
 							if showCopied {
-								Text("Copied").font(.caption)
+								Text("Copied").flowFont(.caption)
 							}
 						}
 					}
@@ -281,7 +281,7 @@ struct TranscriptView: View {
 						Image(systemName: isPlaying ? "stop.fill" : "play.fill")
 					}
 					.buttonStyle(.plain)
-					.foregroundStyle(isPlaying ? .blue : .secondary)
+					.foregroundStyle(isPlaying ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
 					.help(isPlaying ? "Stop playback" : "Play audio")
 
 					Button(action: onDelete) {
@@ -291,20 +291,13 @@ struct TranscriptView: View {
 					.foregroundStyle(.secondary)
 					.help("Delete transcript")
 				}
-				.font(.subheadline)
+				.flowFont(.subheadline)
 			}
 			.frame(height: 20)
-			.padding(.horizontal, 12)
-			.padding(.vertical, 6)
+			.padding(.horizontal, 16)
+			.padding(.bottom, 12)
 		}
-		.background(
-			RoundedRectangle(cornerRadius: 8)
-				.fill(Color(.windowBackgroundColor).opacity(0.5))
-				.overlay(
-					RoundedRectangle(cornerRadius: 8)
-						.strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1)
-				)
-		)
+		.flowPanel()
 		.onDisappear {
 			// Clean up any running task when view disappears
 			copyTask?.cancel()
@@ -344,56 +337,72 @@ struct TranscriptView: View {
 struct HistoryView: View {
 	@ObserveInjection var inject
 	let store: StoreOf<HistoryFeature>
+	@Bindable var settingsStore: StoreOf<SettingsFeature>
 	@State private var showingDeleteConfirmation = false
 	@Shared(.hexSettings) var hexSettings: HexSettings
 
 	var body: some View {
-      Group {
-        if !hexSettings.saveTranscriptionHistory {
-          ContentUnavailableView {
-            Label("History Disabled", systemImage: "clock.arrow.circlepath")
-          } description: {
-            Text("Transcription history is currently disabled.")
-          } actions: {
-            Button("Enable in Settings") {
-              store.send(.navigateToSettings)
-            }
-          }
-        } else if store.transcriptionHistory.history.isEmpty {
-          ContentUnavailableView {
-            Label("No Transcriptions", systemImage: "text.bubble")
-          } description: {
-            Text("Your transcription history will appear here.")
-          }
-        } else {
-          ScrollView {
-            LazyVStack(spacing: 12) {
-              ForEach(store.transcriptionHistory.history) { transcript in
-                TranscriptView(
-                  transcript: transcript,
-                  isPlaying: store.playingTranscriptID == transcript.id,
-                  onPlay: { store.send(.playTranscript(transcript.id)) },
-                  onCopy: { store.send(.copyToClipboard(transcript.text)) },
-                  onDelete: { store.send(.deleteTranscript(transcript.id)) }
-                )
-              }
-            }
-            .padding()
-          }
-          .toolbar {
-            Button(role: .destructive, action: { showingDeleteConfirmation = true }) {
-              Label("Delete All", systemImage: "trash")
-            }
-          }
-          .alert("Delete All Transcripts", isPresented: $showingDeleteConfirmation) {
-            Button("Delete All", role: .destructive) {
-              store.send(.confirmDeleteAll)
-            }
-            Button("Cancel", role: .cancel) {}
-          } message: {
-            Text("Are you sure you want to delete all transcripts? This action cannot be undone.")
-          }
-        }
-      }.enableInjection()
+		FlowPage("History", subtitle: "Your past dictations – only if you turn saving on. Everything stays on this Mac.", symbol: "clock") {
+			FlowGroup("Saving", footer: hexSettings.saveTranscriptionHistory ? nil : "When off, transcriptions are not saved and audio files are deleted right after transcription.") {
+				Toggle(isOn: Binding(
+					get: { hexSettings.saveTranscriptionHistory },
+					set: { settingsStore.send(.toggleSaveTranscriptionHistory($0)) }
+				)) {
+					FlowLabel("Save transcription history", caption: "Keeps transcripts and their recordings for later access.")
+				}
+				if hexSettings.saveTranscriptionHistory {
+					Picker("Maximum entries", selection: Binding(
+						get: { hexSettings.maxHistoryEntries ?? 0 },
+						set: { settingsStore.send(.setMaxHistoryEntries($0 == 0 ? nil : $0)) }
+					)) {
+						Text("Unlimited").tag(0)
+						Text("50").tag(50)
+						Text("100").tag(100)
+						Text("200").tag(200)
+						Text("500").tag(500)
+						Text("1000").tag(1000)
+					}
+					.flowRow("Maximum entries", caption: hexSettings.maxHistoryEntries != nil ? "The oldest entries are deleted when the limit is reached." : nil)
+				}
+			}
+
+			if hexSettings.saveTranscriptionHistory {
+				FlowGroup("Transcripts") {
+					if store.transcriptionHistory.history.isEmpty {
+						FlowBlock {
+							FlowEmptyState(symbol: "text.bubble", title: "No transcripts yet", message: "Your dictations will appear here.")
+						}
+					} else {
+						LazyVStack(spacing: FlowMetrics.pillSpacing) {
+							ForEach(store.transcriptionHistory.history) { transcript in
+								TranscriptView(
+									transcript: transcript,
+									isPlaying: store.playingTranscriptID == transcript.id,
+									onPlay: { store.send(.playTranscript(transcript.id)) },
+									onCopy: { store.send(.copyToClipboard(transcript.text)) },
+									onDelete: { store.send(.deleteTranscript(transcript.id)) }
+								)
+							}
+						}
+						HStack {
+							Spacer()
+							Button(role: .destructive) { showingDeleteConfirmation = true } label: {
+								Label("Delete all", systemImage: "trash")
+							}
+							.buttonStyle(.flowDestructive)
+						}
+					}
+				}
+			}
+		}
+		.alert("Delete All Transcripts", isPresented: $showingDeleteConfirmation) {
+			Button("Delete All", role: .destructive) {
+				store.send(.confirmDeleteAll)
+			}
+			Button("Cancel", role: .cancel) {}
+		} message: {
+			Text("Are you sure you want to delete all transcripts? This action cannot be undone.")
+		}
+		.enableInjection()
 	}
 }

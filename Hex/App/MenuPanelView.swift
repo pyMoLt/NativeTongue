@@ -19,14 +19,26 @@ struct MenuBarIcon: View {
   }
 }
 
-/// Compact glass menu panel (plan 5.10): status, mode, last transcript with
-/// copy, profile/language/model in one row, quick actions.
+/// Menu bar panel ("Flow" design, 2.6): status, mode pills, last transcript,
+/// profile/language/model chips and quick actions on the colour field.
 struct MenuPanelView: View {
+  @Bindable var store: StoreOf<AppFeature>
+  let openSettings: () -> Void
+
+  var body: some View {
+    MenuPanelContent(store: store, openSettings: openSettings)
+      .flowThemed(store.hexSettings.appearance)
+  }
+}
+
+private struct MenuPanelContent: View {
   @Bindable var store: StoreOf<AppFeature>
   let openSettings: () -> Void
   @Shared(.transcriptionHistory) private var history: TranscriptionHistory
   @Shared(.lastTranscript) private var lastTranscript: LastTranscript? = nil
   @State private var copied = false
+  @Namespace private var namespace
+  @Environment(\.flowTheme) private var theme
 
   private var settings: HexSettings { store.hexSettings }
 
@@ -40,86 +52,110 @@ struct MenuPanelView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       header
-      Picker("Mode", selection: Binding(
-        get: { settings.dictationMode },
-        set: { store.send(.settings(.setDictationMode($0))) }
-      )) {
-        Text("Normal").tag(DictationMode.normal)
-        Text("¶ Literal").tag(DictationMode.literal)
-        Text("Streaming").tag(DictationMode.streaming)
-      }
-      .pickerStyle(.segmented)
-      .labelsHidden()
-      .controlSize(.large)
-
+      modePills
       if settings.dictationMode == .streaming {
-        Picker("Streaming style", selection: Binding(
-          get: { settings.streaming.punctuationMode == .literal },
-          set: { literal in
-            store.$hexSettings.withLock { $0.streaming.punctuationMode = literal ? .literal : .automatic }
-          }
-        )) {
-          Text("Normal").tag(false)
-          Text("¶ Literal").tag(true)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .controlSize(.small)
+        FlowSegmented(
+          selection: Binding(
+            get: { settings.streaming.punctuationMode == .literal },
+            set: { literal in store.$hexSettings.withLock { $0.streaming.punctuationMode = literal ? .literal : .automatic } }
+          ),
+          options: [FlowOption(false, "Streaming Normal"), FlowOption(true, "Streaming Literal")],
+          compact: true
+        )
+        .frame(maxWidth: .infinity)
       }
-
       lastTranscriptCard
-      settingsRow
+      chips
       actions
-      Divider()
-      escHint
       footer
     }
-    .padding(12)
-    .frame(width: 300)
+    .padding(14)
+    .frame(width: 320)
+    .background(FlowBackdrop(variant: settings.dictationMode == .literal ? 1 : settings.dictationMode == .streaming ? 2 : 0))
     .task { store.send(.refreshModelStatus) }
   }
 
   // MARK: Header
 
   private var header: some View {
-    HStack(spacing: 8) {
+    HStack(spacing: 9) {
       Image("MenuBarIdle")
         .renderingMode(.template)
         .resizable()
-        .frame(width: 18, height: 18)
-        .foregroundStyle(.tint)
-      Text(AppBrand.name).font(.headline)
+        .scaledToFit()
+        .frame(width: 17, height: 17)
+        .foregroundStyle(.white)
+        .frame(width: 28, height: 28)
+        .background(LinearGradient(colors: [theme.accent, theme.companion], startPoint: .topLeading, endPoint: .bottomTrailing), in: .rect(cornerRadius: 8, style: .continuous))
+      Text(AppBrand.name).flowFont(.headline, design: .rounded)
       Spacer()
-      statusBadge
+      statusPill
     }
   }
 
-  @ViewBuilder
-  private var statusBadge: some View {
+  private var statusPill: some View {
     let (text, color): (String, Color) = store.transcription.isRecording
       ? ("Recording", .red)
       : store.transcription.isTranscribing ? ("Transcribing", .orange)
       : store.modelStatus.loadedModel != nil ? ("Ready", .green) : ("Idle", .secondary)
-    HStack(spacing: 5) {
+    return HStack(spacing: 5) {
       Circle().fill(color).frame(width: 7, height: 7)
-      Text(text).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+      Text(text).flowFont(.caption, weight: .medium).foregroundStyle(.secondary)
     }
-    .padding(.horizontal, 8)
-    .padding(.vertical, 3)
-    .background(.quaternary.opacity(0.5), in: Capsule())
+    .padding(.horizontal, 9)
+    .padding(.vertical, 4)
+    .flowSurface(Capsule())
     .accessibilityElement(children: .combine)
+  }
+
+  // MARK: Mode
+
+  private var modePills: some View {
+    GlassEffectContainer(spacing: 6) {
+      HStack(spacing: 4) {
+        modePill(.normal, "Normal", "waveform")
+        modePill(.literal, "Literal", "paragraphsign")
+        modePill(.streaming, "Streaming", "dot.radiowaves.left.and.right")
+      }
+    }
+  }
+
+  private func modePill(_ mode: DictationMode, _ title: String, _ symbol: String) -> some View {
+    let selected = settings.dictationMode == mode
+    return Button {
+      withAnimation(theme.animation()) { _ = store.send(.settings(.setDictationMode(mode))) }
+    } label: {
+      VStack(spacing: 3) {
+        Image(systemName: symbol).flowFont(size: 14, weight: .semibold)
+        Text(title).flowFont(.caption, weight: selected ? .semibold : .regular)
+      }
+      .foregroundStyle(selected ? Color.white : Color.primary)
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 8)
+      .background {
+        if selected {
+          RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(LinearGradient(colors: [theme.accent, theme.companion], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .matchedGeometryEffect(id: "mode", in: namespace)
+        }
+      }
+      .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+    .buttonStyle(.plain)
+    .flowSurface(RoundedRectangle(cornerRadius: 16, style: .continuous), interactive: true)
+    .accessibilityLabel("\(title) mode")
+    .accessibilityAddTraits(selected ? .isSelected : [])
   }
 
   // MARK: Last transcript
 
-  @ViewBuilder
   private var lastTranscriptCard: some View {
     VStack(alignment: .leading, spacing: 6) {
       HStack(spacing: 6) {
-        Text("Last transcript").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        Text("Last transcript").flowFont(.caption, weight: .semibold).foregroundStyle(.secondary)
         if let latest {
           Text(latest.date, format: .relative(presentation: .named))
-            .font(.caption)
+            .flowFont(.caption)
             .foregroundStyle(.tertiary)
         }
         Spacer()
@@ -131,42 +167,49 @@ struct MenuPanelView: View {
             Task { try? await Task.sleep(for: .seconds(1.5)); copied = false }
           } label: {
             Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-              .font(.caption.weight(.medium))
           }
-          .buttonStyle(.glass)
-          .controlSize(.small)
+          .buttonStyle(.flowCompact)
           .help("Copy the last transcript")
         }
       }
       if let latest {
         Text(latest.text)
-          .font(.callout)
+          .flowFont(.callout)
           .lineLimit(4)
           .textSelection(.enabled)
           .frame(maxWidth: .infinity, alignment: .leading)
       } else {
         Text("Nothing dictated yet.")
-          .font(.callout)
+          .flowFont(.callout)
           .foregroundStyle(.tertiary)
       }
     }
-    .padding(10)
-    .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .padding(12)
+    .flowPanel()
   }
 
   // MARK: Profile · language · model
 
-  private var settingsRow: some View {
+  private var chips: some View {
     let descriptor = try? LocalASRModelCatalog.descriptor(named: settings.activeModel)
     return HStack(spacing: 6) {
       Menu {
-        ForEach(ASRProfile.allCases, id: \.self) { profile in
-          Button(profile.displayName) { store.send(.settings(.setASRProfile(profile))) }
+        ForEach(settings.profiles.profiles) { profile in
+          Button {
+            store.send(.selectManualProfile(profile.id))
+          } label: {
+            Label(profile.name, systemImage: profile.symbol)
+          }
         }
+        Divider()
+        Toggle("Switch by app", isOn: Binding(
+          get: { settings.profiles.switchByApp },
+          set: { value in store.$hexSettings.withLock { $0.profiles.switchByApp = value } }
+        ))
       } label: {
-        Text(settings.asrProfile.displayName)
+        Label(settings.profiles.profile(id: settings.profiles.manualProfileID).name, systemImage: settings.profiles.profile(id: settings.profiles.manualProfileID).symbol)
       }
-      .help("Profile")
+      .help(settings.profiles.switchByApp ? "Profile for apps without their own profile" : "Profile")
       Menu {
         Button("Automatic") { store.$hexSettings.withLock { $0.outputLanguage = nil } }
         Button("German") { store.$hexSettings.withLock { $0.outputLanguage = "de" } }
@@ -177,7 +220,7 @@ struct MenuPanelView: View {
       .help("Language")
       Spacer(minLength: 4)
       Text(descriptor?.displayName.components(separatedBy: " · ").first ?? "No model")
-        .font(.caption)
+        .flowFont(.caption)
         .foregroundStyle(.secondary)
         .lineLimit(1)
       if store.modelStatus.loadedModel != nil {
@@ -186,21 +229,20 @@ struct MenuPanelView: View {
         } label: {
           Image(systemName: "eject")
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.flowQuiet)
         .help("Unload model (frees memory)")
         .accessibilityLabel("Unload model")
       }
     }
     .menuStyle(.button)
-    .buttonStyle(.glass)
-    .controlSize(.small)
+    .buttonStyle(.flowCompact)
     .fixedSize(horizontal: false, vertical: true)
   }
 
   // MARK: Actions
 
   private var actions: some View {
-    HStack(spacing: 8) {
+    HStack(spacing: 6) {
       Button {
         let frontmost = NSWorkspace.shared.frontmostApplication
         let isSelf = frontmost?.bundleIdentifier == Bundle.main.bundleIdentifier
@@ -219,39 +261,32 @@ struct MenuPanelView: View {
         Label("Transcribe File", systemImage: "waveform.badge.plus").frame(maxWidth: .infinity)
       }
     }
-    .buttonStyle(.glass)
-    .controlSize(.regular)
+    .buttonStyle(.flow)
   }
 
   /// Escape cancels a running dictation (recording, transcription and AI
   /// post-processing); it only reaches other apps while nothing is running.
-  private var escHint: some View {
-    Label {
-      Text("cancels the current dictation")
-    } icon: {
-      Text("esc")
-        .font(.caption2.weight(.semibold).monospaced())
-        .padding(.horizontal, 4)
-        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.secondary.opacity(0.5)))
-    }
-    .font(.caption)
-    .foregroundStyle(.secondary)
-  }
-
   private var footer: some View {
-    HStack(spacing: 14) {
+    HStack(spacing: 6) {
+      Text("esc")
+        .flowFont(.caption2, weight: .semibold, monospaced: true)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 1)
+        .background(Color.secondary.opacity(0.15), in: Capsule())
+      Text("cancels")
+        .flowFont(.caption)
+        .foregroundStyle(.secondary)
+      Spacer()
       Button("History") {
         store.send(.setActiveTab(.history))
         openSettings()
       }
       Button("Settings…") { openSettings() }
         .keyboardShortcut(",")
-      Spacer()
       Button("Quit") { NSApplication.shared.terminate(nil) }
         .keyboardShortcut("q")
     }
-    .buttonStyle(.borderless)
-    .font(.callout)
-    .foregroundStyle(.secondary)
+    .buttonStyle(.flowQuiet)
+    .flowFont(.caption)
   }
 }

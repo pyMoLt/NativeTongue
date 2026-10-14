@@ -1,9 +1,3 @@
-//
-//  HotKeyProcessor.swift
-//  Hex
-//
-//  Created by Kit Langton on 1/28/25.
-//
 import Dependencies
 import Foundation
 import SwiftUI
@@ -105,6 +99,15 @@ public struct HotKeyProcessor {
     /// Minimum duration before very quick taps are considered valid
     /// For modifier-only hotkeys, this is overridden to 0.3s minimum
     public var minimumKeyTime: TimeInterval = 0.15
+
+    /// „Hold to talk, tap to toggle“ (plan B9): a release within
+    /// `tapToggleMaximum` keeps recording (locked) instead of stopping; the
+    /// next press stops. A longer hold is push-to-talk. Replaces the
+    /// double-tap lock while on.
+    public var tapToggleEnabled: Bool = false
+
+    /// Longest press that still counts as a tap for `tapToggleEnabled`.
+    public static let tapToggleMaximum: TimeInterval = 0.35
 
     // MARK: - State
     
@@ -384,6 +387,15 @@ extension HotKeyProcessor {
         case let .pressAndHold(startTime):
             // If user truly "released" the chord => either normal stop or doubleTapLock
             if isReleaseForActiveHotkey(e) {
+                // Tap to toggle: a short tap locks, a hold was push-to-talk.
+                if tapToggleEnabled {
+                    if now.timeIntervalSince(startTime) < Self.tapToggleMaximum {
+                        state = .doubleTapLock
+                        return nil
+                    }
+                    resetToIdle()
+                    return .stopRecording
+                }
                 // Check if this release is close to the prior release => double-tap lock
                 if doubleTapLockEnabled,
                    let prevReleaseTime = lastTapAt,

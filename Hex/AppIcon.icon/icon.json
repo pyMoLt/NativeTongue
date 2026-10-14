@@ -1,8 +1,8 @@
 {
   "fill" : {
     "linear-gradient" : [
-      "srgb:0.05490,0.30980,0.36078,1.00000",
-      "srgb:0.04314,0.10588,0.22745,1.00000"
+      "srgb:0.60000,0.45000,1.00000,1.00000",
+      "srgb:0.22000,0.24000,0.70000,1.00000"
     ],
     "orientation" : {
       "start" : {
@@ -19,8 +19,8 @@
     {
       "layers" : [
         {
-          "image-name" : "Stems.png",
-          "name" : "Stems and wave",
+          "image-name" : "Wave.png",
+          "name" : "Wave",
           "position" : {
             "scale" : 1,
             "translation-in-points" : [
@@ -30,7 +30,7 @@
           }
         }
       ],
-      "name" : "Stems",
+      "name" : "Wave",
       "shadow" : {
         "kind" : "neutral",
         "opacity" : 0.5
@@ -43,8 +43,8 @@
     {
       "layers" : [
         {
-          "image-name" : "Bow.png",
-          "name" : "Bow",
+          "image-name" : "Dot.png",
+          "name" : "Dot",
           "position" : {
             "scale" : 1,
             "translation-in-points" : [
@@ -54,7 +54,7 @@
           }
         }
       ],
-      "name" : "Bow",
+      "name" : "Dot",
       "shadow" : {
         "kind" : "neutral",
         "opacity" : 0.5

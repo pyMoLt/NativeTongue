@@ -24,6 +24,8 @@ public struct DictationDocument: Sendable, Equatable {
 	public private(set) var unappliedEdits: [EditCommand] = []
 	/// Box voice commands („Text übertragen“, „buchstabieren“) in spoken order.
 	public private(set) var boxCommands: [BoxCommand] = []
+	/// Words that probably mean a lexicon term (plan B7); the box marks them.
+	public private(set) var hints: [LexiconHint] = []
 
 	public init() {}
 
@@ -43,6 +45,10 @@ public struct DictationDocument: Sendable, Equatable {
 
 	public mutating func record(_ command: BoxCommand) {
 		boxCommands.append(command)
+	}
+
+	public mutating func record(_ hints: [LexiconHint]) {
+		self.hints += hints
 	}
 
 	public mutating func apply(_ command: EditCommand) {
@@ -71,10 +77,18 @@ public struct DictationDocument: Sendable, Equatable {
 				rebuild(from: kept)
 			}
 		case .deleteLastWord:
-			guard var flat = flatten(), let lastWord = flat.lastIndex(where: { $0.token.wordText != nil }) else { return }
+			apply(.deleteLastWords(1))
+		case let .deleteLastWords(count):
+			guard var flat = flatten(), flat.contains(where: { $0.token.wordText != nil }) else { return }
 			snapshot()
-			flat.removeSubrange(lastWord...)
+			for _ in 0..<max(count, 1) {
+				guard let lastWord = flat.lastIndex(where: { $0.token.wordText != nil }) else { break }
+				flat.removeSubrange(lastWord...)
+			}
 			rebuild(from: flat)
+		case let .replace(old, new):
+			guard !replaceLast(old, with: new) else { return }
+			unappliedEdits.append(command)
 		case .deleteLastSentence:
 			guard var flat = flatten() else { return }
 			// Skip a trailing sentence terminator and breaks, then cut back to the previous one.
@@ -87,6 +101,52 @@ public struct DictationDocument: Sendable, Equatable {
 			flat.removeSubrange(start...)
 			rebuild(from: flat)
 		}
+	}
+
+	/// Whether the words of `phrase` occur in this document (case-insensitive).
+	public func contains(phrase: String) -> Bool {
+		guard let flat = flatten() else { return false }
+		return Self.lastMatch(of: CommandGrammar.normalizedWords(phrase), in: flat.map(\.token)) != nil
+	}
+
+	/// Replaces the last occurrence of `old` (consecutive words) with `new`.
+	private mutating func replaceLast(_ old: String, with new: String) -> Bool {
+		guard let flat = flatten(),
+		      let range = Self.lastMatch(of: CommandGrammar.normalizedWords(old), in: flat.map(\.token))
+		else { return false }
+		snapshot()
+		let entry = flat[range.lowerBound].entry
+		var replaced: [Located] = Array(flat[..<range.lowerBound])
+		replaced += ModelTextTokenizer.tokenize(new).map { Located(entry: entry, token: $0) }
+		replaced += flat[range.upperBound...]
+		rebuild(from: replaced)
+		return true
+	}
+
+	/// Token range of the last run of whole word tokens whose normalized words
+	/// equal `words` ("E-Mail" counts as "e mail"; marks break a run).
+	static func lastMatch(of words: [String], in tokens: [TextToken]) -> Range<Int>? {
+		guard !words.isEmpty else { return nil }
+		// Normalized words with their token index; a run ends at any non-word token.
+		var flat: [(token: Int, word: String, first: Bool, last: Bool)] = []
+		for (index, token) in tokens.enumerated() {
+			guard let text = token.wordText else { continue }
+			let parts = CommandGrammar.normalizedWords(text)
+			for (offset, part) in parts.enumerated() {
+				flat.append((index, part, offset == 0, offset == parts.count - 1))
+			}
+		}
+		guard flat.count >= words.count else { return nil }
+		for start in stride(from: flat.count - words.count, through: 0, by: -1) {
+			let candidate = flat[start..<(start + words.count)]
+			guard candidate.first!.first, candidate.last!.last,
+			      zip(candidate, words).allSatisfy({ $0.word == $1 }) else { continue }
+			let firstToken = candidate.first!.token, lastToken = candidate.last!.token
+			// Only adjacent word tokens form the phrase.
+			guard (firstToken...lastToken).allSatisfy({ tokens[$0].wordText != nil }) else { continue }
+			return firstToken ..< (lastToken + 1)
+		}
+		return nil
 	}
 
 	/// Replaces the whole content (used when the user edits text in the dictation box).
@@ -130,32 +190,89 @@ public struct DictationDocument: Sendable, Equatable {
 
 /// Runs the deterministic text stages for one dictated utterance in the right order.
 public enum DictationTextPipeline {
+	/// Snippet text as typed: its own punctuation, lines and blank lines kept.
+	public static func snippetTokens(_ text: String) -> [TextToken] {
+		var tokens: [TextToken] = []
+		var blankLines = 0
+		for line in text.components(separatedBy: "\n") {
+			let trimmed = line.trimmingCharacters(in: .whitespaces)
+			if trimmed.isEmpty {
+				blankLines += 1
+				continue
+			}
+			if !tokens.isEmpty { tokens.append(blankLines > 0 ? .paragraphBreak : .lineBreak) }
+			blankLines = 0
+			tokens += ModelTextTokenizer.tokenize(trimmed)
+		}
+		return tokens
+	}
+
 	public struct Options: Sendable, Equatable {
 		public var mode: DictationMode
 		public var language: String
 		public var englishCommands: Bool
 		public var formatNumbers: Bool
 		public var agentFormatting: Bool
+		/// „am Dienstag, nein, am Mittwoch“ → „am Mittwoch“ (plan B2).
+		public var resolveSelfCorrections: Bool
+		/// Lowercased vocabulary terms (self-corrections between two terms).
+		public var vocabulary: Set<String>
+		/// Literal: a spoken mark after an article is a word („einen Punkt“),
+		/// unless the word timestamps show a pause of at least this length before it.
+		public var commandPauseMs: Int
+		/// Silence before each whitespace-separated word of the text (plan B3).
+		public var wordGapsMs: [Int?]?
+		/// Normal mode also renders spoken punctuation; a mark the model already
+		/// wrote next to it is dropped (plan B4).
+		public var spokenPunctuationInNormal = false
 
-		public init(mode: DictationMode, language: String = "de", englishCommands: Bool = true, formatNumbers: Bool = true, agentFormatting: Bool = true) {
+		public init(mode: DictationMode, language: String = "de", englishCommands: Bool = true, formatNumbers: Bool = true, agentFormatting: Bool = true,
+		            resolveSelfCorrections: Bool = false, vocabulary: Set<String> = [], commandPauseMs: Int = 450, wordGapsMs: [Int?]? = nil) {
+			self.commandPauseMs = commandPauseMs
+			self.wordGapsMs = wordGapsMs
 			self.mode = mode
 			self.language = language
 			self.englishCommands = englishCommands
 			self.formatNumbers = formatNumbers
 			self.agentFormatting = agentFormatting
+			self.resolveSelfCorrections = resolveSelfCorrections
+			self.vocabulary = vocabulary
 		}
 	}
 
 	public static func process(_ text: String, options: Options) -> [TextToken] {
 		var tokens = ModelTextTokenizer.tokenize(text)
+		// Pause before each word token, when the timestamps line up with the tokens.
+		let pauses = options.wordGapsMs.flatMap { InlineCommandRenderer.pausesPerWordToken(text: text, gaps: $0) }
 		if options.mode != .streaming { tokens = SpelledWordRenderer.render(tokens) }
+		if options.mode == .literal { tokens = LiteralNormalizer.normalize(tokens) }
+		if options.resolveSelfCorrections {
+			tokens = SelfCorrectionResolver.resolve(tokens, language: options.language, vocabulary: options.vocabulary)
+		}
 		switch options.mode {
 		case .literal:
-			tokens = LiteralNormalizer.normalize(tokens)
 			if options.formatNumbers { tokens = SpokenNumberFormatter.format(tokens, language: options.language) }
-			tokens = InlineCommandRenderer.render(tokens, englishCommands: options.englishCommands)
+			tokens = InlineCommandRenderer.render(
+				tokens,
+				englishCommands: options.englishCommands,
+				pauseBeforeWord: pauses.flatMap { pauses in tokens.compactMap(\.wordText).count == pauses.count ? pauses : nil },
+				commandPauseMs: options.commandPauseMs,
+				language: options.language
+			)
 		case .normal:
 			if options.formatNumbers { tokens = SpokenNumberFormatter.format(tokens, language: options.language) }
+			if options.spokenPunctuationInNormal {
+				tokens = InlineCommandRenderer.render(
+					tokens,
+					englishCommands: options.englishCommands,
+					includeFormat: false,
+					pauseBeforeWord: pauses.flatMap { pauses in tokens.compactMap(\.wordText).count == pauses.count ? pauses : nil },
+					commandPauseMs: options.commandPauseMs,
+					language: options.language
+				)
+				// „Ende Punkt.“ → one period, not two.
+				tokens = StreamingTextProcessor.dropEchoedModelMarks(tokens)
+			}
 			if options.agentFormatting { tokens = AgentFormatter.format(tokens) }
 		case .streaming:
 			if options.formatNumbers { tokens = SpokenNumberFormatter.format(tokens, language: options.language) }
@@ -176,6 +293,8 @@ public enum DictationTextPipeline {
 			return [command == .newLine ? .lineBreak : .paragraphBreak]
 		case let .command(.format(command)):
 			return [.format(command)]
+		case let .command(.snippet(text)):
+			return snippetTokens(text)
 		case .command, .empty:
 			return []
 		}

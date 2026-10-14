@@ -60,8 +60,10 @@ actor ParakeetClient {
       asr = nil
       models = nil
     }
+    // Explicit install only; restore the previous value (audit M9).
+    let previousOfflineMode = ModelHub.offlineMode
     ModelHub.offlineMode = false
-    defer { ModelHub.offlineMode = true }
+    defer { ModelHub.offlineMode = previousOfflineMode }
 
     migrateLegacyCacheIfNeeded(
       variant,

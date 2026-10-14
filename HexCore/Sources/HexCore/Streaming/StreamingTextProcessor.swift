@@ -20,6 +20,9 @@ public struct StreamingTextProcessor: Sendable {
 		public var englishCommands: Bool
 		/// nil = all spoken punctuation; otherwise only these marks.
 		public var allowedMarks: Set<PunctuationMark>?
+		/// Self-corrections inside text that is released at once (plan B2);
+		/// words typed earlier are handled by correction commands instead.
+		public var resolveSelfCorrections = false
 
 		public init(
 			keepPunctuation: Bool = true,
@@ -57,7 +60,10 @@ public struct StreamingTextProcessor: Sendable {
 		}
 	}
 
-	public var options: Options
+	public private(set) var options: Options
+	/// Built once per session: large vocabulary packs made a scan over all
+	/// aliases per update expensive (audit M13).
+	private let aliasIndex: AliasIndex
 	private var pending = ""
 	/// The last released text ended a sentence through a dictated mark or break.
 	private var capitalizeNext = false
@@ -69,10 +75,16 @@ public struct StreamingTextProcessor: Sendable {
 
 	public init(options: Options) {
 		self.options = options
+		self.aliasIndex = AliasIndex(options.aliases)
 	}
 
 	/// Text not yet released (shown as the pending tail in the pill).
 	public var heldBack: String { pending }
+
+	/// Drops held-back text that turned out to be a correction command.
+	public mutating func discardHeld() {
+		pending = ""
+	}
 
 	/// Feeds a delta; returns text that can be typed now.
 	public mutating func push(_ delta: String) -> String {
@@ -105,7 +117,7 @@ public struct StreamingTextProcessor: Sendable {
 		guard !trimmed.isEmpty else { return nil }
 		let words = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
 		if aliasPrefixLength(words) > 0 { return nil }
-		if options.commands != .off, Self.trailingCommandStart(trimmed) != nil, Self.isLineBreakStart(trimmed) {
+		if options.commands != .off, Self.trailingCommandStart(trimmed) != nil {
 			return nil
 		}
 		let (ready, space) = Self.splitTrailingWhitespace(pending)
@@ -151,9 +163,17 @@ public struct StreamingTextProcessor: Sendable {
 		if options.formatNumbers {
 			let english = options.language.lowercased().hasPrefix("en")
 			var numeric = 0
-			for word in words.reversed() {
+			let reversed = Array(words.reversed())
+			for (offset, word) in reversed.enumerated() {
 				let clean = word.trimmingCharacters(in: .punctuationCharacters)
-				guard !clean.isEmpty, SpokenNumberFormatter.mayContinueValue(clean, english: english) else { break }
+				guard !clean.isEmpty else { break }
+				if SpokenNumberFormatter.isValueConnector(clean, english: english) {
+					// Held only right after a value word („zwölf Euro und“, „viertel nach“).
+					let older = reversed[safe: offset + 1]?.trimmingCharacters(in: .punctuationCharacters) ?? ""
+					guard SpokenNumberFormatter.mayContinueValue(older, english: english) else { break }
+				} else if !SpokenNumberFormatter.mayContinueValue(clean, english: english) {
+					break
+				}
 				numeric += 1
 				if numeric == 8 { break }
 			}
@@ -164,17 +184,7 @@ public struct StreamingTextProcessor: Sendable {
 
 	/// Keep an alias prefix until the next word settles whether it is a match.
 	private func aliasPrefixLength(_ words: [String]) -> Int {
-		guard !words.isEmpty else { return 0 }
-		let lower = words.map { $0.lowercased() }
-		var best = 0
-		for alias in options.aliases.keys {
-			let parts = alias.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
-			guard parts.count > 1 else { continue }
-			for length in 1..<min(parts.count, lower.count + 1) {
-				if Array(lower.suffix(length)) == Array(parts.prefix(length)) { best = max(best, length) }
-			}
-		}
-		return best
+		aliasIndex.prefixLength(words)
 	}
 
 	/// Length of the longest suffix of `words` that is a proper prefix of a
@@ -203,10 +213,6 @@ public struct StreamingTextProcessor: Sendable {
 		return length > 0 ? length : nil
 	}
 
-	static func isLineBreakStart(_ text: String) -> Bool {
-		trailingCommandStart(text) != nil
-	}
-
 	// MARK: - Transform
 
 	mutating func transform(_ text: String) -> String {
@@ -218,8 +224,11 @@ public struct StreamingTextProcessor: Sendable {
 
 		let original = ModelTextTokenizer.tokenize(core)
 		var tokens = original
-		if !options.aliases.isEmpty {
-			tokens = Self.replaceAliases(tokens, aliases: options.aliases)
+		if !aliasIndex.isEmpty {
+			tokens = aliasIndex.replace(tokens)
+		}
+		if options.resolveSelfCorrections {
+			tokens = SelfCorrectionResolver.resolve(tokens, language: options.language)
 		}
 		if !options.keepPunctuation {
 			tokens = tokens.filter { if case .modelMark = $0 { return false } else { return true } }
@@ -235,7 +244,8 @@ public struct StreamingTextProcessor: Sendable {
 				tokens,
 				englishCommands: options.englishCommands,
 				allowedMarks: options.allowedMarks,
-				includeFormat: options.commands == .all
+				includeFormat: options.commands == .all,
+				language: options.language
 			)
 			// A model mark next to a dictated one is the model's echo of it ("Komma," → ",,").
 			if lastWasDictated {
@@ -397,30 +407,72 @@ public struct StreamingTextProcessor: Sendable {
 
 	/// Longest exact alias first; model punctuation forms a phrase boundary.
 	static func replaceAliases(_ tokens: [TextToken], aliases: [String: String]) -> [TextToken] {
-		let phrases = aliases.compactMap { key, replacement -> ([String], String)? in
-			let words = key.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
-			return words.count > 1 ? (words, replacement) : nil
-		}.sorted { $0.0.count > $1.0.count }
-		var result: [TextToken] = []
-		var index = 0
-		while index < tokens.count {
-			if let phrase = phrases.first(where: { words, _ in
-				guard index + words.count <= tokens.count else { return false }
-				return zip(words, tokens[index..<(index + words.count)]).allSatisfy { expected, token in
-					token.wordText?.lowercased() == expected
-				}
-			}) {
-				result += ModelTextTokenizer.tokenize(phrase.1)
-				index += phrase.0.count
-				continue
+		AliasIndex(aliases).replace(tokens)
+	}
+
+	/// Alias lookup structures, built once (audit M13).
+	struct AliasIndex {
+		private let single: [String: String]
+		/// Multi-word aliases by first word, longest first.
+		private let phrasesByFirstWord: [String: [(words: [String], replacement: String)]]
+		/// Proper prefixes of multi-word aliases ("klammer" of "klammer auf").
+		private let properPrefixes: Set<[String]>
+		private let longestPhrase: Int
+
+		init(_ aliases: [String: String]) {
+			var single: [String: String] = [:]
+			var phrases: [String: [(words: [String], replacement: String)]] = [:]
+			var prefixes = Set<[String]>()
+			var longest = 0
+			for (key, replacement) in aliases {
+				let words = key.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
+				single[key.lowercased()] = replacement
+				guard words.count > 1 else { continue }
+				phrases[words[0], default: []].append((words, replacement))
+				longest = max(longest, words.count)
+				for length in 1..<words.count { prefixes.insert(Array(words.prefix(length))) }
 			}
-			if case let .word(word) = tokens[index] {
-				result.append(.word(replaceWords(in: word) { aliases[$0.lowercased()] }))
-			} else {
-				result.append(tokens[index])
-			}
-			index += 1
+			self.single = single
+			self.phrasesByFirstWord = phrases.mapValues { $0.sorted { $0.words.count > $1.words.count } }
+			self.properPrefixes = prefixes
+			self.longestPhrase = longest
 		}
-		return result
+
+		var isEmpty: Bool { single.isEmpty }
+
+		/// Length of the longest suffix of `words` that starts a multi-word alias.
+		func prefixLength(_ words: [String]) -> Int {
+			guard longestPhrase > 1, !words.isEmpty else { return 0 }
+			let lower = words.suffix(longestPhrase - 1).map { $0.lowercased() }
+			for length in stride(from: lower.count, through: 1, by: -1) where properPrefixes.contains(Array(lower.suffix(length))) {
+				return length
+			}
+			return 0
+		}
+
+		func replace(_ tokens: [TextToken]) -> [TextToken] {
+			var result: [TextToken] = []
+			var index = 0
+			while index < tokens.count {
+				if let first = tokens[index].wordText?.lowercased(),
+				   let phrase = phrasesByFirstWord[first]?.first(where: { candidate in
+					   guard index + candidate.words.count <= tokens.count else { return false }
+					   return zip(candidate.words, tokens[index..<(index + candidate.words.count)]).allSatisfy { expected, token in
+						   token.wordText?.lowercased() == expected
+					   }
+				   }) {
+					result += ModelTextTokenizer.tokenize(phrase.replacement)
+					index += phrase.words.count
+					continue
+				}
+				if case let .word(word) = tokens[index] {
+					result.append(.word(StreamingTextProcessor.replaceWords(in: word) { single[$0.lowercased()] }))
+				} else {
+					result.append(tokens[index])
+				}
+				index += 1
+			}
+			return result
+		}
 	}
 }

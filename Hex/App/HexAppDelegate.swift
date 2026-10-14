@@ -149,18 +149,23 @@ class HexAppDelegate: NSObject, NSApplicationDelegate {
 
 		let settingsView = AppView(store: HexApp.appStore)
 		let settingsWindow = NSWindow(
-			contentRect: .init(x: 0, y: 0, width: 700, height: 700),
+			contentRect: .init(x: 0, y: 0, width: 1000, height: 720),
 			styleMask: [.titled, .fullSizeContentView, .closable, .miniaturizable, .resizable],
 			backing: .buffered,
 			defer: false
 		)
-		settingsWindow.titleVisibility = .visible
-		settingsWindow.contentView = NSHostingView(rootView: settingsView)
+		// The window takes only the SwiftUI minimum (grows with the text size),
+		// never a page's ideal size (it used to jump between 695 and 1091 pt).
+		let hosting = NSHostingView(rootView: settingsView)
+		hosting.sizingOptions = [.minSize]
+		settingsWindow.contentView = hosting
+		settingsWindow.titleVisibility = .hidden
+		settingsWindow.titlebarAppearsTransparent = true
 		settingsWindow.isReleasedWhenClosed = false
-		settingsWindow.minSize = .init(width: 620, height: 560)
-		settingsWindow.setFrameAutosaveName("Settings")
+		settingsWindow.setContentSize(.init(width: 1000, height: 720))
+		settingsWindow.setFrameAutosaveName("FlowMainWindow")
+		if settingsWindow.frame.width < 880 { settingsWindow.setContentSize(.init(width: 1000, height: 720)) }
 		settingsWindow.center()
-		settingsWindow.toolbarStyle = NSWindow.ToolbarStyle.unified
 		settingsWindow.makeKeyAndOrderFront(nil)
 		NSApp.activate(ignoringOtherApps: true)
 		self.settingsWindow = settingsWindow

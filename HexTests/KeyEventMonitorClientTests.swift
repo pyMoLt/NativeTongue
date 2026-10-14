@@ -15,4 +15,11 @@ final class KeyEventMonitorClientTests: XCTestCase {
     XCTAssertTrue(monitor.readState { true })
     token.cancel()
   }
+
+  /// Audit L10: no 2 s wake-ups in idle once permissions are granted.
+  func testPermissionWatchdogSlowsDownOnceGranted() {
+    XCTAssertEqual(KeyEventMonitorClientLive.trustCheckInterval(accessibility: true, input: true), .seconds(30))
+    XCTAssertEqual(KeyEventMonitorClientLive.trustCheckInterval(accessibility: false, input: true), .seconds(2))
+    XCTAssertEqual(KeyEventMonitorClientLive.trustCheckInterval(accessibility: true, input: false), .seconds(2))
+  }
 }

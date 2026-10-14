@@ -14,6 +14,16 @@ public enum SpokenNumberFormatter {
 				i += consumed
 				continue
 			}
+			// Plan B5: phone numbers, times, money, house numbers, ordinals.
+			if let parsed = parsePhone(tokens, at: i, english: english)
+				?? parseTime(tokens, at: i, english: english)
+				?? parseMoney(tokens, at: i, english: english)
+				?? parseHouseNumber(tokens, at: i, english: english)
+				?? parseOrdinal(tokens, at: i, english: english) {
+				output += parsed.tokens
+				i += parsed.consumed
+				continue
+			}
 			if let number = parseNumber(tokens, at: i, english: english) {
 				var j = i + number.consumed
 				var rendered = number.text
@@ -83,6 +93,9 @@ public enum SpokenNumberFormatter {
 		let raw: String
 	}
 
+	/// Longer spoken sequences stay words (also guards against integer overflow).
+	static let maximumValue = 999_999_999_999
+
 	private static func parseInteger(_ tokens: [TextToken], at start: Int, english: Bool) -> ParsedInteger? {
 		guard let first = tokens[safe: start]?.wordText else { return nil }
 		if first.range(of: #"^\d+([.,]\d+)?$"#, options: .regularExpression) != nil {
@@ -95,9 +108,14 @@ public enum SpokenNumberFormatter {
 		var sawNumber = false
 		while let word = tokens[safe: start + consumed]?.wordText.map(lowered) {
 			if word == "hundert" || word == "hundred" {
+				// "hundert hundert", "eins hundert zwei hundert": a new number starts.
+				// Repeated multiplication overflowed and crashed (audit M1).
+				if current >= 100 { break }
 				current = max(current, 1) * 100
 			} else if word == "tausend" || word == "thousand" {
-				total += max(current, 1) * 1_000
+				let (thousands, overflow) = max(current, 1).multipliedReportingOverflow(by: 1_000)
+				guard !overflow, total <= maximumValue - thousands else { break }
+				total += thousands
 				current = 0
 			} else if sawNumber, english, word == "and",
 			          let next = tokens[safe: start + consumed + 1]?.wordText.map(lowered), cardinal(next, english: true) != nil {
@@ -106,6 +124,7 @@ public enum SpokenNumberFormatter {
 			} else if let value = cardinal(word, english: english) {
 				// Two plain numbers in a row ("zwei drei") are separate numbers.
 				if sawNumber && current % 100 != 0 && value < 100 { break }
+				guard total <= maximumValue - value - current else { break }
 				if value >= 1_000 { total += value } else { current += value }
 			} else {
 				break
@@ -214,10 +233,21 @@ public enum SpokenNumberFormatter {
 	static func mayContinueValue(_ word: String, english: Bool) -> Bool {
 		let lower = word.lowercased()
 		if isNumberWord(lower, english: english) { return true }
+		// Times and money (plan B5): „halb …“, „viertel nach …“, „… Uhr dreißig“, „… Euro fünfzig“.
+		let valueWords: Set<String> = english
+			? ["half", "quarter", "o'clock", "oclock", "am", "pm", "dollar", "dollars", "euro", "euros", "pound", "pounds", "plus"]
+			: ["halb", "viertel", "dreiviertel", "uhr", "euro", "dollar", "pfund", "franken", "plus"]
+		if valueWords.contains(lower) { return true }
 		if lower == (english ? "point" : "komma") { return true }
 		if (english ? englishOrdinal(lower) : germanOrdinal(lower)) != nil { return true }
 		if english ? englishMonths[lower] != nil : germanMonths[lower] != nil { return true }
 		return unitPhrases(english: english).contains { $0.first == lower }
+	}
+
+	/// „und“, „nach“, „past“ … continue a value only right after a value word
+	/// („zwölf Euro und …“, „viertel nach …“); streaming holds them only then.
+	static func isValueConnector(_ word: String, english: Bool) -> Bool {
+		(english ? ["past", "to", "and", "of"] : ["nach", "vor", "und"]).contains(word.lowercased())
 	}
 
 	/// A single word that reads as a number ("38,5", "fünf", "zwanzig").
@@ -275,6 +305,19 @@ public enum SpokenNumberFormatter {
 
 	private static func parseDate(_ tokens: [TextToken], at start: Int, english: Bool) -> ([TextToken], Int)? {
 		guard let first = tokens[safe: start]?.wordText.map(lowered) else { return nil }
+		let article = english && first == "the" ? 1 : 0
+		if english, let dayWord = tokens[safe: start + article]?.wordText.map(lowered), let day = englishOrdinal(dayWord),
+		   lowered(tokens[safe: start + article + 1]?.wordText ?? "") == "of",
+		   let monthWord = tokens[safe: start + article + 2]?.wordText.map(lowered), let (_, name) = englishMonths[monthWord] {
+			// „(the) third of March“ → March 3
+			var consumed = article + 3
+			var text = "\(name) \(day)"
+			if let year = parseYear(tokens, at: start + consumed, english: true) {
+				text += ", \(year.value)"
+				consumed += year.consumed
+			}
+			return (text.split(separator: " ").map { .word(String($0)) }, consumed)
+		}
 		if english {
 			guard let (month, name) = englishMonths[first],
 			      let dayWord = tokens[safe: start + 1]?.wordText.map(lowered), let day = englishOrdinal(dayWord) else { return nil }

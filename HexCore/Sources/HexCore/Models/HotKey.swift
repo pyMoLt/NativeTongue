@@ -1,9 +1,3 @@
-//
-//  Modifier.swift
-//  Hex
-//
-//  Created by Kit Langton on 1/26/25.
-//
 import Cocoa
 import Sauce
 

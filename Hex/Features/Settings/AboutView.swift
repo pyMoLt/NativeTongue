@@ -15,70 +15,70 @@ struct AboutView: View {
   }
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 18) {
+    FlowPage("About", subtitle: "Version \(version) · private dictation – audio never leaves this Mac", symbol: "info.circle") {
+      FlowBlock {
         HStack(spacing: 16) {
           Image(nsImage: NSApp.applicationIconImage)
             .resizable()
-            .frame(width: 72, height: 72)
-          VStack(alignment: .leading, spacing: 4) {
-            Text(AppBrand.name).font(.largeTitle.weight(.semibold))
-            Text("Version \(version)").foregroundStyle(.secondary)
+            .frame(width: 64, height: 64)
+          VStack(alignment: .leading, spacing: 3) {
+            Text(AppBrand.name).flowFont(.title2, weight: .bold, design: .rounded)
+            Text("Version \(version)").flowFont(.callout).foregroundStyle(.secondary)
             Label("Private dictation – audio never leaves this Mac", systemImage: "lock.shield")
-              .font(.callout)
+              .flowFont(.callout)
               .foregroundStyle(.tint)
           }
           Spacer()
           Button("Changelog") { showingChangelog = true }
-            .buttonStyle(.glass)
+            .buttonStyle(.flow)
         }
+      }
 
-        Card(title: "Settings & vocabulary", systemImage: "arrow.up.arrow.down.square") {
-          Text("Save all settings and your vocabulary to one file, or load them on another Mac. Word packs are not included, only which ones are active.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-          HStack {
+      FlowGroup("Settings and vocabulary") {
+        FlowRow("Move to another Mac", caption: "All settings and your vocabulary in one file. Word packs are not included, only which ones are active.") {
+          HStack(spacing: 6) {
             Button("Export…") { store.send(.exportSettings) }
             Button("Import…") { store.send(.importSettings) }
           }
-          .buttonStyle(.glass)
-        }
-
-        Card(title: "Diagnostics", systemImage: "stethoscope") {
-          Toggle("Record local diagnostics", isOn: Binding(
-            get: { store.hexSettings.diagnosticsEnabled },
-            set: { value in store.$hexSettings.withLock { $0.diagnosticsEnabled = value } }
-          ))
-          .toggleStyle(.switch)
-          Text("Writes only metrics (duration, model, number of utterances and commands, error codes) to a file on this Mac – never text, audio or file names. Nothing is sent anywhere.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-          Button("Show diagnostics file") { DiagnosticsStore.revealInFinder() }
-            .buttonStyle(.glass)
-            .disabled(!DiagnosticsStore.exists)
-        }
-
-        Card(title: "Acknowledgements", systemImage: "heart.text.square") {
-          VStack(alignment: .leading, spacing: 6) {
-            credit("Hex", "Kit Langton · MIT – the app this project started from")
-            credit("WhisperKit", "Argmax · MIT · OpenAI Whisper models (MIT)")
-            credit("FluidAudio", "FluidInference · Apache-2.0 · Parakeet, Canary (CC-BY-4.0), speaker separation")
-            credit("speech-swift / MLX", "soniqo, Apple · Apache-2.0 / MIT · Qwen3-ASR (Apache-2.0), Cohere Transcribe (Apache-2.0)")
-            credit("Apple SpeechAnalyzer", "on-device system component")
-            credit("Word packs", "Wikidata (CC0), cspell-dicts (MIT), medical word lists (GPL-3.0, separate download), BfArM data (local use only)")
-            credit("Composable Architecture, Sharing, Dependencies", "Point-Free · MIT")
-          }
+          .buttonStyle(.flow)
         }
       }
-      .padding(LocalASRDesign.pagePadding)
+
+      FlowGroup("Diagnostics") {
+        Toggle(isOn: Binding(
+          get: { store.hexSettings.diagnosticsEnabled },
+          set: { value in store.$hexSettings.withLock { $0.diagnosticsEnabled = value } }
+        )) {
+          FlowLabel("Record local diagnostics", caption: "Only metrics (duration, model, number of utterances and commands, error codes) in a file on this Mac – never text, audio or file names. Nothing is sent anywhere.")
+        }
+        FlowRow("Diagnostics file") {
+          Button("Show in Finder") { DiagnosticsStore.revealInFinder() }
+            .buttonStyle(.flow)
+            .disabled(!DiagnosticsStore.exists)
+        }
+      }
+
+      FlowGroup("Acknowledgements") {
+        FlowBlock {
+          credit("Hex", "Kit Langton · MIT – the app this project started from")
+          credit("WhisperKit", "Argmax · MIT · OpenAI Whisper models (MIT)")
+          credit("FluidAudio", "FluidInference · Apache-2.0 · Parakeet, Canary (CC-BY-4.0), speaker separation")
+          credit("speech-swift / MLX", "soniqo, Apple · Apache-2.0 / MIT · Qwen3-ASR (Apache-2.0), Cohere Transcribe (Apache-2.0)")
+          credit("Apple SpeechAnalyzer", "on-device system component")
+          credit("Word packs", "Wikidata (CC0), cspell-dicts (MIT), medical word lists (GPL-3.0, separate download), BfArM data (local use only)")
+          credit("Composable Architecture, Sharing, Dependencies", "Point-Free · MIT")
+        }
+      }
     }
-    .sheet(isPresented: $showingChangelog) { ChangelogView() }
+    .sheet(isPresented: $showingChangelog) {
+      ChangelogView().flowThemed(store.hexSettings.appearance)
+    }
   }
 
   private func credit(_ title: String, _ detail: String) -> some View {
     VStack(alignment: .leading, spacing: 1) {
-      Text(title).font(.callout.weight(.semibold))
-      Text(detail).font(.caption).foregroundStyle(.secondary)
+      Text(title).flowFont(.callout, weight: .semibold)
+      Text(detail).flowFont(.caption).foregroundStyle(.secondary)
     }
   }
 }

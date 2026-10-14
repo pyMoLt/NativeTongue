@@ -135,6 +135,54 @@ final class RecordingRaceTests: XCTestCase {
     }
   }
 
+  func testStaleStopEndsTranscribingState() async {
+    let now = Date(timeIntervalSince1970: 1_234)
+    var state = Self.makeState()
+    state.isRecording = true
+    state.recordingStartTime = now
+    state.$hexSettings.withLock { settings in
+      settings.hotkey = HotKey(key: .a, modifiers: [.command])
+      settings.selectedModel = "test-model"
+    }
+    let store = TestStore(initialState: state) {
+      TranscriptionFeature()
+    } withDependencies: {
+      $0.recording.stopRecording = { .ignored(.staleSession) }
+      $0.sleepManagement.allowSleep = {}
+    }
+
+    await store.send(.stopRecording) {
+      $0.isRecording = false
+      $0.isTranscribing = true
+      $0.error = nil
+      $0.isPrewarming = false
+    }
+    // Without a reset every later hotkey press was dropped as "still processing".
+    await store.receive(\.recordingSuperseded) {
+      $0.isTranscribing = false
+    }
+  }
+
+  func testEscapeDuringTranscriptionDeletesTheRecordingAtOnce() async throws {
+    let audioURL = try Self.makeSilenceWav()
+    defer { try? FileManager.default.removeItem(at: audioURL) }
+    var state = Self.makeState()
+    state.isTranscribing = true
+    state.activeAudioURL = audioURL
+    let store = TestStore(initialState: state) {
+      TranscriptionFeature()
+    } withDependencies: {
+      $0.sleepManagement.allowSleep = {}
+      $0.soundEffects.play = { _ in }
+    }
+    await store.send(.cancel) {
+      $0.isTranscribing = false
+      $0.activeAudioURL = nil
+    }
+    await store.finish()
+    XCTAssertFalse(FileManager.default.fileExists(atPath: audioURL.path), "a cancelled dictation must not stay for recovery")
+  }
+
   func testShortRecordingReleasesSleepAssertion() async throws {
     let now = Date(timeIntervalSince1970: 1_234)
     let stopURL = FileManager.default.temporaryDirectory
@@ -233,10 +281,11 @@ final class RecordingRaceTests: XCTestCase {
       TranscriptionFeature()
     }
 
-    await store.send(.transcriptionResult(
-      TranscriptionOutput(text: "", wordTimings: []),
+    await store.send(.sessionTranscriptionResult(
+      DictationSessionOutput(document: DictationDocument(), language: "de", text: ""),
       audioURL,
-      1.25
+      1.25,
+      isRecovery: false
     ))
     await store.finish()
 
@@ -269,11 +318,14 @@ final class RecordingRaceTests: XCTestCase {
       $0.soundEffects.play = { _ in }
     }
 
-    await store.send(.transcriptionResult(
-      TranscriptionOutput(text: "hello", wordTimings: []),
+    await store.send(.sessionTranscriptionResult(
+      DictationSessionOutput(document: DictationDocument(), language: "de", text: "hello"),
       audioURL,
-      duration
-    ))
+      duration,
+      isRecovery: false
+    )) {
+      $0.$lastTranscript.withLock { $0 = LastTranscript(text: "hello", date: Date(timeIntervalSince1970: 1_234), appName: nil) }
+    }
     while await probe.duration == nil {
       await Task.yield()
     }
@@ -343,10 +395,13 @@ final class RecordingRaceTests: XCTestCase {
       $0.soundEffects.play = { _ in }
     }
 
-    await store.send(.capturedRecording(request))
+    await store.send(.capturedRecording(request)) {
+      $0.activeAudioURL = audioURL
+    }
     await store.receive(\.sessionTranscriptionResult) {
       $0.isTranscribing = false
       $0.isPrewarming = false
+      $0.activeAudioURL = nil
       $0.$lastTranscript.withLock { $0 = LastTranscript(text: "ready to paste", date: Date(timeIntervalSince1970: 1_234), appName: nil) }
     }
     await store.finish()
