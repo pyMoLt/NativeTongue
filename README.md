@@ -23,6 +23,8 @@
 
 Hold a key, speak, let go: NativeTongue types what you said into whatever app you are using. Speech recognition, commands, formatting, vocabulary and the optional AI step all run on your Mac. There is no account, no cloud service, no telemetry and no automatic update check.
 
+NativeTongue grew out of [Hex](https://github.com/kitlangton/Hex) by Kit Langton – [thank you!](#a-big-thank-you-to-hex-)
+
 ## Features
 
 **Dictation**
@@ -124,6 +126,14 @@ scripts/build-dist.sh
 | **1.0** | First standalone version with an offline model catalog |
 
 See the [changelog](CHANGELOG.md) for details.
+
+## A big thank you to Hex 💜
+
+NativeTongue would not exist without **[Hex](https://github.com/kitlangton/Hex)** by **[Kit Langton](https://github.com/kitlangton)**.
+
+Hex showed how simple and pleasant on-device dictation on the Mac can be: hold a key, speak, let go. Its clean Swift and Composable Architecture foundation, the hotkey handling and the first WhisperKit and Parakeet integration were the starting point for this project. Everything in NativeTongue grew on top of that work.
+
+Thank you, Kit, for building Hex and for sharing it as open source under the MIT license. If you like NativeTongue, please go and give **[Hex a star](https://github.com/kitlangton/Hex)** too.
 
 ## Credits and license
 
