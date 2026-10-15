@@ -42,6 +42,11 @@ extension SharedReaderKey
   static var isDictationBoxPresented: Self {
     Self[.inMemory("isDictationBoxPresented"), default: false]
   }
+
+  /// The dictation box panel is on screen (a box session can run invisibly until its first text).
+  static var isDictationBoxVisible: Self {
+    Self[.inMemory("isDictationBoxVisible"), default: false]
+  }
 }
 
 extension SharedReaderKey where Self == InMemoryKey<String>.Default {

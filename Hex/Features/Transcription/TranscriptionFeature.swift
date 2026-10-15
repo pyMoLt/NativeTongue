@@ -119,6 +119,7 @@ struct TranscriptionFeature {
     @Shared(.hexSettings) var hexSettings: HexSettings
     @Shared(.isRemappingScratchpadFocused) var isRemappingScratchpadFocused: Bool = false
     @Shared(.isDictationBoxPresented) var isDictationBoxPresented: Bool = false
+    @Shared(.isDictationBoxVisible) var isDictationBoxVisible: Bool = false
     @Shared(.dictationBoxPlainText) var dictationBoxPlainText: String = ""
     @Shared(.lastTranscript) var lastTranscript: LastTranscript? = nil
 
@@ -1031,8 +1032,8 @@ struct TranscriptionView: View {
   @ObserveInjection var inject
 
   var status: TranscriptionIndicatorView.Status {
-    // The dictation box shows its own recording indicator.
-    if store.isDictationBoxPresented {
+    // The visible dictation box shows its own recording indicator.
+    if store.isDictationBoxVisible {
       return .hidden
     } else if store.isStreaming {
       return .streaming
@@ -1055,7 +1056,7 @@ struct TranscriptionView: View {
       meter: store.meter,
       mode: store.hexSettings.dictationMode,
       recordingStart: store.recordingStartTime,
-      showsWarning: store.showsPolishWarning && !store.isDictationBoxPresented,
+      showsWarning: store.showsPolishWarning && !store.isDictationBoxVisible,
       pendingText: store.streamingPending
     )
     .flowThemed(store.hexSettings.appearance)

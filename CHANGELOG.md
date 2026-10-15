@@ -2,6 +2,21 @@
 
 All notable NativeTongue changes. The app version is set in the Xcode project.
 
+## 3.2.2
+
+### Changed
+
+- **Dictation box opens with the first finished dictation** (like Dragon), by default. Settings → Dictation Box → "When does the box open?" switches back to opening when recording starts. A cancelled or empty dictation opens nothing.
+- With "when recording starts", an empty box closes again after 3 s (1–10 s) unless a new dictation starts. A box that held text – even if you cleared it to dictate again – stays open.
+
+### Added
+
+- **Dictation box styles** (Appearance → Dictation Box): Standard, Compact and Minimal with the same functions; what a style does not show is in the "…" menu. Own size (80–150 %), opacity while another app is active (30–100 %), own background and text colours for Minimal, and an optional own look (light/dark, accent, glass, colour field) independent of the app – for example a plain white or black box next to a colourful app.
+
+### Fixed
+
+- Resizing the dictation box no longer cuts off controls at the edges: the toolbar moves less frequent items into "…" and the window cannot get smaller than its content.
+
 ## 3.2.1
 
 ### Fixed

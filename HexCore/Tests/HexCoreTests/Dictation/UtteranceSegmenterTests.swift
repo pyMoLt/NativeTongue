@@ -66,7 +66,8 @@ final class UtteranceSegmenterTests: XCTestCase {
 	/// user's literal recording must each be an isolated utterance with a measured
 	/// pause ≥ 450 ms before and after. Skipped when the private fixture is absent.
 	func testLiteralRecordingIsolatesStructuralCommands() throws {
-		let samples = try XCTUnwrap(try TestAudio.load("Literal-controls.m4a"), "fixture missing")
+		let loaded = try TestAudio.load("Literal-controls.m4a")
+		let samples = try XCTUnwrap(loaded, "fixture missing")
 		let utterances = UtteranceSegmenter.segment(samples)
 		func seconds(_ sample: Int) -> Double { Double(sample) / 16_000 }
 		// Speech regions of the commands measured in the benchmark (energy VAD).
@@ -91,14 +92,16 @@ enum TestAudio {
 	/// Loads a private fixture from `dev-docs/04-tests/audio` as 16 kHz mono Float32.
 	/// Throws `XCTSkip` when the file is not present (fixtures are not in git).
 	static func load(_ name: String) throws -> [Float]? {
-		let url = URL(fileURLWithPath: #filePath)
+		let root = URL(fileURLWithPath: #filePath)
 			.deletingLastPathComponent() // Dictation
 			.deletingLastPathComponent() // HexCoreTests
 			.deletingLastPathComponent() // Tests
 			.deletingLastPathComponent() // HexCore
-			.deletingLastPathComponent() // hex-fork
+			.deletingLastPathComponent() // NativeTongue
 			.deletingLastPathComponent() // Local_ASR
-			.appendingPathComponent("dev-docs/04-tests/audio/\(name)")
+		let devDocsURL = root.appendingPathComponent("dev-docs/04-tests/audio/\(name)")
+		let legacyURL = root.appendingPathComponent("dev-docs/04-tests/audio/\(name)")
+		let url = FileManager.default.fileExists(atPath: devDocsURL.path) ? devDocsURL : legacyURL
 		guard FileManager.default.fileExists(atPath: url.path) else {
 			throw XCTSkip("Private audio fixture \(name) not available")
 		}

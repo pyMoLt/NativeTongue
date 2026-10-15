@@ -13,7 +13,7 @@ final class PasteboardSnapshotTests: XCTestCase {
     let textItem = NSPasteboardItem()
     textItem.setString("previous text", forType: .string)
 
-    let dataType = NSPasteboard.PasteboardType("com.localasr.test-binary")
+    let dataType = NSPasteboard.PasteboardType("com.pymolt.test-binary")
     let dataItem = NSPasteboardItem()
     let payload = Data([0x00, 0x2A, 0xFF])
     dataItem.setData(payload, forType: dataType)

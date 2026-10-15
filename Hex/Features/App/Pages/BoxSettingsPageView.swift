@@ -10,9 +10,29 @@ struct BoxSettingsPageView: View {
 
   var body: some View {
     FlowPage("Dictation Box", subtitle: "Collect and correct dictations, insert only with ✓", symbol: "text.below.photo") {
-      FlowGroup("When does the box open?", footer: "The box opens when you press the dictation key. Further dictations are appended; selected text is replaced by the next dictation. Return and Esc never confirm or discard – only ✓ and ✕.") {
+      FlowGroup("Use the box", footer: "Further dictations are appended; selected text is replaced by the next dictation. Return and Esc never confirm or discard – only ✓ and ✕.") {
         toggle("In Literal mode", \.dictationBoxEnabledLiteral, "Default: on – for long or demanding texts.")
         toggle("In Normal mode", \.dictationBoxEnabledNormal, "Default: off – text is inserted directly.")
+      }
+
+      FlowGroup("When does the box open?") {
+        FlowSegmented(selection: Binding(
+          get: { settings.boxOpenTiming },
+          set: { value in store.$hexSettings.withLock { $0.boxOpenTiming = value } }
+        ), options: [
+          FlowOption(DictationBoxOpenTiming.afterFirstDictation, "After the first dictation"),
+          FlowOption(.immediately, "When recording starts"),
+        ])
+        .flowRow("Opens", caption: settings.boxOpenTiming == .afterFirstDictation
+          ? "Like Dragon: the box appears with the text of your first dictation. A cancelled or empty dictation opens nothing."
+          : "The box appears as soon as you press the dictation key. If nothing is dictated, it closes again after the wait below.")
+        if settings.boxOpenTiming == .immediately {
+          Stepper("", value: Binding(
+            get: { settings.boxAutoCloseSeconds },
+            set: { value in store.$hexSettings.withLock { $0.boxAutoCloseSeconds = value } }
+          ), in: 1 ... 10, step: 1)
+          .flowRow("Close an empty box after \(Int(settings.boxAutoCloseSeconds)) s", caption: "Only if it never held text and no new dictation starts. A box you cleared by hand stays open.")
+        }
       }
 
       FlowGroup("Text") {
@@ -52,8 +72,8 @@ struct BoxSettingsPageView: View {
         }
       }
 
-      FlowGroup("Window") {
-        FlowRow("Box position", caption: "Moves the box back to its default place.") {
+      FlowGroup("Window", footer: "Style, size, transparency and colours: Appearance → Dictation Box.") {
+        FlowRow("Position and size", caption: "The box opens where and as large as you left it. Reset moves it back to the bottom centre in the default size of its style.") {
           Button("Reset") {
             NotificationCenter.default.post(name: .resetDictationBoxPosition, object: nil)
           }

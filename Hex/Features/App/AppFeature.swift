@@ -166,6 +166,13 @@ struct AppFeature {
         // Literal + streaming in the box: open the box for the new session.
         return presentBoxIfNeeded(&state)
 
+      case .transcription(.cancel), .transcription(.discard), .transcription(.transcriptionError),
+           .transcription(.recordingSuperseded), .transcription(.streamingEvent(_, .finished)),
+           .transcription(.streamingEvent(_, .failed)):
+        // A box session whose recording produced nothing does not stay open empty.
+        guard state.dictationBox.isPresented else { return .none }
+        return .send(.dictationBox(.recordingAbandoned))
+
       case let .transcription(.boxStreamedText(text)):
         return .send(.dictationBox(.streamedText(text)))
 
@@ -457,7 +464,8 @@ struct AppFeature {
       effects.append(.send(.dictationBox(.present(
         targetBundleID: isSelf ? nil : frontmost?.bundleIdentifier,
         targetAppName: isSelf ? nil : frontmost?.localizedName,
-        mode: mode
+        mode: mode,
+        visible: session.boxOpenTiming == .immediately
       ))))
     }
     if state.dictationBox.isPresented || session.dictationBoxEnabled(for: mode) {

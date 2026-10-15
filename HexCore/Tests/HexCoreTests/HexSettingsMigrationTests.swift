@@ -152,6 +152,44 @@ final class HexSettingsMigrationTests: XCTestCase {
 		XCTAssertFalse(try JSONDecoder().decode(HexSettings.self, from: JSONEncoder().encode(gapOff)).whisperGapFill)
 	}
 
+	/// 3.2.2: dictation box opening, auto-close and look; old and broken values fall back.
+	func testDictationBoxSettingsDefaultsAndTolerantDecoding() throws {
+		let old = try JSONDecoder().decode(HexSettings.self, from: Data("{}".utf8))
+		XCTAssertEqual(old.boxOpenTiming, .afterFirstDictation)
+		XCTAssertEqual(old.boxAutoCloseSeconds, 3)
+		XCTAssertEqual(old.appearance.dictationBox, DictationBoxAppearance())
+		let broken = try JSONDecoder().decode(HexSettings.self, from: Data(#"{"boxOpenTiming":"later","boxAutoCloseSeconds":60,"appearance":{"accent":"teal","dictationBox":{"style":"huge","scale":3}}}"#.utf8))
+		XCTAssertEqual(broken.boxOpenTiming, .afterFirstDictation)
+		XCTAssertEqual(broken.boxAutoCloseSeconds, 10, "clamped to 1–10 s")
+		XCTAssertEqual(broken.appearance.accent, .teal)
+		XCTAssertEqual(broken.appearance.dictationBox.style, .standard)
+		XCTAssertEqual(broken.appearance.dictationBox.clampedScale, 1.5)
+		var custom = HexSettings()
+		custom.boxOpenTiming = .immediately
+		custom.appearance.dictationBox.style = .minimal
+		custom.appearance.dictationBox.minimalBackground = "#112233"
+		custom.appearance.dictationBox.inactiveOpacity = 0.5
+		let decoded = try JSONDecoder().decode(HexSettings.self, from: JSONEncoder().encode(custom))
+		XCTAssertEqual(decoded.boxOpenTiming, .immediately)
+		XCTAssertEqual(decoded.appearance.dictationBox, custom.appearance.dictationBox)
+		// Own look: a plain box next to a vivid app; the app's light/dark choice is untouched.
+		var app = AppearanceSettings()
+		app.accent = .coral
+		app.background = .vivid
+		app.colorScheme = .dark
+		var box = DictationBoxAppearance()
+		XCTAssertEqual(box.effective(app: app), app)
+		XCTAssertNil(box.ownColorScheme)
+		box.followsApp = false
+		box.colorScheme = .light
+		let effective = box.effective(app: app)
+		XCTAssertEqual(effective.accent, .graphite)
+		XCTAssertEqual(effective.background, .off)
+		XCTAssertEqual(effective.glass, .solid)
+		XCTAssertEqual(effective.colorScheme, .dark, "the app-wide mode stays; the box window gets its own")
+		XCTAssertEqual(box.ownColorScheme, .light)
+	}
+
 	func testRetiredWhisperModelsFallBackToTurbo() throws {
 		let json = #"{"selectedModel":"openai_whisper-large-v3-v20240930","literalModel":"openai_whisper-large-v3-v20240930_turbo_632MB","asrProfile":"general"}"#
 		let settings = try JSONDecoder().decode(HexSettings.self, from: Data(json.utf8))

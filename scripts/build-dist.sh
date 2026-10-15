@@ -2,55 +2,17 @@
 # Builds a Release NativeTongue.app (arm64, hardened runtime, no App Sandbox)
 # into dist/. Usage: scripts/build-dist.sh [--install]
 #
-# Signing: NATIVETONGUE_SIGN_IDENTITY if set, otherwise the local self-signed
-# "NativeTongue Local" code-signing identity (created in Keychain Access; Apple
-# cannot revoke it), otherwise the first "Apple Development" identity whose
-# certificate Apple has not revoked. A stable identity lets macOS keep
-# Microphone/Accessibility/Input Monitoring grants across builds. Without a
-# usable identity the app is ad-hoc signed.
-#
-# A revoked certificate still shows up as "valid" in the keychain, but after
-# the next restart macOS treats the app as malware and moves it to the Bin,
-# so every Apple Development candidate is checked online (OCSP) first. A
-# candidate whose status cannot be confirmed (offline, OCSP error) is skipped:
-# the check fails closed.
+# Signing: Ad-hoc signed ("-") by default so anyone can build and run without
+# an Apple Developer account. Set NATIVETONGUE_SIGN_IDENTITY to use a custom
+# code-signing identity if desired.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# Prints good, revoked or unknown for the certificate with the given SHA-1.
-cert_status() {
-  local pem
-  pem=$(mktemp -t nativetongue-cert)
-  security find-certificate -a -Z -p | awk -v h="$1" '
-    /^SHA-1 hash:/ { take = ($3 == h); next }
-    take { print }
-    take && /END CERTIFICATE/ { exit }' > "$pem"
-  local result
-  result=$(security verify-cert -c "$pem" -p codeSign -R ocsp -R require 2>&1 || true)
-  rm -f "$pem"
-  if [[ "$result" == *REVOKED* ]]; then echo revoked
-  elif [[ "$result" == *"verification successful"* ]]; then echo good
-  else echo unknown
-  fi
-}
-
-if [[ -n "${NATIVETONGUE_SIGN_IDENTITY:-}" ]]; then
-  SIGN_IDENTITY="$NATIVETONGUE_SIGN_IDENTITY"
-else
-  SIGN_IDENTITY=$(security find-identity -p codesigning | awk '/"NativeTongue Local"/ {print $2; exit}')
-  [[ -n "$SIGN_IDENTITY" ]] || SIGN_IDENTITY="-"
-  [[ "$SIGN_IDENTITY" == "-" ]] && for candidate in $(security find-identity -v -p codesigning | awk '/"Apple Development:/ {print $2}'); do
-    case "$(cert_status "$candidate")" in
-      good) SIGN_IDENTITY="$candidate"; break ;;
-      revoked) echo "Skipping revoked Apple Development certificate $candidate." ;;
-      *) echo "Skipping Apple Development certificate $candidate: revocation status could not be checked online (offline or OCSP error)." ;;
-    esac
-  done
-  [[ "$SIGN_IDENTITY" == "-" ]] && echo "No usable Apple Development identity; using ad-hoc signature."
-fi
+SIGN_IDENTITY="${NATIVETONGUE_SIGN_IDENTITY:--}"
 DERIVED=/private/tmp/NativeTongue-Release
 xcodebuild -scheme Hex -configuration Release -destination 'platform=macOS,arch=arm64' \
   -derivedDataPath "$DERIVED" -skipMacroValidation -skipPackagePluginValidation \
+  PRODUCT_BUNDLE_IDENTIFIER=com.pymolt.NativeTongue \
   CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CODE_SIGN_STYLE=Manual \
   build | grep -E "error:|BUILD (SUCCEEDED|FAILED)"
 APP="$DERIVED/Build/Products/Release/NativeTongue.app"
@@ -59,21 +21,27 @@ rm -rf dist/NativeTongue.app && mkdir -p dist && cp -R "$APP" dist/
 # Direct build: re-sign without App Sandbox so the already installed models in
 # ~/Library/Application Support are used (hardened runtime stays on). Nested
 # code (frameworks, plug-ins, helpers, bundles with an executable) is signed
-# first and without the app's entitlements; then the app itself, not --deep.
+# first and without the app's entitlements; then the app itself, and verified.
 for nested in dist/NativeTongue.app/Contents/{Frameworks,PlugIns,XPCServices,Helpers,Library/LoginItems}/*(N) \
               dist/NativeTongue.app/Contents/Resources/*.bundle(N); do
   if [[ "$nested" == *.bundle && ! -d "$nested/Contents/MacOS" ]]; then continue; fi
   if [[ "$nested" == *.bundle && -z "$(ls -A "$nested/Contents/MacOS")" ]]; then continue; fi
   codesign --force --sign "$SIGN_IDENTITY" --options runtime "$nested"
 done
-codesign --force --sign "$SIGN_IDENTITY" --options runtime \
+codesign --force --deep --sign "$SIGN_IDENTITY" --options runtime \
   --entitlements Hex/NativeTongue-Direct.entitlements dist/NativeTongue.app
 codesign --verify --deep --strict dist/NativeTongue.app
-if [[ "$SIGN_IDENTITY" != "-" ]] && spctl -a -t exec dist/NativeTongue.app 2>&1 | grep -q REVOKED; then
-  echo "Signing certificate is revoked; refusing to install a build macOS would quarantine." >&2
-  exit 1
+VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" dist/NativeTongue.app/Contents/Info.plist 2>/dev/null || echo "3.2.2")
+ZIP_NAME="NativeTongue-${VERSION}-macos-arm64.zip"
+rm -f "dist/$ZIP_NAME"
+ditto -c -k --sequesterRsrc --keepParent dist/NativeTongue.app "dist/$ZIP_NAME"
+if [[ -d ../releases ]]; then
+  rm -rf ../releases/NativeTongue.app "../releases/$ZIP_NAME"
+  cp -R dist/NativeTongue.app ../releases/NativeTongue.app
+  cp "dist/$ZIP_NAME" "../releases/$ZIP_NAME"
 fi
 echo "dist/NativeTongue.app ($(du -sh dist/NativeTongue.app | cut -f1)), signed with: $SIGN_IDENTITY"
+echo "dist/$ZIP_NAME ($(du -sh "dist/$ZIP_NAME" | cut -f1))"
 
 # --install: replace /Applications/NativeTongue.app (quits the running app first).
 # The new copy is verified next to the old one before it replaces it; the old
@@ -103,5 +71,5 @@ if [[ "${1:-}" == "--install" ]]; then
     exit 1
   fi
   codesign --verify --deep --strict "$TARGET" && echo "Installed to /Applications"
-  open "$TARGET"
+  [[ "${NO_OPEN:-0}" == "1" ]] || open "$TARGET"
 fi

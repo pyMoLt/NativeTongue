@@ -43,7 +43,13 @@ struct DictationBoxFeature {
 
   @ObservableState
   struct State: Equatable {
+    /// A box session is running: dictation results go into the box.
     var isPresented = false
+    /// The panel is on screen. With "open after the first dictation" a session starts
+    /// invisible and appears with its first text.
+    var isVisible = false
+    /// The box held text at some point (a cleared box is not closed automatically).
+    var hadText = false
     var phase: Phase = .editing
     var text = BoxText()
     /// Bumped on programmatic changes so the editor replaces its content.
@@ -80,6 +86,7 @@ struct DictationBoxFeature {
     /// Settings of the target app's profile (C2).
     var targetSettings: HexSettings { hexSettings.effective(forApp: targetBundleID) }
     @Shared(.isDictationBoxPresented) var isDictationBoxPresented: Bool = false
+    @Shared(.isDictationBoxVisible) var isDictationBoxVisible: Bool = false
     @Shared(.dictationBoxPlainText) var plainTextForCommands: String = ""
     @Shared(.transcriptionHistory) var transcriptionHistory: TranscriptionHistory
     @Shared(.lastTranscript) var lastTranscript: LastTranscript? = nil
@@ -98,7 +105,10 @@ struct DictationBoxFeature {
 
   enum Action: BindableAction {
     case binding(BindingAction<State>)
-    case present(targetBundleID: String?, targetAppName: String?, mode: DictationMode)
+    case present(targetBundleID: String?, targetAppName: String?, mode: DictationMode, visible: Bool = true)
+    /// The recording of this box session ended without a result (cancelled, too short, failed).
+    case recordingAbandoned
+    case autoCloseFired
     /// Opens the box in Command Mode with the selected text of the target app.
     case presentCommand(targetBundleID: String?, targetAppName: String?, selection: String)
     /// Runs the typed or spoken instruction on the box text.
@@ -154,7 +164,7 @@ struct DictationBoxFeature {
   @Dependency(\.lexicon) var lexicon
   @Dependency(\.llm) var llm
 
-  private enum CancelID { case suggestions, draft, ai }
+  private enum CancelID { case suggestions, draft, ai, autoClose }
 
   var body: some ReducerOf<Self> {
     BindingReducer()
@@ -163,7 +173,7 @@ struct DictationBoxFeature {
       case .binding:
         return .none
 
-      case let .present(targetBundleID, targetAppName, mode):
+      case let .present(targetBundleID, targetAppName, mode, visible):
         guard !state.isPresented else { return .none }
         state = State()
         state.isPresented = true
@@ -173,10 +183,15 @@ struct DictationBoxFeature {
         state.language = state.hexSettings.outputLanguage ?? "de"
         state.$isDictationBoxPresented.withLock { $0 = true }
         state.lastAction = targetAppName.map { "Target: \($0)" } ?? ""
-        return .merge(
-          .run { _ in await MainActor.run { NotificationCenter.default.post(name: .presentDictationBox, object: nil) } },
-          loadLearnedCorrections()
-        )
+        return .merge(visible ? show(&state) : .none, loadLearnedCorrections())
+
+      case .recordingAbandoned:
+        return closeIfStillEmpty(&state)
+
+      case .autoCloseFired:
+        guard isUntouched(state) else { return .none }
+        boxLogger.notice("Empty dictation box closed")
+        return finish(&state)
 
       case let .presentCommand(targetBundleID, targetAppName, selection):
         guard !state.isPresented else { return .none }
@@ -190,8 +205,9 @@ struct DictationBoxFeature {
         state.text = BoxText(NSAttributedString(string: selection))
         state.revision += 1
         state.$isDictationBoxPresented.withLock { $0 = true }
+        state.hadText = true
         state.lastAction = "Say or type what to do with the selection"
-        return .run { _ in await MainActor.run { NotificationCenter.default.post(name: .presentDictationBox, object: nil) } }
+        return show(&state)
 
       case .commandRun:
         let instruction = state.instruction.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -207,16 +223,15 @@ struct DictationBoxFeature {
         state.mode = state.hexSettings.dictationMode
         state.language = state.hexSettings.outputLanguage ?? "de"
         state.$isDictationBoxPresented.withLock { $0 = true }
+        state.hadText = true
         state.lastAction = "Restored dictation"
-        return .merge(
-          .run { _ in await MainActor.run { NotificationCenter.default.post(name: .presentDictationBox, object: nil) } },
-          loadLearnedCorrections()
-        )
+        return .merge(show(&state), loadLearnedCorrections())
 
       case .recordingStarted:
         state.replacementRange = state.selection.length > 0 ? state.selection : nil
         state.suggestion = nil
-        return .none
+        // A new dictation keeps an empty box open.
+        return .cancel(id: CancelID.autoClose)
 
       case let .dictationFinished(output, audioURL) where state.isCommandMode && state.aiPhase != .done:
         // Command Mode: the dictation is the instruction, not more text.
@@ -230,16 +245,19 @@ struct DictationBoxFeature {
         // first, then the dictation is added (audit M5).
         let abortAI = abortRunningAI(&state)
         resetAI(&state)
-        return .merge(abortAI, applyDictation(&state, output: output))
+        let applied = applyDictation(&state, output: output)
+        return .merge(abortAI, settle(&state), applied)
 
       case let .streamedText(text):
         guard state.isPresented, state.phase == .editing else { return .none }
         let abortAI = abortRunningAI(&state)
-        return .merge(abortAI, appendStreamed(&state, text: text))
+        let appended = appendStreamed(&state, text: text)
+        return .merge(abortAI, settle(&state), appended)
 
       case let .textEdited(text, selection):
         // Editor callbacks also arrive while the AI streams text in.
         if case .running = state.aiPhase { return .none }
+        if text.length > 0 { state.hadText = true }
         if text.string != state.text.string, state.aiPhase == .done { resetAI(&state) }
         if let candidate = Self.manualCorrection(from: state.text.string, to: text.string, replacing: state.selection) {
           state.learnCandidates.removeAll { $0.original == candidate.original }
@@ -796,6 +814,9 @@ struct DictationBoxFeature {
     let audioURLs = state.audioURLs
     resetAI(&state)
     state.isPresented = false
+    state.isVisible = false
+    state.hadText = false
+    state.$isDictationBoxVisible.withLock { $0 = false }
     state.phase = .editing
     state.text = BoxText()
     state.revision += 1
@@ -809,12 +830,52 @@ struct DictationBoxFeature {
       .cancel(id: CancelID.draft),
       .cancel(id: CancelID.suggestions),
       .cancel(id: CancelID.ai),
+      .cancel(id: CancelID.autoClose),
       .run { _ in
         for url in audioURLs { FileManager.default.removeItemIfExists(at: url) }
         DictationBoxDraftStore.remove()
         await MainActor.run { NotificationCenter.default.post(name: .dismissDictationBox, object: nil) }
       }
     )
+  }
+
+  // MARK: - Opening and closing
+
+  /// Puts the panel on screen (once per session).
+  private func show(_ state: inout State) -> Effect<Action> {
+    guard !state.isVisible else { return .none }
+    state.isVisible = true
+    state.$isDictationBoxVisible.withLock { $0 = true }
+    return .run { _ in await MainActor.run { NotificationCenter.default.post(name: .presentDictationBox, object: nil) } }
+  }
+
+  /// After a dictation or streamed text: text shows the box, an empty result
+  /// closes a box that never held text.
+  private func settle(_ state: inout State) -> Effect<Action> {
+    guard state.isPresented else { return .none }
+    if state.text.length > 0 {
+      state.hadText = true
+      return .merge(.cancel(id: CancelID.autoClose), show(&state))
+    }
+    return closeIfStillEmpty(&state)
+  }
+
+  /// An invisible session ends at once; a visible empty box closes after the
+  /// configured wait unless a new dictation starts first.
+  private func closeIfStillEmpty(_ state: inout State) -> Effect<Action> {
+    guard isUntouched(state) else { return .none }
+    guard state.isVisible else { return finish(&state) }
+    let seconds = min(max(state.hexSettings.boxAutoCloseSeconds, 1), 10)
+    return .run { send in
+      try await Task.sleep(for: .seconds(seconds))
+      await send(.autoCloseFired)
+    }
+    .cancellable(id: CancelID.autoClose, cancelInFlight: true)
+  }
+
+  private func isUntouched(_ state: State) -> Bool {
+    state.isPresented && state.phase == .editing && !state.isCommandMode && !state.hadText && state.text.length == 0
+      && state.aiPhase == .idle
   }
 
   /// Crash protection: the box text is written (debounced) to the recovery folder.

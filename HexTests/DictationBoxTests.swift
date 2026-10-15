@@ -327,3 +327,73 @@ final class DictationBoxFeatureTests: XCTestCase {
     XCTAssertNil(pasted.value.first?.rtf)
   }
 }
+
+/// 3.2.2: the box opens with the first finished dictation and never stays open empty.
+extension DictationBoxFeatureTests {
+  private func setAutoClose(_ seconds: Double) {
+    @Shared(.hexSettings) var shared: HexSettings
+    $shared.withLock { $0.boxAutoCloseSeconds = seconds }
+  }
+
+  func testDeferredBoxAppearsWithTheFirstText() async throws {
+    let store = makeStore()
+    store.exhaustivity = .off
+    await store.send(.present(targetBundleID: "com.apple.TextEdit", targetAppName: "TextEdit", mode: .literal, visible: false))
+    XCTAssertTrue(store.state.isPresented, "results already go into the box")
+    XCTAssertFalse(store.state.isVisible)
+    XCTAssertFalse(store.state.isDictationBoxVisible, "the recording pill stays visible")
+    await store.send(.dictationFinished(output("Befund unauffällig Punkt"), try tempAudio()))
+    XCTAssertTrue(store.state.isVisible)
+    XCTAssertTrue(store.state.isDictationBoxVisible)
+    XCTAssertEqual(store.state.targetAppName, "TextEdit", "the target is the app from recording start")
+  }
+
+  func testDeferredBoxNeverOpensForACancelledOrEmptyDictation() async throws {
+    let store = makeStore()
+    store.exhaustivity = .off
+    await store.send(.present(targetBundleID: nil, targetAppName: nil, mode: .literal, visible: false))
+    await store.send(.recordingAbandoned)
+    XCTAssertFalse(store.state.isPresented)
+    XCTAssertFalse(store.state.isDictationBoxPresented)
+
+    await store.send(.present(targetBundleID: nil, targetAppName: nil, mode: .literal, visible: false))
+    let audio = try tempAudio()
+    await store.send(.dictationFinished(output(""), audio))
+    XCTAssertFalse(store.state.isPresented)
+    XCTAssertFalse(store.state.isVisible)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: audio.path), "the empty recording is not kept")
+  }
+
+  func testImmediateEmptyBoxClosesAfterTheWait() async throws {
+    setAutoClose(1)
+    let store = makeStore()
+    store.exhaustivity = .off
+    await store.send(.present(targetBundleID: nil, targetAppName: nil, mode: .literal, visible: true))
+    XCTAssertTrue(store.state.isVisible)
+    await store.send(.recordingAbandoned)
+    XCTAssertTrue(store.state.isPresented, "stays open during the wait")
+    await store.receive(\.autoCloseFired, timeout: .seconds(3))
+    XCTAssertFalse(store.state.isPresented)
+    XCTAssertFalse(store.state.isDictationBoxVisible)
+  }
+
+  func testNewDictationOrEarlierTextKeepsTheBoxOpen() async throws {
+    setAutoClose(1)
+    let store = makeStore()
+    store.exhaustivity = .off
+    await store.send(.present(targetBundleID: nil, targetAppName: nil, mode: .literal, visible: true))
+    await store.send(.recordingAbandoned)
+    await store.send(.recordingStarted)
+    try await Task.sleep(for: .milliseconds(1_500))
+    await store.skipReceivedActions(strict: false)
+    XCTAssertTrue(store.state.isPresented, "a new dictation within the wait keeps the box")
+
+    await store.send(.dictationFinished(output("Erster Satz Punkt"), try tempAudio()))
+    await store.send(.textEdited(BoxText(), selection: NSRange(location: 0, length: 0)))
+    XCTAssertEqual(store.state.text.length, 0)
+    await store.send(.recordingAbandoned)
+    try await Task.sleep(for: .milliseconds(1_500))
+    await store.skipReceivedActions(strict: false)
+    XCTAssertTrue(store.state.isPresented, "a box cleared by hand to dictate again stays open")
+  }
+}

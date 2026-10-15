@@ -96,7 +96,7 @@ class KeyEventMonitorClientLive {
   private var runLoopSource: CFRunLoopSource?
   private var continuations: [UUID: @Sendable (KeyEvent) -> Bool] = [:]
   private var inputContinuations: [UUID: @Sendable (InputEvent) -> Bool] = [:]
-  private let queue = DispatchQueue(label: "com.localasr.LocalASR.KeyEventMonitor", attributes: .concurrent)
+  private let queue = DispatchQueue(label: "com.pymolt.NativeTongue.KeyEventMonitor", attributes: .concurrent)
   private let queueSpecificKey = DispatchSpecificKey<Void>()
   private var isMonitoring = false
   private var wantsMonitoring = false

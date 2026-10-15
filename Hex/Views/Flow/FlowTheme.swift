@@ -108,6 +108,7 @@ extension View {
 /// main window, dictation box, recording pill).
 @MainActor
 enum FlowAppearance {
+
   static func apply(_ scheme: AppearanceColorScheme) {
     let appearance: NSAppearance? = switch scheme {
     case .system: nil

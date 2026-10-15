@@ -34,8 +34,8 @@ NativeTongue grew out of [Hex](https://github.com/kitlangton/Hex) by Kit Langton
 - Numbers, units, times, money, ordinals and phone numbers are written the way you expect. Text snippets expand on a spoken trigger.
 
 **Your words**
-- Personal vocabulary with aliases and phonetic hints, optional domain packs (medicine, anatomy, technology). Corrections you make in the dictation box can be learned.
-- **Profiles** per app: Mail, Coding, AI prompt, Medical or your own. Each sets mode, vocabulary, AI style and context, and is chosen by the app you dictate into.
+- Personal vocabulary with aliases and phonetic hints, plus optional domain packs (technology, medicine, anatomy, or custom). Corrections you make in the dictation box can be learned.
+- **Profiles** per app: Coding, Mail, AI prompt, Technical, or your own. Each sets mode, vocabulary, AI style and context, and is chosen by the app you dictate into.
 
 **Local AI (optional, off by default)**
 - A small language model on your Mac cleans up dictations: Clean up, Clean sentences, E-mail, Short message, Note, Key facts, Rewrite as task, Prompt, or your own style.
@@ -75,8 +75,13 @@ The optional AI step uses a local MLX language model (for example Qwen3.5 4B) th
 
 ## Install
 
-1. Download `NativeTongue-<version>.zip` from [Releases](https://github.com/pyMoLt/NativeTongue/releases/latest), unzip it and move **NativeTongue.app** to Applications.
-2. The app is not notarized by Apple, so macOS blocks the first start. Open it once, then go to **System Settings → Privacy & Security** and click **Open Anyway**.
+1. Download `NativeTongue-<version>-macos-arm64.zip` from [Releases](https://github.com/pyMoLt/NativeTongue/releases/latest), unzip it and move **NativeTongue.app** to `/Applications`.
+2. Prebuilt releases are **ad-hoc signed** (not notarized with an Apple Developer ID), so macOS Gatekeeper blocks the first launch by default. To open it on first launch, either:
+   - Remove the quarantine attribute in Terminal:
+     ```bash
+     xattr -dr com.apple.quarantine /Applications/NativeTongue.app
+     ```
+   - Or open it once, then go to **System Settings → Privacy & Security** and click **Open Anyway**.
 3. Grant **Microphone** and **Accessibility** (and Input Monitoring if asked), pick a model under **Models** and hold the dictation key (⌥ by default).
 
 Requirements: a Mac with Apple Silicon and macOS 26 or newer. Speech models take about 70 MB to 3 GB of disk space.

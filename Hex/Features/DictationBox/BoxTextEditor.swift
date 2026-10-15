@@ -71,8 +71,21 @@ final class BoxTextView: NSTextView {
 
 struct BoxTextEditor: NSViewRepresentable {
   let store: StoreOf<DictationBoxFeature>
+  /// Minimal style with an own text colour: drawn on top, never stored in the text.
+  var displayTextColor: NSColor?
+  /// Box scale (Appearance): zooms the text display only; the inserted text keeps its size.
+  var scale: Double = 1
 
   func makeCoordinator() -> Coordinator { Coordinator(store: store) }
+
+  private func applyScale(_ scrollView: NSScrollView) {
+    let magnification = CGFloat(min(max(scale, 0.8), 1.5))
+    guard scrollView.magnification != magnification else { return }
+    scrollView.allowsMagnification = true
+    scrollView.minMagnification = 0.8
+    scrollView.maxMagnification = 1.5
+    scrollView.magnification = magnification
+  }
 
   func makeNSView(context: Context) -> NSScrollView {
     let scrollView = BoxTextView.scrollableTextView()
@@ -96,12 +109,16 @@ struct BoxTextEditor: NSViewRepresentable {
     textView.onChooseSuggestion = { [weak coordinator = context.coordinator] index in coordinator?.choose(index) ?? false }
     textView.onEscape = { [weak coordinator = context.coordinator] in coordinator?.store.send(.dismissSuggestions) }
     scrollView.documentView = textView
+    applyScale(scrollView)
     context.coordinator.textView = textView
+    context.coordinator.displayTextColor = displayTextColor
     context.coordinator.apply(store.state)
     return scrollView
   }
 
   func updateNSView(_ nsView: NSScrollView, context: Context) {
+    applyScale(nsView)
+    context.coordinator.displayTextColor = displayTextColor
     context.coordinator.apply(store.state)
   }
 
@@ -109,6 +126,8 @@ struct BoxTextEditor: NSViewRepresentable {
   final class Coordinator: NSObject, NSTextViewDelegate, NSPopoverDelegate {
     let store: StoreOf<DictationBoxFeature>
     weak var textView: BoxTextView?
+    var displayTextColor: NSColor?
+    private var shownTextColor: NSColor?
     private var appliedRevision = -1
     private var isApplying = false
     private var popover: NSPopover?
@@ -133,7 +152,25 @@ struct BoxTextEditor: NSViewRepresentable {
         textView.scrollRangeToVisible(textView.selectedRange())
         isApplying = false
       }
+      applyDisplayColor(force: false)
       updatePopover(state.suggestion)
+    }
+
+    /// Own text colour of the Minimal style as a display-only attribute, so the
+    /// inserted text keeps its normal colour. TextKit 1 is used only then.
+    func applyDisplayColor(force: Bool) {
+      guard let textView else { return }
+      guard force || displayTextColor != shownTextColor || displayTextColor != nil else { return }
+      if let color = displayTextColor, let layout = textView.layoutManager {
+        let range = NSRange(location: 0, length: (textView.string as NSString).length)
+        layout.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: range)
+        textView.insertionPointColor = color
+      } else if shownTextColor != nil, let layout = textView.layoutManager {
+        let range = NSRange(location: 0, length: (textView.string as NSString).length)
+        layout.removeTemporaryAttribute(.foregroundColor, forCharacterRange: range)
+        textView.insertionPointColor = .textColor
+      }
+      shownTextColor = displayTextColor
     }
 
     func textDidChange(_ notification: Notification) {

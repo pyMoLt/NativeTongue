@@ -73,6 +73,10 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var boxFontName: String
 	public var boxFontSize: Double
 	public var boxOutputFormat: OutputFormat
+	/// When the dictation box opens: with the first finished dictation (like Dragon) or at recording start.
+	public var boxOpenTiming: DictationBoxOpenTiming
+	/// Box opened at recording start without any text: close after this many seconds (1–10).
+	public var boxAutoCloseSeconds: Double
 	public var englishCommandsEnabled: Bool
 	public var agentFormattingEnabled: Bool
 	public var numberFormattingEnabled: Bool
@@ -111,6 +115,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		spokenCommandPauseSeconds = min(max(spokenCommandPauseSeconds, 0.25), 1.2)
 		if ![0, 2, 5, 10, 30].contains(idleUnloadMinutes) { idleUnloadMinutes = 10 }
 		boxFontSize = min(max(boxFontSize, 11), 28)
+		boxAutoCloseSeconds = min(max(boxAutoCloseSeconds, 1), 10)
 		if !selectedModel.isEmpty, profileModelSelections[asrProfile] == nil {
 			profileModelSelections[asrProfile] = selectedModel
 		}
@@ -161,6 +166,8 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		boxFontName: String = "",
 		boxFontSize: Double = 15,
 		boxOutputFormat: OutputFormat = .richText,
+		boxOpenTiming: DictationBoxOpenTiming = .afterFirstDictation,
+		boxAutoCloseSeconds: Double = 3,
 		englishCommandsEnabled: Bool = true,
 		agentFormattingEnabled: Bool = true,
 		numberFormattingEnabled: Bool = true,
@@ -219,6 +226,8 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.boxFontName = boxFontName
 		self.boxFontSize = boxFontSize
 		self.boxOutputFormat = boxOutputFormat
+		self.boxOpenTiming = boxOpenTiming
+		self.boxAutoCloseSeconds = boxAutoCloseSeconds
 		self.englishCommandsEnabled = englishCommandsEnabled
 		self.agentFormattingEnabled = agentFormattingEnabled
 		self.numberFormattingEnabled = numberFormattingEnabled
@@ -348,6 +357,8 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case boxFontName
 	case boxFontSize
 	case boxOutputFormat
+	case boxOpenTiming
+	case boxAutoCloseSeconds
 	case englishCommandsEnabled
 	case agentFormattingEnabled
 	case numberFormattingEnabled
@@ -514,6 +525,10 @@ private enum HexSettingsSchema {
 		SettingsField(.boxFontName, keyPath: \.boxFontName, default: defaults.boxFontName).eraseToAny(),
 		SettingsField(.boxFontSize, keyPath: \.boxFontSize, default: defaults.boxFontSize).eraseToAny(),
 		SettingsField(.boxOutputFormat, keyPath: \.boxOutputFormat, default: defaults.boxOutputFormat).eraseToAny(),
+		SettingsField(.boxOpenTiming, keyPath: \.boxOpenTiming, default: defaults.boxOpenTiming,
+		              decode: { container, key, value in (try? container.decodeIfPresent(DictationBoxOpenTiming.self, forKey: key)) ?? value }).eraseToAny(),
+		SettingsField(.boxAutoCloseSeconds, keyPath: \.boxAutoCloseSeconds, default: defaults.boxAutoCloseSeconds,
+		              decode: { container, key, value in (try? container.decodeIfPresent(Double.self, forKey: key)) ?? value }).eraseToAny(),
 		SettingsField(.englishCommandsEnabled, keyPath: \.englishCommandsEnabled, default: defaults.englishCommandsEnabled).eraseToAny(),
 		SettingsField(.agentFormattingEnabled, keyPath: \.agentFormattingEnabled, default: defaults.agentFormattingEnabled).eraseToAny(),
 		SettingsField(.numberFormattingEnabled, keyPath: \.numberFormattingEnabled, default: defaults.numberFormattingEnabled).eraseToAny(),
@@ -538,4 +553,12 @@ private enum HexSettingsSchema {
 		SettingsField(.whisperGapFill, keyPath: \.whisperGapFill, default: defaults.whisperGapFill,
 		              decode: { container, key, value in (try? container.decodeIfPresent(Bool.self, forKey: key)) ?? value }).eraseToAny()
 	]
+}
+
+/// When the dictation box opens (Settings → Dictation Box).
+public enum DictationBoxOpenTiming: String, Codable, CaseIterable, Equatable, Sendable {
+	/// The box appears with the first finished dictation; cancelled or empty dictations open nothing.
+	case afterFirstDictation
+	/// The box appears when recording starts and closes again if it stays empty.
+	case immediately
 }

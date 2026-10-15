@@ -1,3 +1,11 @@
+# NativeTongue 3.2.2
+
+## New in 3.2.2
+
+- **The dictation box opens when your first dictation is ready**, like Dragon. Prefer the old way? Settings → Dictation Box → When does the box open. An empty box never stays open.
+- **Three box styles** — Standard, Compact and a calm Minimal style with your own colours, plus size and background transparency. The box can also have its own look, independent of the app – plain white or black, for example (Appearance → Dictation Box).
+- Resizing the box no longer cuts off buttons.
+
 # NativeTongue 3.2.1
 
 ## New in 3.2.1

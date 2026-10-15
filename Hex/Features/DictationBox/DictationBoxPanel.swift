@@ -1,5 +1,6 @@
 import AppKit
 import ComposableArchitecture
+import HexCore
 import SwiftUI
 
 /// Floating, typeable panel for the dictation box. Recording leaves the target
@@ -23,8 +24,11 @@ final class DictationBoxPanel: NSPanel {
     standardWindowButton(.closeButton)?.isHidden = true
     standardWindowButton(.miniaturizeButton)?.isHidden = true
     standardWindowButton(.zoomButton)?.isHidden = true
-    minSize = NSSize(width: 480, height: 260)
+    // The content's minimum size (style, scale, text size) limits resizing, so
+    // controls are never cut off at the edges.
+    minSize = NSSize(width: 300, height: 120)
     let hosting = NSHostingView(rootView: content)
+    hosting.sizingOptions = [.minSize]
     contentView = hosting
     title = "Dictation Box"
     setAccessibilityTitle("Dictation Box")
@@ -56,7 +60,12 @@ final class DictationBoxPanelController {
   private var panel: DictationBoxPanel?
   private var observers: [NSObjectProtocol] = []
 
+  private let store: StoreOf<AppFeature>
+
+  private var look: DictationBoxAppearance { store.dictationBox.hexSettings.appearance.dictationBox }
+
   init(store: StoreOf<AppFeature>) {
+    self.store = store
     let center = NotificationCenter.default
     observers.append(center.addObserver(forName: .presentDictationBox, object: nil, queue: .main) { [weak self] _ in
       MainActor.assumeIsolated { self?.show(store: store) }
@@ -69,10 +78,41 @@ final class DictationBoxPanelController {
     })
     observers.append(center.addObserver(forName: .resetDictationBoxPosition, object: nil, queue: .main) { [weak self] _ in
       MainActor.assumeIsolated {
-        self?.panel?.setContentSize(NSSize(width: 640, height: 360))
-        self?.panel?.placeAboveDock()
+        guard let self, let panel = self.panel else { return }
+        let size = DictationBoxMetrics.defaultSize(self.look.style)
+        let scale = self.look.clampedScale
+        panel.setContentSize(NSSize(width: size.width * scale, height: size.height * scale))
+        panel.placeAboveDock()
       }
     })
+    observers.append(center.addObserver(forName: .dictationBoxLookChanged, object: nil, queue: .main) { [weak self] _ in
+      MainActor.assumeIsolated {
+        self?.updateOpacity()
+        self?.updateWindowAppearance()
+      }
+    })
+    // Less in the way while another app is active; opaque while you work in the box.
+    for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+      observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+        MainActor.assumeIsolated {
+          guard let self, let panel = self.panel, note.object as? NSWindow === panel else { return }
+          self.updateOpacity()
+        }
+      })
+    }
+  }
+
+  /// Own light/dark mode of the box (Appearance → Dictation Box → own look).
+  private func updateWindowAppearance() {
+    guard let panel else { return }
+    let appearance = look.ownColorScheme?.boxWindowAppearance
+    if panel.appearance?.name != appearance?.name { panel.appearance = appearance }
+  }
+
+  private func updateOpacity() {
+    guard let panel else { return }
+    let target = panel.isKeyWindow ? 1 : CGFloat(look.clampedInactiveOpacity)
+    if panel.alphaValue != target { panel.animator().alphaValue = target }
   }
 
   private func show(store: StoreOf<AppFeature>) {
@@ -82,7 +122,9 @@ final class DictationBoxPanelController {
         transcription: store.scope(state: \.transcription, action: \.transcription)
       ))
     }
+    updateWindowAppearance()
     panel?.orderFrontRegardless()
+    updateOpacity()
   }
 
   private func focusEditor() {

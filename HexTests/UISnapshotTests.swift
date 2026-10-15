@@ -32,12 +32,11 @@ final class UISnapshotTests: XCTestCase {
     })
     state.lexicon = LexiconFeature.State(hexSettings: Shared(value: settings))
     state.lexicon.userEntries = [
-      LexiconEntry(term: "NativeTongue", lang: "de", category: "user", aliases: ["Native Tongue"], autoReplace: true, profile: .medical),
+      LexiconEntry(term: "NativeTongue", lang: "en", category: "user", aliases: ["Native Tongue"], autoReplace: true, profile: .technical),
       LexiconEntry(term: "Qwen", lang: "en", category: "user", aliases: ["Gwen", "Quen"], autoReplace: true),
-      LexiconEntry(term: "WhisperKit", lang: "de", category: "user", autoReplace: true, profile: .medical),
+      LexiconEntry(term: "WhisperKit", lang: "en", category: "user", autoReplace: true, profile: .technical),
     ]
     state.lexicon.packs = [
-      LexiconPackInfo(id: "medical-de", version: "1", license: "CC0 / GPL-3.0 / BfArM lokal", entryCount: 104_467, fileBytes: 10_570_986),
       LexiconPackInfo(id: "technical", version: "1", license: "MIT / CC0", entryCount: 13_740, fileBytes: 1_244_173),
     ]
     return state
@@ -106,7 +105,7 @@ final class UISnapshotTests: XCTestCase {
     boxState.dictationBox.isPresented = true
     boxState.dictationBox.mode = .literal
     boxState.dictationBox.targetAppName = "Pages"
-    let markdown = "# Befund\nDer Patient erhielt WhisperKit 20 mg und WhisperKit.\n- Kein Hinweis auf eine Thrombose.\n- **NativeTongue** ausgeschlossen."
+    let markdown = "# Besprechung\nDas Update nutzt WhisperKit und Qwen für lokale Transkription.\n- Latenz unter 200 ms.\n- **NativeTongue** läuft komplett offline."
     boxState.dictationBox.text = BoxText(BoxTextConverter.attributed(
       fromMarkdown: markdown,
       baseFont: BoxTextStyle.baseFont(name: "", size: 15),
@@ -128,9 +127,9 @@ final class UISnapshotTests: XCTestCase {
     aiBox.dictationBox.hexSettings.postProcessing.enabled = true
     aiBox.dictationBox.aiPhase = .done
     aiBox.dictationBox.isShowingDiff = true
-    aiBox.dictationBox.aiOriginalText = "der patient erhielt rivaroxaban 20 mg und mycophenolatmofetil kein hinweis auf thrombose"
-    aiBox.dictationBox.aiResultText = "Der Patient erhielt WhisperKit 20 mg und WhisperKit. Kein Hinweis auf eine Thrombose."
-    aiBox.dictationBox.aiIssues = [PolishGuardIssue(kind: .numberChanged, detail: "20 mg")]
+    aiBox.dictationBox.aiOriginalText = "das update nutzt whisperkit und qwen mit unter 200 ms latenz komplett offline"
+    aiBox.dictationBox.aiResultText = "Das Update nutzt WhisperKit und Qwen mit unter 200 ms Latenz. Komplett offline."
+    aiBox.dictationBox.aiIssues = [PolishGuardIssue(kind: .numberChanged, detail: "200 ms")]
     let aiBoxStore = makeStore(aiBox)
     try render(
       DictationBoxView(
@@ -175,5 +174,61 @@ final class UISnapshotTests: XCTestCase {
     var recording = appState(tab: .recording, mode: .normal)
     recording.settings.hexSettings.hotkeyTapToggle = true
     try render(AppView(store: makeStore(recording)), name: "b-recording", size: NSSize(width: 1_000, height: 1_300))
+  }
+
+  /// 3.2.2: the three box styles at default and minimum size, plus the settings pages.
+  func testRenderDictationBoxStyles() throws {
+    func boxStore(_ style: DictationBoxStyle, scale: Double = 1, colors: (String, String)? = nil, ownLook: Bool = false) -> StoreOf<AppFeature> {
+      var state = appState(tab: .dictation)
+      var settings = HexSettings()
+      settings.selectedModel = "openai_whisper-large-v3-v20240930_turbo"
+      settings.postProcessing.enabled = true
+      settings.appearance.dictationBox.style = style
+      settings.appearance.dictationBox.scale = scale
+      if ownLook {
+        settings.appearance.accent = .coral
+        settings.appearance.background = .vivid
+        settings.appearance.dictationBox.followsApp = false
+      }
+      if let colors {
+        settings.appearance.dictationBox.minimalBackground = colors.0
+        settings.appearance.dictationBox.minimalText = colors.1
+      }
+      state.dictationBox = DictationBoxFeature.State(hexSettings: Shared(value: settings))
+      state.dictationBox.isPresented = true
+      state.dictationBox.isVisible = true
+      state.dictationBox.mode = .literal
+      state.dictationBox.targetAppName = "Pages"
+      let markdown = "# Besprechung\nDas Update nutzt WhisperKit und Qwen für lokale Transkription.\n- Latenz unter 200 ms."
+      state.dictationBox.text = BoxText(BoxTextConverter.attributed(fromMarkdown: markdown, baseFont: BoxTextStyle.baseFont(name: "", size: 15)))
+      state.dictationBox.revision = 1
+      state.dictationBox.lastAction = "¶ Neuer Absatz"
+      return makeStore(state)
+    }
+    func box(_ store: StoreOf<AppFeature>) -> some View {
+      DictationBoxView(
+        store: store.scope(state: \.dictationBox, action: \.dictationBox),
+        transcription: store.scope(state: \.transcription, action: \.transcription)
+      )
+    }
+    for style in DictationBoxStyle.allCases {
+      let normal = DictationBoxMetrics.defaultSize(style)
+      let minimum = DictationBoxMetrics.minimumSize(style)
+      try render(box(boxStore(style)), name: "box-\(style.rawValue)-standardgroesse", size: NSSize(width: normal.width, height: normal.height))
+      try render(box(boxStore(style)), name: "box-\(style.rawValue)-minimum", size: NSSize(width: minimum.width, height: minimum.height))
+    }
+    try render(box(boxStore(.standard)), name: "box-standard-schmal-500", size: NSSize(width: 500, height: 300))
+    try render(box(boxStore(.compact, scale: 1.3)), name: "box-compact-130prozent", size: NSSize(width: 520 * 1.3, height: 260 * 1.3))
+    try render(box(boxStore(.minimal, colors: ("#1E2A38", "#F2E9D8"))), name: "box-minimal-eigene-farben", size: NSSize(width: 460, height: 200))
+    try render(box(boxStore(.standard, ownLook: true)), name: "box-standard-eigenes-aussehen", size: NSSize(width: 640, height: 360))
+    try render(box(boxStore(.standard)), name: "box-standard-wie-app", size: NSSize(width: 640, height: 360))
+
+    var appearancePage = appState(tab: .appearance)
+    appearancePage.settings.hexSettings.appearance.dictationBox.style = .minimal
+    appearancePage.settings.hexSettings.appearance.dictationBox.followsApp = false
+    try render(AppView(store: makeStore(appearancePage)), name: "box-einstellung-darstellung", size: NSSize(width: 1_040, height: 1_300))
+    var boxPage = appState(tab: .dictationBox)
+    boxPage.settings.hexSettings.boxOpenTiming = .immediately
+    try render(AppView(store: makeStore(boxPage)), name: "box-einstellung-verhalten", size: NSSize(width: 1_040, height: 1_100))
   }
 }

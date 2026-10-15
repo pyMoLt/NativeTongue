@@ -135,6 +135,81 @@ public enum AppearanceMotion: String, Codable, CaseIterable, Equatable, Sendable
 	}
 }
 
+/// Layout of the dictation box. Every style offers the same functions; less frequent
+/// ones move into the "…" menu.
+public enum DictationBoxStyle: String, Codable, CaseIterable, Equatable, Sendable {
+	case standard
+	case compact
+	case minimal
+
+	public var displayName: String {
+		switch self {
+		case .standard: "Standard"
+		case .compact: "Compact"
+		case .minimal: "Minimal"
+		}
+	}
+}
+
+/// Look of the dictation box (Settings → Appearance → Dictation Box).
+public struct DictationBoxAppearance: Codable, Equatable, Sendable {
+	public var style: DictationBoxStyle = .standard
+	/// Scale of the box's text and controls, on top of the app's text size (0.8–1.5).
+	public var scale: Double = 1
+	/// Opacity while another app is active (0.3–1); the box is opaque while you work in it.
+	public var inactiveOpacity: Double = 1
+	/// Minimal style only: own colours as "#RRGGBB"; empty = follow the app theme.
+	public var minimalBackground = ""
+	public var minimalText = ""
+	/// true: the box looks like the rest of the app. false: its own light/dark mode,
+	/// accent, glass and colour field (a plain white or black box next to a vivid app).
+	public var followsApp = true
+	public var colorScheme: AppearanceColorScheme = .system
+	public var accent: AppearanceAccent = .graphite
+	public var glass: AppearanceGlass = .solid
+	public var background: AppearanceBackground = .off
+
+	public init() {}
+
+	/// The appearance the box is drawn with. The app's light/dark choice stays (it is
+	/// applied app-wide); the box's own one is set on its window (`ownColorScheme`).
+	public func effective(app: AppearanceSettings) -> AppearanceSettings {
+		guard !followsApp else { return app }
+		var look = app
+		look.accent = accent
+		look.glass = glass
+		look.background = background
+		return look
+	}
+
+	/// Light / dark / system for the box window only; nil = like the app.
+	public var ownColorScheme: AppearanceColorScheme? { followsApp ? nil : colorScheme }
+
+	public var clampedScale: Double { min(max(scale, 0.8), 1.5) }
+	public var clampedInactiveOpacity: Double { min(max(inactiveOpacity, 0.3), 1) }
+
+	private enum CodingKeys: String, CodingKey {
+		case style, scale, inactiveOpacity, minimalBackground, minimalText
+		case followsApp, colorScheme, accent, glass, background
+	}
+
+	/// Missing or unknown values fall back to the defaults.
+	public init(from decoder: Decoder) throws {
+		let c = try decoder.container(keyedBy: CodingKeys.self)
+		let d = DictationBoxAppearance()
+		style = (try? c.decodeIfPresent(DictationBoxStyle.self, forKey: .style)) ?? d.style
+		scale = (try? c.decodeIfPresent(Double.self, forKey: .scale)) ?? d.scale
+		inactiveOpacity = (try? c.decodeIfPresent(Double.self, forKey: .inactiveOpacity)) ?? d.inactiveOpacity
+		minimalBackground = (try? c.decodeIfPresent(String.self, forKey: .minimalBackground)) ?? d.minimalBackground
+		minimalText = (try? c.decodeIfPresent(String.self, forKey: .minimalText)) ?? d.minimalText
+		followsApp = (try? c.decodeIfPresent(Bool.self, forKey: .followsApp)) ?? d.followsApp
+		colorScheme = (try? c.decodeIfPresent(AppearanceColorScheme.self, forKey: .colorScheme)) ?? d.colorScheme
+		accent = (try? c.decodeIfPresent(AppearanceAccent.self, forKey: .accent)) ?? d.accent
+		glass = (try? c.decodeIfPresent(AppearanceGlass.self, forKey: .glass)) ?? d.glass
+		background = (try? c.decodeIfPresent(AppearanceBackground.self, forKey: .background)) ?? d.background
+	}
+}
+
 /// Look of the app: accent colour, glass strength, background and motion.
 public struct AppearanceSettings: Codable, Equatable, Sendable {
 	public var colorScheme: AppearanceColorScheme = .system
@@ -143,6 +218,7 @@ public struct AppearanceSettings: Codable, Equatable, Sendable {
 	public var glass: AppearanceGlass = .frosted
 	public var background: AppearanceBackground = .subtle
 	public var motion: AppearanceMotion = .fluid
+	public var dictationBox = DictationBoxAppearance()
 
 	public init(
 		colorScheme: AppearanceColorScheme = .system,
@@ -161,7 +237,7 @@ public struct AppearanceSettings: Codable, Equatable, Sendable {
 	}
 
 	private enum CodingKeys: String, CodingKey {
-		case colorScheme, textSize, accent, glass, background, motion
+		case colorScheme, textSize, accent, glass, background, motion, dictationBox
 	}
 
 	/// Missing or unknown values fall back to the defaults.
@@ -174,5 +250,6 @@ public struct AppearanceSettings: Codable, Equatable, Sendable {
 		glass = (try? c.decodeIfPresent(AppearanceGlass.self, forKey: .glass)) ?? d.glass
 		background = (try? c.decodeIfPresent(AppearanceBackground.self, forKey: .background)) ?? d.background
 		motion = (try? c.decodeIfPresent(AppearanceMotion.self, forKey: .motion)) ?? d.motion
+		dictationBox = (try? c.decodeIfPresent(DictationBoxAppearance.self, forKey: .dictationBox)) ?? d.dictationBox
 	}
 }
