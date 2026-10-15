@@ -63,8 +63,17 @@ final class StreamingPauseDetectorTests: XCTestCase {
 	func testDecodesOldSettingsWithoutStreaming() throws {
 		let settings = try JSONDecoder().decode(StreamingSettings.self, from: Data("{}".utf8))
 		XCTAssertEqual(settings.nemotronChunkMs, 1120)
+		XCTAssertEqual(settings.voxtralDelayMs, 480)
 		XCTAssertEqual(settings.hotkeyBehavior, .toggle)
 		XCTAssertFalse(settings.literalStreamingInBox)
+	}
+
+	func testVoxtralDelayIsKeptAndToleratesBadValues() throws {
+		let saved = try JSONDecoder().decode(StreamingSettings.self, from: Data(#"{"voxtralDelayMs": 960}"#.utf8))
+		XCTAssertEqual(saved.voxtralDelayMs, 960)
+		let broken = try JSONDecoder().decode(StreamingSettings.self, from: Data(#"{"voxtralDelayMs": "fast", "nemotronChunkMs": 560}"#.utf8))
+		XCTAssertEqual(broken.voxtralDelayMs, 480)
+		XCTAssertEqual(broken.nemotronChunkMs, 560)
 	}
 }
 

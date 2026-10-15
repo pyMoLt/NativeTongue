@@ -2,6 +2,16 @@
 
 All notable NativeTongue changes. The app version is set in the Xcode project.
 
+## 3.2.1
+
+### Fixed
+
+- **Streaming with Parakeet Ultra (Core AI) types while you speak.** Before, text was typed only after a pause (median 8.9 s, up to 18 s after a word was spoken); now every finished word is typed at once (median 2.9 s, at most 4.6 s). The rest is the model's fixed 2-s look-ahead.
+
+### Added
+
+- **Voxtral latency setting** (Streaming → Latency ↔ accuracy): 0.24 / 0.48 / 0.96 / 2.4 s look-ahead; 0.48 s stays the default.
+
 ## 3.2.0
 
 ### Added

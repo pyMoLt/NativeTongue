@@ -1,3 +1,10 @@
+# NativeTongue 3.2.1
+
+## New in 3.2.1
+
+- **Parakeet streams live** — in Streaming mode Parakeet Ultra (Core AI) now types each word while you speak instead of waiting for a pause, about 3 s behind your voice.
+- **Voxtral latency** — choose how far Voxtral listens ahead (Streaming → Latency ↔ accuracy).
+
 # NativeTongue 3.2.0
 
 ## New in 3.2

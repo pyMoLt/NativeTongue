@@ -124,8 +124,9 @@ actor StreamingEngineHost {
     return engine
   }
 
-  func voxtralEngine() async throws -> VoxtralStreamingEngine {
+  func voxtralEngine(delayMs: Int = 480) async throws -> VoxtralStreamingEngine {
     let engine = voxtral ?? VoxtralStreamingEngine()
+    await engine.setDelay(milliseconds: delayMs)
     await nemotron?.unload()
     nemotron = nil
     try await engine.load()
@@ -430,7 +431,7 @@ actor StreamingSessionController {
         if descriptor.backend == .nemotronStreamingCoreML {
           return (try await StreamingEngineHost.shared.nemotronEngine(chunkMs: settings.streaming.nemotronChunkMs), true)
         }
-        return (try await StreamingEngineHost.shared.voxtralEngine(), true)
+        return (try await StreamingEngineHost.shared.voxtralEngine(delayMs: settings.streaming.voxtralDelayMs), true)
       } catch {
         await transcription.releaseForStreaming()
         throw error

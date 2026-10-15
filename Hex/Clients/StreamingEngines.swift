@@ -174,10 +174,17 @@ actor VoxtralStreamingEngine: StreamingEngine {
 
   func begin(language: String?) async throws {
     guard let model else { throw NSError(domain: "Streaming", code: 2, userInfo: [NSLocalizedDescriptionKey: "Streaming model not loaded."]) }
-    session = model.makeStreamSession(temperature: 0)
+    session = model.makeStreamSession(temperature: 0, transcriptionDelayMs: delayMs)
   }
 
   private var steps = 0
+  /// Transcription delay of the next session (Settings → Streaming).
+  private var delayMs = 480
+
+  func setDelay(milliseconds: Int) {
+    // The model counts the delay in 80 ms audio tokens (trained for 80–2400 ms).
+    delayMs = min(2_400, max(80, milliseconds / 80 * 80))
+  }
 
   func feed(_ samples: [Float]) async throws -> StreamingUpdate {
     guard let session else { return StreamingUpdate() }

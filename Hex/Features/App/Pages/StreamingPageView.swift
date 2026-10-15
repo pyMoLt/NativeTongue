@@ -76,6 +76,18 @@ struct StreamingPageView: View {
         .flowRow("Latency ↔ accuracy")
         nemotronInstallRow
       }
+      if activeModel?.backend == .voxtralRealtimeMLX {
+        Picker("Latency ↔ accuracy", selection: binding(\.voxtralDelayMs)) {
+          Text("0.24 s · fastest").tag(240)
+          Text("0.48 s · balanced").tag(480)
+          Text("0.96 s · more accurate").tag(960)
+          Text("2.4 s · most accurate").tag(2400)
+        }
+        .flowRow("Latency ↔ accuracy", caption: "How far Voxtral listens ahead before it writes a word.")
+      }
+      if activeModel?.backend == .parakeetCoreAI {
+        FlowNote("Parakeet listens about 2 s ahead (fixed in the model) and types each word as soon as the next one starts.", systemImage: "info.circle")
+      }
       if activeModel?.streaming == .emulated {
         Stepper("", value: binding(\.emulatedPauseMs), in: 250 ... 2_000, step: 50)
           .flowRow("A pause of \(streaming.emulatedPauseMs) ms ends a block")

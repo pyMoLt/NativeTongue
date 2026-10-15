@@ -243,29 +243,49 @@ actor CoreAIParakeetEngine {
 }
 
 /// Streaming mode on Parakeet Ultra (Core AI): live text from the bundle's
-/// cache-aware streaming session. Finalized segments are typed, the open
-/// segment is shown as pending text.
+/// cache-aware streaming session. The decoder never revises emitted tokens, so
+/// every finished word of the open segment is typed at once; only the word still
+/// being spoken waits (pending text) until the next word or the segment's end.
 @available(macOS 27.0, *)
 actor CoreAIParakeetStreamingEngine: StreamingEngine {
 	private let engine = CoreAIParakeetEngine.shared
+	private var words = SegmentWordCommitter()
 
 	func load() async throws {
 		try await engine.load()
 	}
 
 	func begin(language: String?) async throws {
+		words.reset()
 		try await engine.beginStream(endpointing: CoreAIParakeetEngine.liveEndpointing)
 	}
 
 	func feed(_ samples: [Float]) async throws -> StreamingUpdate {
 		try await engine.append(samples)
 		let (finals, partial) = await engine.drain()
-		return StreamingUpdate(committed: finals.joined(separator: " "), pending: partial, startsSegment: !finals.isEmpty)
+		var update = finalized(finals)
+		let open = words.partial(partial)
+		update.merge(StreamingUpdate(committed: open.committed, pending: open.pending, startsSegment: open.startsSegment))
+		return update
 	}
 
 	func end() async throws -> StreamingUpdate {
-		let finals = try await engine.endStream()
-		return StreamingUpdate(committed: finals.joined(separator: " "), startsSegment: !finals.isEmpty)
+		var update = finalized(try await engine.endStream())
+		update.pending = ""
+		return update
+	}
+
+	/// Rest of each finalized segment; a new segment gets spacing fitted by the typist.
+	private func finalized(_ finals: [String]) -> StreamingUpdate {
+		var update = StreamingUpdate()
+		for segment in finals {
+			let rest = words.final(segment)
+			guard !rest.committed.isEmpty else { continue }
+			// Segments after the first in one update need their own separator.
+			let piece = update.committed.isEmpty || !rest.startsSegment ? rest.committed : " " + rest.committed
+			update.merge(StreamingUpdate(committed: piece, startsSegment: rest.startsSegment))
+		}
+		return update
 	}
 
 	func unload() async {

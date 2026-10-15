@@ -108,6 +108,8 @@ public struct StreamingSettings: Codable, Equatable, Sendable {
 	public var model = ""
 	/// Nemotron chunk size in ms (560 / 1120 / 2240 / 4480): latency vs. accuracy.
 	public var nemotronChunkMs = 1120
+	/// Voxtral transcription delay in ms (multiple of 80): latency vs. accuracy; 480 is the model's default.
+	public var voxtralDelayMs = 480
 	/// Emulated streaming: pause that ends a block.
 	public var emulatedPauseMs = 600
 	/// Emulated streaming: longest block without a pause.
@@ -138,7 +140,7 @@ public struct StreamingSettings: Codable, Equatable, Sendable {
 		case hotkeyBehavior, autoStopSilenceSeconds, literalStreamingInBox, model, nemotronChunkMs
 		case emulatedPauseMs, emulatedMaxBlockSeconds, keepModelPunctuation, adaptSpacingAndCase, punctuationMode, codeFormatting, literalScope
 		case lexiconCorrection, formatNumbers, voiceCommands, insertionMethod, appSwitchBehavior, showsPendingText
-		case correctionCommands
+		case correctionCommands, voxtralDelayMs
 	}
 
 	public init(from decoder: Decoder) throws {
@@ -149,6 +151,7 @@ public struct StreamingSettings: Codable, Equatable, Sendable {
 		literalStreamingInBox = try c.decodeIfPresent(Bool.self, forKey: .literalStreamingInBox) ?? d.literalStreamingInBox
 		model = try c.decodeIfPresent(String.self, forKey: .model) ?? d.model
 		nemotronChunkMs = try c.decodeIfPresent(Int.self, forKey: .nemotronChunkMs) ?? d.nemotronChunkMs
+		voxtralDelayMs = (try? c.decodeIfPresent(Int.self, forKey: .voxtralDelayMs)) ?? d.voxtralDelayMs
 		emulatedPauseMs = try c.decodeIfPresent(Int.self, forKey: .emulatedPauseMs) ?? d.emulatedPauseMs
 		emulatedMaxBlockSeconds = try c.decodeIfPresent(Int.self, forKey: .emulatedMaxBlockSeconds) ?? d.emulatedMaxBlockSeconds
 		keepModelPunctuation = try c.decodeIfPresent(Bool.self, forKey: .keepModelPunctuation) ?? d.keepModelPunctuation
