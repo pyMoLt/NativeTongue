@@ -1,3 +1,18 @@
+# NativeTongue 3.2.0
+
+## New in 3.2
+
+- **Sturdier Literal mode**:
+  - Whisper no longer sets punctuation of its own; every mark comes from your spoken commands.
+  - "Neuer Absatz" works with just a short pause before it, "Spiegelstrich" anywhere.
+  - "Kleber mit Punkt" ends the sentence, and dates, amounts and doses come out right ("3. März", "1.250 €", "2,5 mg").
+- **Nothing gets lost** — if Whisper skips a passage after a pause (for example a list at the end), NativeTongue decodes it again. On by default; switch under Models → Advanced.
+- **Core AI models (experimental, macOS 27)**:
+  - Parakeet Ultra with real live streaming and very little memory.
+  - Qwen3-ASR 1.7B with a tenth of the memory of the MLX version.
+- **New models** — Whisper Large v3 Turbo German and six more local text models for AI post-processing, including Gemma 4 12B and Qwen3.5 4B in 8-bit for maximum quality (needs more memory).
+- Tidier model list: two duplicate Whisper variants were removed (your selection moves to Whisper Turbo).
+
 # NativeTongue 3.0.0
 
 ## New in 3.0

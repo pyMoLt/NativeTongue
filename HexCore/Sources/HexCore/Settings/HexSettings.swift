@@ -48,6 +48,9 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	/// „Hold to talk, tap to toggle“ (plan B9): a short tap starts a hands-free
 	/// recording, the next press stops it; holding works as push-to-talk.
 	public var hotkeyTapToggle: Bool
+	/// Whisper: decode speech again that the full-recording pass skipped
+	/// (`WhisperGapFiller`), in Normal and Literal mode. On by default.
+	public var whisperGapFill: Bool
 	public var outputLanguage: String?
 	public var selectedMicrophoneID: String?
 	public var saveTranscriptionHistory: Bool
@@ -91,7 +94,17 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	/// Dictation profiles and switching by app (2.6, C2).
 	public var profiles: ProfileSettings
 
+	/// Catalog entries removed in 3.2 → the model that replaces them.
+	public static let retiredModels: [String: String] = [
+		"openai_whisper-large-v3-v20240930": "openai_whisper-large-v3-v20240930_turbo",
+		"openai_whisper-large-v3-v20240930_turbo_632MB": "openai_whisper-large-v3-v20240930_turbo",
+	]
+
 	private mutating func normalizeSettings() {
+		func replacing(_ model: String) -> String { Self.retiredModels[model] ?? model }
+		selectedModel = replacing(selectedModel)
+		literalModel = replacing(literalModel)
+		profileModelSelections = profileModelSelections.mapValues(replacing)
 		if !doubleTapLockEnabled {
 			useDoubleTapOnly = false
 		}
@@ -127,6 +140,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		useDoubleTapOnly: Bool = false,
 		doubleTapLockEnabled: Bool = true,
 		hotkeyTapToggle: Bool = false,
+		whisperGapFill: Bool = true,
 		outputLanguage: String? = nil,
 		selectedMicrophoneID: String? = nil,
 		saveTranscriptionHistory: Bool = false,
@@ -184,6 +198,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.useDoubleTapOnly = useDoubleTapOnly
 		self.doubleTapLockEnabled = doubleTapLockEnabled
 		self.hotkeyTapToggle = hotkeyTapToggle
+		self.whisperGapFill = whisperGapFill
 		self.outputLanguage = outputLanguage
 		self.selectedMicrophoneID = selectedMicrophoneID
 		self.saveTranscriptionHistory = saveTranscriptionHistory
@@ -347,6 +362,7 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case profiles
 	case commandModeHotkey
 	case hotkeyTapToggle
+	case whisperGapFill
 }
 
 private struct SettingsField<Value: Codable & Sendable> {
@@ -518,6 +534,8 @@ private enum HexSettingsSchema {
 			encode: { container, key, value in try container.encodeIfPresent(value, forKey: key) }
 		).eraseToAny(),
 		SettingsField(.hotkeyTapToggle, keyPath: \.hotkeyTapToggle, default: defaults.hotkeyTapToggle,
+		              decode: { container, key, value in (try? container.decodeIfPresent(Bool.self, forKey: key)) ?? value }).eraseToAny(),
+		SettingsField(.whisperGapFill, keyPath: \.whisperGapFill, default: defaults.whisperGapFill,
 		              decode: { container, key, value in (try? container.decodeIfPresent(Bool.self, forKey: key)) ?? value }).eraseToAny()
 	]
 }

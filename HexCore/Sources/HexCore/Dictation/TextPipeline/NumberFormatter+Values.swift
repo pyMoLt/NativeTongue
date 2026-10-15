@@ -75,7 +75,7 @@ extension SpokenNumberFormatter {
 
 	/// „zwölf Euro fünfzig“ / „zwölf Euro und fünfzig Cent“ → 12,50 €; „drei Euro“ → 3 €;
 	/// EN „twelve dollars fifty“ → $12.50, „five euros“ → €5.
-	static func parseMoney(_ tokens: [TextToken], at start: Int, english: Bool) -> Parsed? {
+	static func parseMoney(_ tokens: [TextToken], at start: Int, english: Bool, thousandsSeparator: Bool = false) -> Parsed? {
 		guard let amount = parseNumber(tokens, at: start, english: english) else { return nil }
 		var index = start + amount.consumed
 		guard let currencyWord = word(tokens, index),
@@ -96,6 +96,9 @@ extension SpokenNumberFormatter {
 		}
 		let separator = english ? "." : ","
 		var number = amount.isDecimal ? amount.text : String(amount.value)
+		if thousandsSeparator, !english, !amount.isDecimal, amount.value >= 1_000 {
+			number = LiteralTuningRules.grouped(amount.value)
+		}
 		if let cents { number += separator + String(format: "%02d", cents) }
 		if english {
 			return ([.word(symbol == "CHF" ? "CHF " + number : symbol + number)], index - start)

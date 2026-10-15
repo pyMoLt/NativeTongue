@@ -56,7 +56,7 @@ struct StreamingPageView: View {
     FlowGroup("Model", footer: "Language follows Settings → Language (automatic when the model supports it).") {
       Picker("Streaming model", selection: binding(\.model)) {
         Text("Recommended (Nemotron 3.5)").tag("")
-        ForEach(LocalASRModelCatalog.bundled.filter { $0.streaming != .none }) { model in
+        ForEach(LocalASRModelCatalog.bundled.filter { $0.streaming != .none && $0.isSupportedOnThisMac }) { model in
           Text("\(model.displayName.components(separatedBy: " · ").first ?? model.displayName) — \(model.streaming == .native ? "live" : "after pauses")")
             .tag(model.internalName)
         }

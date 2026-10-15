@@ -352,8 +352,9 @@ actor QwenASRClient {
 		model?.unload()
 		model = nil
 		loadedModelName = nil
-		// Without this, ~2.5 GB of MLX buffers stayed resident after unloading.
-		MLXMemoryControl.clearCache()
+		// Without this, ~2.5 GB of MLX buffers stayed resident after unloading;
+		// freed malloc pages from loading the weights are returned as well.
+		MLXMemoryControl.releaseUnusedMemory()
 	}
 
 	func modelDirectory(for descriptor: LocalASRModelDescriptor) -> URL {

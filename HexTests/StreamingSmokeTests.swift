@@ -139,6 +139,17 @@ final class StreamingSmokeTests: XCTestCase {
     XCTAssertGreaterThan(result.text.split(separator: " ").count, 100, result.text)
   }
 
+  func testCoreAIParakeetStreaming() async throws {
+    guard #available(macOS 27.0, *) else { throw XCTSkip("Core AI needs macOS 27") }
+    guard CoreAIParakeetStore.isInstalled() else { throw XCTSkip("Parakeet Ultra (Core AI) not installed") }
+    let samples = try recording()
+    let engine = try await StreamingEngineHost.shared.coreAIParakeetEngine()
+    let result = try await stream(engine, samples)
+    report("parakeet-ultra-coreai", result, audioSeconds: Double(samples.count) / 16_000)
+    await StreamingEngineHost.shared.unloadAll()
+    XCTAssertGreaterThan(result.text.split(separator: " ").count, 100, result.text)
+  }
+
   func testAppleStreaming() async throws {
     guard await AppleSpeechASRClient().isInstalled() else { throw XCTSkip("Apple speech assets not installed") }
     let samples = try recording()

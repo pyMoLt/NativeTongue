@@ -7,6 +7,8 @@ struct ModelsPageView: View {
   @Bindable var store: StoreOf<ModelDownloadFeature>
   /// Minutes after which an idle speech model is unloaded (0 = never).
   var idleUnloadMinutes: Binding<Int>
+  /// Whisper: decode speech again that the first pass skipped (HexSettings.whisperGapFill).
+  var whisperGapFill: Binding<Bool>
   private let benchmarks = try? ModelBenchmarkCatalog.load()
 
   private var groups: [(LocalASRModelGroup, [LocalASRModelDescriptor])] {
@@ -32,6 +34,14 @@ struct ModelsPageView: View {
           Text("After 30 minutes").tag(30)
         }
         .flowRow("Unload an idle model")
+      }
+      FlowGroup("Advanced") {
+        Toggle(isOn: whisperGapFill) {
+          FlowLabel(
+            "Whisper: decode skipped passages again",
+            caption: "Whisper sometimes skips a passage after a pause, for example a word list at the end. NativeTongue decodes such passages a second time. Usually adds less than a second."
+          )
+        }
       }
       ForEach(groups, id: \.0) { group, models in
         FlowGroup(group.title) {
@@ -217,6 +227,11 @@ private struct ModelCard: View {
       .fixedSize()
       .help("More")
       .accessibilityLabel("More actions for \(model.displayName)")
+    } else if !model.isSupportedOnThisMac {
+      Label("Needs macOS \(model.minimumOS ?? "")", systemImage: "lock")
+        .flowFont(.caption, weight: .medium)
+        .foregroundStyle(.secondary)
+        .help("This model uses Apple's Core AI runtime, available from macOS \(model.minimumOS ?? "") on.")
     } else {
       Button(action: onInstall) {
         Label("Install · \(model.storageSize)", systemImage: "arrow.down.circle")
@@ -283,7 +298,7 @@ private struct ModelCard: View {
       detailRow("Source", model.revision.map { "\(model.repository) @ \($0.prefix(8))" } ?? model.repository)
       detailRow("Languages", model.languages.joined(separator: ", "))
       if measurement == nil {
-        detailRow("Measured", "Not measured yet on this Mac")
+        detailRow("Measured", model.measured ?? "Not measured yet on this Mac")
       }
     }
     .flowFont(.caption)
@@ -337,6 +352,8 @@ private struct RuntimeChip: View {
       ("GPU", "square.stack.3d.up")
     case .appleSpeechAnalyzer:
       ("macOS", "apple.logo")
+    case .parakeetCoreAI, .qwen3CoreAI:
+      ("Core AI · macOS 27", "cpu.fill")
     }
   }
 

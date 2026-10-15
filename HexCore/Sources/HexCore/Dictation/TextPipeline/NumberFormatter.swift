@@ -4,12 +4,15 @@ import Foundation
 /// with a measurement unit, with a decimal part, for values ≥ 13 and in dates.
 /// "zwei Komma fünf Milligramm" → "2,5 mg", "dritter März zweitausendsechsundzwanzig" → "03.03.2026".
 public enum SpokenNumberFormatter {
-	public static func format(_ tokens: [TextToken], language: String) -> [TextToken] {
+	/// - Parameters:
+	///   - dateNames: Literal fine-tuning: a date without year as „3. März“ instead of „03.03.“.
+	///   - thousandsSeparator: Literal fine-tuning: money from 1 000 on as „1.250 €“ (German).
+	public static func format(_ tokens: [TextToken], language: String, dateNames: Bool = false, thousandsSeparator: Bool = false) -> [TextToken] {
 		let english = language.lowercased().hasPrefix("en")
 		var output: [TextToken] = []
 		var i = 0
 		while i < tokens.count {
-			if let (dateTokens, consumed) = parseDate(tokens, at: i, english: english) {
+			if let (dateTokens, consumed) = parseDate(tokens, at: i, english: english, dateNames: dateNames) {
 				output += dateTokens
 				i += consumed
 				continue
@@ -17,7 +20,7 @@ public enum SpokenNumberFormatter {
 			// Plan B5: phone numbers, times, money, house numbers, ordinals.
 			if let parsed = parsePhone(tokens, at: i, english: english)
 				?? parseTime(tokens, at: i, english: english)
-				?? parseMoney(tokens, at: i, english: english)
+				?? parseMoney(tokens, at: i, english: english, thousandsSeparator: thousandsSeparator)
 				?? parseHouseNumber(tokens, at: i, english: english)
 				?? parseOrdinal(tokens, at: i, english: english) {
 				output += parsed.tokens
@@ -303,7 +306,7 @@ public enum SpokenNumberFormatter {
 		return nil
 	}
 
-	private static func parseDate(_ tokens: [TextToken], at start: Int, english: Bool) -> ([TextToken], Int)? {
+	private static func parseDate(_ tokens: [TextToken], at start: Int, english: Bool, dateNames: Bool = false) -> ([TextToken], Int)? {
 		guard let first = tokens[safe: start]?.wordText.map(lowered) else { return nil }
 		let article = english && first == "the" ? 1 : 0
 		if english, let dayWord = tokens[safe: start + article]?.wordText.map(lowered), let day = englishOrdinal(dayWord),
@@ -330,6 +333,12 @@ public enum SpokenNumberFormatter {
 			_ = month
 			return (text.split(separator: " ").map { .word(String($0)) }, consumed)
 		}
+		// Literal fine-tuning: the engine already wrote the day as a digit („am 3 März“).
+		if dateNames, let day = Int(first.trimmingCharacters(in: CharacterSet(charactersIn: "."))), (1...31).contains(day), first.count <= 3,
+		   let name = tokens[safe: start + 1]?.wordText, germanMonths[lowered(name)] != nil,
+		   parseYear(tokens, at: start + 2, english: false) == nil {
+			return ([.word("\(day)."), .word(name.prefix(1).uppercased() + name.dropFirst())], 2)
+		}
 		guard let day = germanOrdinal(first),
 		      let monthWord = tokens[safe: start + 1]?.wordText.map(lowered), let month = germanMonths[monthWord] else { return nil }
 		var consumed = 2
@@ -337,6 +346,8 @@ public enum SpokenNumberFormatter {
 		if let year = parseYear(tokens, at: start + 2, english: false) {
 			text += String(year.value)
 			consumed += year.consumed
+		} else if dateNames, let name = tokens[start + 1].wordText {
+			return ([.word("\(day)."), .word(name.prefix(1).uppercased() + name.dropFirst())], consumed)
 		}
 		return ([.word(text)], consumed)
 	}

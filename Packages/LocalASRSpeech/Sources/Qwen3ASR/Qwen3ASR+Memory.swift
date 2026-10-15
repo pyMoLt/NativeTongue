@@ -1,5 +1,6 @@
 import AudioCommon
 import MLX
+import MLXCommon
 
 extension Qwen3ASRModel: ModelMemoryManageable {
     public var isLoaded: Bool { _isLoaded }
@@ -16,6 +17,9 @@ extension Qwen3ASRModel: ModelMemoryManageable {
             MLX.Memory.cacheLimit = prior
             savedMLXCacheLimit = nil
         }
+        // `fromPretrained` pins MLX memory (wired limit); release it with the
+        // model so the pin does not outlive it.
+        MetalBudget.unpinMemory()
         _isLoaded = false
     }
 

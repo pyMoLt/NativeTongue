@@ -15,7 +15,8 @@ public enum InlineCommandRenderer {
 		includeFormat: Bool = true,
 		pauseBeforeWord: [Int?]? = nil,
 		commandPauseMs: Int = 450,
-		language: String = "de"
+		language: String = "de",
+		strictArticleRule: Bool = false
 	) -> [TextToken] {
 		let english = language.lowercased().hasPrefix("en")
 		var output: [TextToken] = []
@@ -52,7 +53,9 @@ public enum InlineCommandRenderer {
 			   allowedMarks?.contains(match.0) ?? true,
 			   isWholeWordMatch(run: Array(run.prefix(match.length)), length: match.length),
 			   !isSpokenAsWord(previous: output.last, pause: pauseBeforeWord.flatMap { $0[safe: wordIndex(index)] ?? nil },
-			                   commandPauseMs: commandPauseMs, english: english) {
+			                   commandPauseMs: commandPauseMs, english: english, strict: strictArticleRule)
+			   || (strictArticleRule && isOnOffSwitch(previous: output.last, next: tokens[safe: index + match.length])),
+			   !(strictArticleRule && isTimeWord(mark: match.0, next: tokens[safe: index + match.length])) {
 				output.append(.mark(match.0))
 				index += match.length
 				continue
@@ -87,12 +90,39 @@ public enum InlineCommandRenderer {
 	]
 	static let escapeWords: Set<String> = ["wort", "word", "begriff", "zeichen"]
 
-	static func isSpokenAsWord(previous: TextToken?, pause: Int?, commandPauseMs: Int, english: Bool = false) -> Bool {
+	/// Literal fine-tuning: bare prepositions no longer count („Kleber mit Punkt“
+	/// is a period); articles, determiners and contracted prepositions still do.
+	static let strictGermanWordMarkers: Set<String> = [
+		"der", "die", "das", "den", "dem", "des", "ein", "eine", "einen", "einem", "einer", "eines",
+		"kein", "keine", "keinen", "keinem", "keiner", "mein", "meine", "meinen", "dein", "deine", "sein", "seine", "seinen",
+		"ihr", "ihre", "ihren", "unser", "unsere", "dieser", "diese", "diesen", "diesem", "dieses", "jeder", "jede", "jeden", "jedem",
+		"im", "am", "beim", "vom", "zum", "zur", "ins", "ans", "aufs", "hinterm", "überm", "unterm",
+	]
+	static let strictEnglishWordMarkers: Set<String> = [
+		"a", "an", "the", "this", "that", "these", "those", "every", "each", "my", "your", "his", "its", "our", "their",
+	]
+
+	/// „Ein Schrägstrich Aus“ is the switch „Ein/Aus“, not the article „ein“
+	/// (also when the engine joined „Aus Schalter“ to „Ausschalter“).
+	static func isOnOffSwitch(previous: TextToken?, next: TextToken?) -> Bool {
+		previous?.wordText?.lowercased() == "ein" && next?.wordText?.lowercased().hasPrefix("aus") == true
+	}
+
+	/// „um Punkt 8 Uhr“: „Punkt“ before a number stays a word.
+	static func isTimeWord(mark: PunctuationMark, next: TextToken?) -> Bool {
+		guard mark == .period, let next = next?.wordText?.lowercased() else { return false }
+		return next.first?.isNumber == true || SpokenNumberFormatter.isNumberWord(next, english: false)
+	}
+
+	static func isSpokenAsWord(previous: TextToken?, pause: Int?, commandPauseMs: Int, english: Bool = false, strict: Bool = false) -> Bool {
 		guard let word = previous?.wordText else { return false }
 		// Plain lowercase: the command normalizer drops fillers such as „um“.
 		let lower = word.lowercased().trimmingCharacters(in: .punctuationCharacters)
 		if escapeWords.contains(lower) { return true }
-		guard (english ? englishWordMarkers : germanWordMarkers).contains(lower) else { return false }
+		let markers = strict
+			? (english ? strictEnglishWordMarkers : strictGermanWordMarkers)
+			: (english ? englishWordMarkers : germanWordMarkers)
+		guard markers.contains(lower) else { return false }
 		if let pause, pause >= commandPauseMs { return false }
 		return true
 	}

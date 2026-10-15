@@ -9,7 +9,7 @@ let package = Package(
   products: [
     // LocalLLM rides on an already linked product so the Xcode project needs no
     // new package product reference.
-    .library(name: "Qwen3ASR", targets: ["Qwen3ASR", "LocalLLM", "VoxtralRealtime"]),
+    .library(name: "Qwen3ASR", targets: ["Qwen3ASR", "LocalLLM", "VoxtralRealtime", "CoreAISpeechVendored", "CoreAIQwenASRVendored"]),
     .library(name: "AudioCommon", targets: ["AudioCommon"]),
     .library(name: "CohereTranscribeASR", targets: ["CohereTranscribeASR"]),
   ],
@@ -29,6 +29,42 @@ let package = Package(
     ),
   ],
   targets: [
+    // Qwen3-ASR on Core AI: the language-model engine of john-rocky/coreai-models 0.2.4-zoo
+    // (BSD-3-Clause, fork of apple/coreai-models; guided generation removed) and the Qwen3-ASR
+    // runtime of mattt/coreai-kit (BSD-3-Clause). Marked macOS 27+, CoreAI weak-linked.
+    .target(
+      name: "CoreAIQwenASRVendored",
+      dependencies: [
+        .product(name: "Tokenizers", package: "swift-transformers"),
+        .product(name: "Hub", package: "swift-transformers"),
+        .product(name: "Transformers", package: "swift-transformers"),
+      ],
+      exclude: ["LICENSE-coreai-models-zoo.txt", "LICENSE-coreai-kit.txt"],
+      resources: [.copy("Kit/Resources/mel_filters.f32")],
+      swiftSettings: [
+        .enableExperimentalFeature("Lifetimes"),
+        .unsafeFlags(["-Xfrontend", "-disable-autolink-framework", "-Xfrontend", "CoreAI"]),
+      ],
+      linkerSettings: [
+        .unsafeFlags(["-weak_framework", "CoreAI"]),
+      ]
+    ),
+    // Apple's CoreAISpeech (apple/coreai-models, BSD-3-Clause, see LICENSE-coreai-models.txt),
+    // vendored with every declaration marked macOS 27+. The app keeps macOS 26 as its base:
+    // CoreAI is weak-linked and only touched behind #available(macOS 27, *).
+    .target(
+      name: "CoreAISpeechVendored",
+      dependencies: [
+        .product(name: "Tokenizers", package: "swift-transformers"),
+      ],
+      exclude: ["LICENSE-coreai-models.txt"],
+      swiftSettings: [
+        .unsafeFlags(["-Xfrontend", "-disable-autolink-framework", "-Xfrontend", "CoreAI"]),
+      ],
+      linkerSettings: [
+        .unsafeFlags(["-weak_framework", "CoreAI"]),
+      ]
+    ),
     .target(
       name: "AudioCommon",
       dependencies: [

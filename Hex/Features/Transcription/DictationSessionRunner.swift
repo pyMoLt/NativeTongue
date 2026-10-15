@@ -53,6 +53,12 @@ struct DictationSessionRunner {
     var spokenPunctuationInNormal = false
     /// Normalized trigger words → snippet text (plan B6).
     var snippets: [[String]: String] = [:]
+    /// Literal fine-tuning for Whisper/Qwen (`LiteralTuning`); off = previous behaviour.
+    var literalTuning = true
+    /// Replaces the engine's tuning profile (tests).
+    var literalTuningProfile: LiteralTuning?
+    /// Whisper: decode skipped speech again (`WhisperGapFiller`), Normal and Literal.
+    var whisperGapFill = true
   }
 
   /// Rendered session plus bookkeeping for the hotkey flow.
@@ -66,7 +72,7 @@ struct DictationSessionRunner {
     guard !samples.isEmpty else {
       return DictationSessionOutput(document: DictationDocument(), language: fallbackLanguage, text: "")
     }
-    let options = RequestOptions(
+    var options = RequestOptions(
       language: request.language,
       punctuation: request.mode == .literal && !request.bypassFormatting ? .suppressed : .natural,
       biasTerms: request.biasTerms
@@ -76,8 +82,14 @@ struct DictationSessionRunner {
       return DictationSessionOutput(document: DictationDocument(), language: result.detectedLanguage ?? fallbackLanguage, text: result.text, markdown: result.text, rawText: result.text)
     }
 
-    let capabilities = (try? LocalASRModelCatalog.descriptor(named: request.model))?.capabilities
-    let utterances = UtteranceSegmenter.segment(samples, config: SegmenterConfig(minPauseMs: request.commandPauseMs))
+    let descriptor = try? LocalASRModelCatalog.descriptor(named: request.model)
+    let capabilities = descriptor?.capabilities
+    let tuning = request.mode == .literal && request.literalTuning ? (request.literalTuningProfile ?? descriptor.flatMap { Self.literalTuning(for: $0.backend) }) : nil
+    options.literalTuning = tuning != nil
+    // Gap fill: Whisper only, in Normal and (tuned) Literal mode, switchable in the settings.
+    let gapFill = descriptor?.backend == .whisperKitCoreML && request.whisperGapFill
+      && (request.mode == .normal || tuning?.gapFill == true)
+    let utterances = UtteranceSegmenter.segment(samples, config: SegmenterConfig(minPauseMs: tuning?.decodeSegmentPauseMs ?? request.commandPauseMs))
     let collector = UncertainWordCollector()
     let recording = DictationSessionRunner(
       transcribeSamples: { [transcribeSamples] samples, model, options in
@@ -87,7 +99,8 @@ struct DictationSessionRunner {
       },
       corrector: corrector
     )
-    let aligned = try await recording.transcribe(samples, utterances: utterances, wordTimings: capabilities?.wordTimings ?? false, request: request, options: options)
+    let aligned = try await recording.transcribe(samples, utterances: utterances, wordTimings: capabilities?.wordTimings ?? false,
+                                                 request: request, options: options, gapFill: gapFill)
 
     let language = Self.baseLanguage(request.language ?? aligned.first(where: { $0.language != nil })?.language ?? "de")
     let corrector = await corrector(LexiconContext(
@@ -110,6 +123,7 @@ struct DictationSessionRunner {
       vocabulary: request.vocabulary
     )
     sessionOptions.spokenPunctuationInNormal = request.spokenPunctuationInNormal && !request.bypassFormatting
+    sessionOptions.literalTuning = tuning
     if !request.bypassFormatting { sessionOptions.snippets = request.snippets }
     let document = DictationSessionProcessor.makeDocument(from: aligned, options: sessionOptions, corrector: corrector)
     let text = document.render(AssemblerOptions(language: language, mode: request.mode))
@@ -121,6 +135,17 @@ struct DictationSessionRunner {
       // the hover suggestions offer the term; plan B7).
       uncertainWords: await collector.words + document.hints.map(\.word)
     )
+  }
+
+  /// Literal fine-tuning per engine family (`LiteralTuning`): Whisper and Qwen
+  /// have their own profile, every other batch engine the general rules.
+  static func literalTuning(for backend: LocalASRBackend) -> LiteralTuning? {
+    switch backend {
+    case .whisperKitCoreML: .whisper
+    case .qwen3MLX, .qwen3CoreAI: .qwen
+    case .parakeetFluidAudioCoreML, .canaryFluidAudioCoreML, .omiMedicalParakeetCoreML, .cohereMLX, .appleSpeechAnalyzer, .parakeetCoreAI: .general
+    case .nemotronStreamingCoreML, .voxtralRealtimeMLX: nil
+    }
   }
 
   /// "de-DE" / "german" → "de".
@@ -136,7 +161,8 @@ struct DictationSessionRunner {
     utterances: [Utterance],
     wordTimings: Bool,
     request: Request,
-    options: RequestOptions
+    options: RequestOptions,
+    gapFill: Bool = false
   ) async throws -> [AlignedUtterance] {
     if utterances.isEmpty {
       // No speech above the VAD threshold: still decode once, never drop audio.
@@ -145,7 +171,12 @@ struct DictationSessionRunner {
       return [AlignedUtterance(utterance: whole, text: result.text, language: result.detectedLanguage)]
     }
     if wordTimings {
-      let result = try await transcribeSamples(samples, request.model, options)
+      var result = try await transcribeSamples(samples, request.model, options)
+      if gapFill {
+        result = try await WhisperGapFiller.fill(result, samples: samples) { [transcribeSamples] part in
+          try await transcribeSamples(part, request.model, options)
+        }
+      }
       if let aligned = DictationSessionProcessor.align(result, to: utterances) {
         return aligned
       }

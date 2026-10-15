@@ -78,6 +78,8 @@ actor StreamingEngineHost {
   private var nemotron: NemotronStreamingEngine?
   private var voxtral: VoxtralStreamingEngine?
   private var apple: AppleStreamingEngine?
+  /// Parakeet Ultra (Core AI, macOS 27); stored type-erased so the host stays available on macOS 26.
+  private var coreAIParakeet: (any StreamingEngine)?
   private var idleTimer = IdleUnloadTimer()
   private var activeSessions = 0
 
@@ -106,9 +108,11 @@ actor StreamingEngineHost {
     await nemotron?.unload()
     await voxtral?.unload()
     await apple?.unload()
+    await coreAIParakeet?.unload()
     nemotron = nil
     voxtral = nil
     apple = nil
+    coreAIParakeet = nil
   }
 
   func nemotronEngine(chunkMs: Int) async throws -> NemotronStreamingEngine {
@@ -126,6 +130,18 @@ actor StreamingEngineHost {
     nemotron = nil
     try await engine.load()
     voxtral = engine
+    return engine
+  }
+
+  @available(macOS 27.0, *)
+  func coreAIParakeetEngine() async throws -> any StreamingEngine {
+    await nemotron?.unload()
+    await voxtral?.unload()
+    nemotron = nil
+    voxtral = nil
+    let engine = (coreAIParakeet as? CoreAIParakeetStreamingEngine) ?? CoreAIParakeetStreamingEngine()
+    try await engine.load()
+    coreAIParakeet = engine
     return engine
   }
 
@@ -421,6 +437,15 @@ actor StreamingSessionController {
       }
     case .appleSpeechAnalyzer:
       return (await StreamingEngineHost.shared.appleEngine(), false)
+    case .parakeetCoreAI:
+      guard #available(macOS 27.0, *) else { throw CoreAIParakeetStore.unsupported() }
+      try await transcription.reserveForStreaming()
+      do {
+        return (try await StreamingEngineHost.shared.coreAIParakeetEngine(), true)
+      } catch {
+        await transcription.releaseForStreaming()
+        throw error
+      }
     default:
       await StreamingEngineHost.shared.unloadAll()
       let model = descriptor.internalName

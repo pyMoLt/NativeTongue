@@ -65,8 +65,9 @@ Pick the speech model that suits you; the app recommends one per mode. Models ar
 | Family | Runtime | Good for |
 |---|---|---|
 | Parakeet (TDT v2, v3, Ultra) | FluidAudio · Core ML | Fast everyday dictation |
-| Whisper (Large v3, Large v3 Turbo and smaller) | WhisperKit · Core ML | Literal mode, many languages |
+| Whisper (Large v3, Large v3 Turbo, Turbo German and smaller) | WhisperKit · Core ML | Literal mode, many languages |
 | Qwen3-ASR (0.6B, 1.7B) | MLX | English and Asian languages |
+| Parakeet Ultra, Qwen3-ASR 1.7B *(experimental, macOS 27)* | Apple Core AI | Live streaming / very low memory |
 | Nemotron 3.5 Streaming, Voxtral Mini 4B Realtime | Core ML · MLX | Streaming mode |
 | Apple SpeechAnalyzer | Apple Speech | No extra download size |
 
@@ -114,12 +115,13 @@ scripts/build-dist.sh
 | `Hex/` | SwiftUI/AppKit app, features (TCA), model clients |
 | `HexCore/` | Dictation pipeline, commands, numbers, lexicon, AI styles, profiles, tests |
 | `HexTests/` | App and integration tests |
-| `Packages/LocalASRSpeech/` | Vendored Qwen3-ASR runtime, local LLM and streaming engines |
+| `Packages/LocalASRSpeech/` | Vendored Qwen3-ASR runtime, local LLM, streaming engines and the Core AI runtimes (macOS 27) |
 
 ## Versions
 
 | Version | Highlights |
 |---|---|
+| **3.2** | Literal fine-tuning (no model punctuation, sturdier commands, numbers), gap fill for Whisper, Core AI models (macOS 27), Whisper Turbo German |
 | **3.0** | New design, appearance and text size, AI styles, profiles per app, Command Mode, context |
 | **2.5** | Streaming mode, local AI post-processing |
 | **2.0** | Rebuilt dictation core: Normal/Literal, commands, Dictation Box, vocabulary, files |
@@ -137,4 +139,4 @@ Thank you, Kit, for building Hex and for sharing it as open source under the MIT
 
 ## Credits and license
 
-NativeTongue is MIT licensed. It started as a fork of [Hex](https://github.com/kitlangton/Hex) by Kit Langton (MIT) and has since been rebuilt. It uses [WhisperKit](https://github.com/argmaxinc/WhisperKit), [FluidAudio](https://github.com/FluidInference/FluidAudio), [MLX Swift](https://github.com/ml-explore/mlx-swift) and [The Composable Architecture](https://github.com/pointfreeco/swift-composable-architecture). Model weights have their own licenses, shown in the app before installing.
+NativeTongue is MIT licensed. It started as a fork of [Hex](https://github.com/kitlangton/Hex) by Kit Langton (MIT) and has since been rebuilt. It uses [WhisperKit](https://github.com/argmaxinc/WhisperKit), [FluidAudio](https://github.com/FluidInference/FluidAudio), [MLX Swift](https://github.com/ml-explore/mlx-swift), Apple's [coreai-models](https://github.com/apple/coreai-models) (CoreAISpeech), [coreai-kit](https://github.com/mattt/coreai-kit) and [The Composable Architecture](https://github.com/pointfreeco/swift-composable-architecture). Model weights have their own licenses, shown in the app before installing.

@@ -573,6 +573,207 @@ final class EngineSmokeTests: XCTestCase {
 	}
 
 	/// Metrics only (no transcript text) for the test report.
+	/// Memory probe (LOCAL_ASR_MEM_MODEL): one model in a fresh test process,
+	/// transcribes the given clip and records current and peak footprint.
+	func testModelMemoryProbe() async throws {
+		let env = ProcessInfo.processInfo.environment
+		guard let model = env["LOCAL_ASR_MEM_MODEL"], let clip = env["LOCAL_ASR_MEM_CLIP"] else { throw XCTSkip("probe only on request") }
+		let client = TranscriptionClient.liveValue
+		guard await client.isModelDownloaded(model) else { throw XCTSkip("\(model) not installed") }
+		func footprint() -> (current: Int, peak: Int) {
+			var info = task_vm_info_data_t()
+			var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+			let result = withUnsafeMutablePointer(to: &info) {
+				$0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+			}
+			guard result == KERN_SUCCESS else { return (0, 0) }
+			return (Int(info.phys_footprint / 1_048_576), Int(info.ledger_phys_footprint_peak / 1_048_576))
+		}
+		let samples = try loadFixture(clip)
+		let started = Date()
+		_ = try await client.transcribeSamples(samples, model, RequestOptions(language: "de", punctuation: .natural))
+		let seconds = Date().timeIntervalSince(started)
+		let loaded = footprint()
+		await client.unloadModel()
+		try await Task.sleep(for: .seconds(2))
+		let after = footprint()
+		Self.metric("MEMORY model=\(model) clip=\(clip) seconds=\(String(format: "%.1f", seconds)) loadedMB=\(loaded.current) peakMB=\(loaded.peak) afterUnloadMB=\(after.current)")
+	}
+
+	/// Installs catalog models through the app's own download path
+	/// (LOCAL_ASR_INSTALL_MODELS=id,id); explicit maintenance action only.
+	func testInstallRequestedModels() async throws {
+		guard let list = ProcessInfo.processInfo.environment["LOCAL_ASR_INSTALL_MODELS"] else { throw XCTSkip("install only on request") }
+		let client = TranscriptionClient.liveValue
+		for model in list.split(separator: ",").map(String.init) {
+			if await client.isModelDownloaded(model) { print("INSTALL \(model) already installed"); continue }
+			let started = Date()
+			try await client.downloadModel(model) { _ in }
+			let installed = await client.isModelDownloaded(model)
+			print("INSTALL \(model) installed=\(installed) seconds=\(Int(Date().timeIntervalSince(started)))")
+			XCTAssertTrue(installed, "\(model) not installed after download")
+		}
+		await client.unloadModel()
+	}
+
+	/// Diagnostic (LOCAL_ASR_QWEN_PROBE): load Qwen3-ASR, transcribe, unload,
+	/// then stay idle so the process memory can be inspected from outside.
+	func testQwenUnloadMemoryProbe() async throws {
+		guard ProcessInfo.processInfo.environment["LOCAL_ASR_QWEN_PROBE"] != nil else { throw XCTSkip("probe only on request") }
+		let model = ProcessInfo.processInfo.environment["LOCAL_ASR_QWEN_PROBE_MODEL"] ?? "qwen3-asr-1.7b-8bit-mlx"
+		let client = TranscriptionClient.liveValue
+		guard await client.isModelDownloaded(model) else { throw XCTSkip("\(model) not installed") }
+		let marker = URL(fileURLWithPath: "/private/tmp/NativeTongue-QwenProbe.txt")
+		func mark(_ text: String) async {
+			let mb = Int((await client.processFootprintBytes() ?? 0) / 1_048_576)
+			let mlx = MLXMemoryControl.usage()
+			let line = "\(Date().timeIntervalSince1970) \(text) footprintMB=\(mb) mlxActiveMB=\(mlx.active / 1_048_576) mlxCacheMB=\(mlx.cache / 1_048_576) pid=\(ProcessInfo.processInfo.processIdentifier)\n"
+			if let handle = try? FileHandle(forWritingTo: marker) { handle.seekToEndOfFile(); handle.write(Data(line.utf8)); try? handle.close() }
+			else { try? line.write(to: marker, atomically: true, encoding: .utf8) }
+		}
+		await mark("start")
+		let samples = try loadFixture("Literal-controls.m4a")
+		try await client.prewarm(model)
+		await mark("prewarmed")
+		try await Task.sleep(for: .seconds(8))
+		_ = try await client.transcribeSamples(samples, model, RequestOptions(language: "de", punctuation: .natural))
+		await mark("loaded")
+		try await Task.sleep(for: .seconds(20))
+		await client.unloadModel()
+		try await Task.sleep(for: .seconds(2))
+		await mark("unloaded")
+		try await Task.sleep(for: .seconds(40))
+		await mark("end")
+	}
+
+	/// Audit of real recordings (2026-10-15), stage by stage. Runs only with
+	/// LOCAL_ASR_AUDIT_DIR (via TEST_RUNNER_LOCAL_ASR_AUDIT_DIR); writes every
+	/// stage to LOCAL_ASR_AUDIT_OUT. Clips named L* run in Literal, others in Normal.
+	func testAudioAuditStages() async throws {
+		let env = ProcessInfo.processInfo.environment
+		guard let inputPath = env["LOCAL_ASR_AUDIT_DIR"] else { throw XCTSkip("Set LOCAL_ASR_AUDIT_DIR") }
+		let output = URL(fileURLWithPath: env["LOCAL_ASR_AUDIT_OUT"] ?? "/private/tmp/NativeTongue-Audit/out", isDirectory: true)
+		try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+		let input = URL(fileURLWithPath: inputPath, isDirectory: true)
+		let clips = try FileManager.default.contentsOfDirectory(at: input, includingPropertiesForKeys: nil)
+			.filter { ["m4a", "wav", "caf", "mp3"].contains($0.pathExtension.lowercased()) }
+			.sorted { $0.lastPathComponent < $1.lastPathComponent }
+		let settingsURL = URL(fileURLWithPath: NSHomeDirectory())
+			.appendingPathComponent("Library/Application Support/com.localasr.LocalASR/hex_settings.json")
+		let userSettings = (try? JSONDecoder().decode(HexSettings.self, from: Data(contentsOf: settingsURL))) ?? HexSettings()
+		let client = TranscriptionClient.liveValue
+		// One lexicon service for the whole run (the app keeps its index too), built before any timing.
+		let lexicon = LexiconClient.liveValue
+		_ = await lexicon.corrector(LexiconContext(mode: .literal, language: "de", profile: userSettings.asrProfile,
+		                                           activePacks: userSettings.activeLexiconPacks, autoReplacePackTermsInLiteral: userSettings.autoReplaceTermsLiteral))
+		let wanted = (env["LOCAL_ASR_AUDIT_MODELS"] ?? "\(turbo),parakeet-ultra-coreml,qwen3-asr-1.7b-8bit-mlx").split(separator: ",").map(String.init)
+		func write(_ text: String, _ name: String) throws {
+			try text.write(to: output.appendingPathComponent(name), atomically: true, encoding: .utf8)
+		}
+		for clip in clips {
+			let name = clip.deletingPathExtension().lastPathComponent
+			let samples = try loadFixture(clip.lastPathComponent) // reads LOCAL_ASR_TEST_AUDIO_DIR
+			let literal = name.uppercased().hasPrefix("L")
+			for pause in [250, 450] {
+				let segments = UtteranceSegmenter.segment(samples, config: SegmenterConfig(minPauseMs: pause))
+				var lines: [String] = []
+				for u in segments {
+					let start = Double(u.range.lowerBound) / 16_000
+					let end = Double(u.range.upperBound) / 16_000
+					let after = u.pauseAfterMs.map { String($0) } ?? "-"
+					lines.append(String(format: "%6.2f-%6.2f", start, end) + " before=\(u.pauseBeforeMs) after=\(after)")
+				}
+				try write(lines.joined(separator: "\n"), "\(name)__segments-\(pause).txt")
+			}
+			for model in wanted where await client.isModelDownloaded(model) {
+				let short = Self.auditShortName(model)
+				if env["LOCAL_ASR_AUDIT_RAW"] != "0" {
+				let natural = try await client.transcribeSamples(samples, model, RequestOptions(language: "de", punctuation: .natural))
+				try write(natural.text, "\(name)__\(short)__A-raw-natural.txt")
+				let suppressed = try await client.transcribeSamples(samples, model, RequestOptions(language: "de", punctuation: .suppressed))
+				try write(suppressed.text, "\(name)__\(short)__B-raw-suppressed.txt")
+				let wordLines: [String] = suppressed.words.map { word in String(format: "%6.2f %6.2f ", word.start, word.end) + word.text }
+				try write(wordLines.joined(separator: "\n"), "\(name)__\(short)__B-words.txt")
+				let policy: PunctuationPolicy = literal ? .suppressed : .natural
+				var pieces: [String] = []
+				let livePause = Int((userSettings.spokenCommandPauseSeconds * 1_000).rounded())
+				for u in UtteranceSegmenter.segment(samples, config: SegmenterConfig(minPauseMs: livePause)) {
+					let part = Array(samples[max(0, u.range.lowerBound) ..< min(samples.count, u.range.upperBound)])
+					pieces.append(try await client.transcribeSamples(part, model, RequestOptions(language: "de", punctuation: policy)).text)
+				}
+				try write(pieces.joined(separator: "\n"), "\(name)__\(short)__C-per-utterance.txt")
+				}
+				// E: as live (user settings + vocabulary), F: 450 ms pause, G: no vocabulary,
+				// H: no vocabulary, no numbers, no self-correction (bare command renderer).
+				// E: as live (user settings + vocabulary + Literal fine-tuning), U: same without fine-tuning,
+				// F: 450 ms pause, G: no vocabulary, H: bare command renderer.
+				let stages = (env["LOCAL_ASR_AUDIT_STAGES"] ?? "E-live,U-untuned,F-pause450,G-nolex,H-minimal").split(separator: ",").map(String.init)
+				for (stage, pause, useLexicon, extras) in [("E-live", -1, true, true), ("U-untuned", -1, true, true), ("W-nogap", -1, true, true), ("Q-seg250", -1, true, true), ("Q-seg450", -1, true, true), ("F-pause450", 450, true, true),
+				                                          ("G-nolex", -1, false, true), ("H-minimal", -1, false, false)] where stages.contains(stage) {
+					var settings = userSettings
+					settings.dictationMode = literal ? .literal : .normal
+					var request = DictationSessionRunner.Request(settings: settings, bypassFormatting: false)
+					request.model = model
+					if pause > 0 { request.commandPauseMs = pause }
+					request.literalTuning = stage != "U-untuned"
+					if stage == "W-nogap" {
+						var profile = LiteralTuning.whisper
+						profile.gapFill = false
+						request.literalTuningProfile = profile
+					}
+					if stage.hasPrefix("Q-seg") {
+						guard model.hasPrefix("qwen") else { continue }
+						var profile = LiteralTuning.qwen
+						profile.decodeSegmentPauseMs = Int(stage.dropFirst(5))
+						request.literalTuningProfile = profile
+					}
+					if !extras {
+						request.formatNumbers = false
+						request.resolveSelfCorrections = false
+						request.agentFormatting = false
+					}
+					let calls = DecodeLog()
+					let runner = DictationSessionRunner(transcribeSamples: { samples, model, options in
+						let started = Date()
+						let result = try await client.transcribeSamples(samples, model, options)
+						await calls.add(String(format: "%.1fs audio, %.2fs, %d words", Double(samples.count) / 16_000, Date().timeIntervalSince(started), result.words.count))
+						return result
+					}, corrector: { context in
+						useLexicon ? await lexicon.corrector(context) : nil
+					})
+					let started = Date()
+					let result = try await runner.run(samples: samples, request: request)
+					try write(String(format: "%.2f", Date().timeIntervalSince(started)), "\(name)__\(short)__\(stage)-seconds.txt")
+					try write(result.text, "\(name)__\(short)__\(stage).txt")
+					try write(await calls.lines.joined(separator: "\n"), "\(name)__\(short)__\(stage)-decodes.txt")
+					try write(result.rawText, "\(name)__\(short)__\(stage)-raw.txt")
+					let footprintMB = Int((await client.processFootprintBytes() ?? 0) / 1_048_576)
+					try write("\(footprintMB)", "\(name)__\(short)__\(stage)-memMB.txt")
+				}
+				print("AUDIT clip=\(name) model=\(short) done")
+			}
+		}
+		await client.unloadModel()
+	}
+
+	actor DecodeLog {
+		var lines: [String] = []
+		func add(_ line: String) { lines.append(line) }
+	}
+
+	static func auditShortName(_ model: String) -> String {
+		switch model {
+		case "openai_whisper-large-v3-v20240930_turbo": "turbo"
+		case "openai_whisper-large-v3": "largev3"
+		case "whisper-large-v3-turbo-german-6bit": "turbode"
+		case "parakeet-ultra-coreml": "parakeet"
+		case "qwen3-asr-1.7b-8bit-mlx": "qwen"
+		case "qwen3-asr-0.6b-8bit-mlx": "qwen06"
+		case "cohere-transcribe-2b-8bit-mlx": "coheremlx"
+		default: model
+		}
+	}
+
 	static func metric(_ line: String) {
 		let url = URL(fileURLWithPath: "/private/tmp/LocalASR-Metrics.txt")
 		let data = Data((line + "\n").utf8)

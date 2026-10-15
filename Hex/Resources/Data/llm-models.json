@@ -209,6 +209,82 @@
     "blurb": "The larger fast Liquid model. Worth a try when the small models make too many mistakes."
   },
   {
+    "id": "minicpm5-1b-8bit",
+    "displayName": "MiniCPM5 1B",
+    "family": "MiniCPM5",
+    "repository": "mlx-community/MiniCPM5-1B-8bit",
+    "revision": "3d164befdfbe496a9e280704c42bcb34ebde9443",
+    "variant": "8-bit",
+    "downloadSize": "1.15 GB",
+    "license": "Apache-2.0",
+    "sizeClass": "small",
+    "speed": "fast",
+    "recommendedFor": [],
+    "experimental": true,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "Small and light on-device model by OpenBMB, lowest hallucination rate in Artificial Analysis' knowledge test. Untested in NativeTongue."
+  },
+  {
+    "id": "minicpm5-2b-4bit",
+    "displayName": "MiniCPM5 2B",
+    "family": "MiniCPM5",
+    "repository": "mlx-community/MiniCPM5-2B-chat-mlx-4bit",
+    "revision": "813f0481cfbef1e95f529c52fa6300788022247b",
+    "variant": "4-bit",
+    "downloadSize": "1.42 GB",
+    "license": "Apache-2.0",
+    "sizeClass": "small",
+    "speed": "fast",
+    "recommendedFor": [],
+    "experimental": true,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "Small and fast on-device model by OpenBMB. Untested in NativeTongue."
+  },
+  {
+    "id": "g9v3-3b-4bit",
+    "displayName": "G9v3 3B",
+    "family": "G9v3",
+    "repository": "cof139/G9v3-3B-mlx-4Bit",
+    "revision": "076ed58eed5a29dc7a27cf16d184db59550f09cb",
+    "variant": "4-bit (community conversion)",
+    "downloadSize": "1.68 GB",
+    "license": "Apache-2.0",
+    "sizeClass": "medium",
+    "speed": "fast",
+    "recommendedFor": [],
+    "experimental": true,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "Small and light, low hallucination (AI9Stars; community MLX conversion). Untested in NativeTongue."
+  },
+  {
+    "id": "granite42-3b-4bit",
+    "displayName": "Granite 4.2 3B",
+    "family": "IBM Granite 4.2",
+    "repository": "ibm-granite/granite-4.2-3b-q4-mlx",
+    "revision": "0c6f39b1827afd5eb2c1c3b13751929857434953",
+    "variant": "4-bit (IBM)",
+    "downloadSize": "2.06 GB",
+    "license": "Apache-2.0",
+    "sizeClass": "medium",
+    "speed": "medium",
+    "recommendedFor": [],
+    "experimental": true,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "Compact IBM model with German support, MLX build by IBM. Untested in NativeTongue."
+  },
+  {
     "id": "ministral3-3b-4bit",
     "displayName": "Ministral 3 3B Instruct",
     "family": "Mistral",
@@ -288,6 +364,25 @@
     "blurb": "Our recommended model for automatic clean-up and the dictation box: in our tests it got all ten quality checks right (spoken commands, grammar, names, mixed languages) at about half a second per sentence."
   },
   {
+    "id": "qwen35-4b-8bit",
+    "displayName": "Qwen3.5 4B · 8-bit",
+    "family": "Qwen3.5",
+    "repository": "mlx-community/Qwen3.5-4B-MLX-8bit",
+    "revision": "5319bbbe4f1cbe6c0b3c80f4f7de4f0338c3906d",
+    "variant": "8-bit",
+    "downloadSize": "5.16 GB",
+    "license": "Apache-2.0",
+    "sizeClass": "large",
+    "speed": "slow",
+    "recommendedFor": [],
+    "experimental": true,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "For maximum quality: our recommended Qwen3.5 4B with 8-bit instead of 4-bit weights, a little more precise wording for about 5 GB of memory. Not yet tested in our quality checks; slower than the 4-bit version."
+  },
+  {
     "id": "gemma4-e2b-4bit",
     "displayName": "Gemma 4 E2B",
     "family": "Gemma 4",
@@ -324,6 +419,25 @@
       "en"
     ],
     "blurb": "The bigger Gemma 4 for the best wording in the dictation box. Needs more memory and time."
+  },
+  {
+    "id": "gemma4-12b-8bit",
+    "displayName": "Gemma 4 12B · 8-bit",
+    "family": "Gemma 4",
+    "repository": "mlx-community/gemma-4-12B-it-8bit",
+    "revision": "200bb6db075e137a4deb08838865ac4ddb86292e",
+    "variant": "8-bit",
+    "downloadSize": "12.75 GB",
+    "license": "Gemma Terms of Use",
+    "sizeClass": "large",
+    "speed": "slow",
+    "recommendedFor": [],
+    "experimental": true,
+    "languages": [
+      "de",
+      "en"
+    ],
+    "blurb": "For maximum quality: the largest model in the list, for the best wording in the dictation box. Needs about 13 GB of memory (a Mac with 32 GB or more) and noticeably more time per sentence. Not yet tested in our quality checks."
   },
   {
     "id": "lfm25-8b-a1b-4bit",

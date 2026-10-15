@@ -62,6 +62,8 @@ public struct RequestOptions: Sendable, Equatable {
 	public var biasTerms: [String]
 	/// File transcription: waits behind dictation for the model.
 	public var isBackground: Bool
+	/// Literal fine-tuning is active (`LiteralTuning`): Whisper suppresses every punctuation token.
+	public var literalTuning = false
 
 	public init(language: String?, punctuation: PunctuationPolicy, biasTerms: [String] = [], isBackground: Bool = false) {
 		self.language = language

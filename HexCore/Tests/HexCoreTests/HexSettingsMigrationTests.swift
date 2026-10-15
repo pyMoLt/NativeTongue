@@ -143,6 +143,21 @@ final class HexSettingsMigrationTests: XCTestCase {
 		var toggled = HexSettings()
 		toggled.hotkeyTapToggle = true
 		XCTAssertTrue(try JSONDecoder().decode(HexSettings.self, from: JSONEncoder().encode(toggled)).hotkeyTapToggle)
+		// 3.2: Whisper gap fill, on by default (also for settings saved before 3.2), tolerant decoding.
+		XCTAssertTrue(defaults.whisperGapFill)
+		XCTAssertTrue(old.whisperGapFill)
+		XCTAssertTrue(try JSONDecoder().decode(HexSettings.self, from: Data(#"{"whisperGapFill":"no"}"#.utf8)).whisperGapFill)
+		var gapOff = HexSettings()
+		gapOff.whisperGapFill = false
+		XCTAssertFalse(try JSONDecoder().decode(HexSettings.self, from: JSONEncoder().encode(gapOff)).whisperGapFill)
+	}
+
+	func testRetiredWhisperModelsFallBackToTurbo() throws {
+		let json = #"{"selectedModel":"openai_whisper-large-v3-v20240930","literalModel":"openai_whisper-large-v3-v20240930_turbo_632MB","asrProfile":"general"}"#
+		let settings = try JSONDecoder().decode(HexSettings.self, from: Data(json.utf8))
+		XCTAssertEqual(settings.selectedModel, "openai_whisper-large-v3-v20240930_turbo")
+		XCTAssertEqual(settings.literalModel, "openai_whisper-large-v3-v20240930_turbo")
+		XCTAssertEqual(settings.profileModelSelections[.general], "openai_whisper-large-v3-v20240930_turbo")
 	}
 
 	func testSpokenCommandPauseIsClampedOnDecode() throws {

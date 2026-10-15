@@ -26,13 +26,57 @@ final class LocalASRModelCatalogTests: XCTestCase {
     let entries = try LocalASRModelCatalog.load()
     let large = try XCTUnwrap(entries.first { $0.internalName == "openai_whisper-large-v3" })
     let turbo = try XCTUnwrap(entries.first { $0.internalName == "openai_whisper-large-v3-v20240930_turbo" })
-    let compressed = try XCTUnwrap(entries.first { $0.internalName == "openai_whisper-large-v3-v20240930_turbo_632MB" })
 
     XCTAssertEqual(large.precision, "FP16")
     XCTAssertEqual(turbo.precision, "FP16")
-    XCTAssertEqual(compressed.precision, "4-bit compressed")
     XCTAssertNotEqual(large.internalName, turbo.internalName)
-    XCTAssertNotEqual(turbo.internalName, compressed.internalName)
+    // 3.2: the 4-bit turbo and the legacy turbo artifact are retired (settings fall back to turbo).
+    for retired in HexSettings.retiredModels.keys {
+      XCTAssertNil(entries.first { $0.internalName == retired }, retired)
+      XCTAssertEqual(HexSettings.retiredModels[retired], turbo.internalName)
+    }
+  }
+
+  func testCoreAIParakeetIsPinnedExperimentalAndMacOS27Only() throws {
+    let entry = try XCTUnwrap(LocalASRModelCatalog.load().first { $0.internalName == CoreAIParakeetStore.modelName })
+    XCTAssertEqual(entry.backend, .parakeetCoreAI)
+    XCTAssertEqual(entry.revision, CoreAIParakeetStore.revision)
+    XCTAssertEqual(entry.repository, CoreAIParakeetStore.repository)
+    XCTAssertEqual(entry.minimumOS, "27.0")
+    XCTAssertEqual(entry.group, .experimental)
+    XCTAssertEqual(entry.streaming, .native)
+    XCTAssertEqual(entry.literalRating, .limited)
+    XCTAssertTrue(entry.blurb?.contains("macOS 27") ?? false)
+    let qwen = try XCTUnwrap(LocalASRModelCatalog.load().first { $0.internalName == CoreAIQwenStore.modelName })
+    XCTAssertEqual(qwen.backend, .qwen3CoreAI)
+    XCTAssertEqual(qwen.revision, CoreAIQwenStore.revision)
+    XCTAssertEqual(qwen.minimumOS, "27.0")
+    XCTAssertEqual(qwen.capabilities.maxWindowSeconds, CoreAIQwenStore.windowSeconds)
+    XCTAssertTrue(qwen.blurb?.contains("Literal") ?? false)
+    XCTAssertEqual(DictationSessionRunner.literalTuning(for: .qwen3CoreAI)?.engine, .qwen)
+    XCTAssertEqual(DictationSessionRunner.literalTuning(for: .parakeetCoreAI)?.engine, .general)
+    XCTAssertEqual(CoreAIQwenStore.languageName("de-DE"), "German")
+    XCTAssertNil(CoreAIQwenStore.languageName(nil))
+    // Every other entry runs on the app's base system.
+    let coreAI: Set<LocalASRBackend> = [.parakeetCoreAI, .qwen3CoreAI]
+    XCTAssertTrue(try LocalASRModelCatalog.load().filter { !coreAI.contains($0.backend) }.allSatisfy { $0.minimumOS == nil })
+    // Outside the benchmark table, so the card shows the pipeline measurement instead.
+    XCTAssertNotNil(entry.measured)
+    XCTAssertNotNil(qwen.measured)
+  }
+
+  func testMaximumQualityLanguageModelsArePinnedUntestedEightBit() throws {
+    let models = LLMModelCatalog.bundled
+    XCTAssertEqual(Set(models.map(\.id)).count, models.count)
+    XCTAssertTrue(models.allSatisfy { $0.revision.count == 40 })
+    for id in ["gemma4-12b-8bit", "qwen35-4b-8bit"] {
+      let model = try XCTUnwrap(models.first { $0.id == id })
+      XCTAssertEqual(model.variant, "8-bit")
+      XCTAssertTrue(model.experimental)
+      XCTAssertTrue(model.recommendedFor.isEmpty)
+      XCTAssertTrue(model.blurb.contains("maximum quality"))
+    }
+    XCTAssertEqual(LLMModelCatalog.recommended(for: .auto)?.id, "qwen35-4b-4bit")
   }
 
   func testParakeetEntriesAreRevisionPinnedIncludingUltra() throws {
@@ -76,12 +120,10 @@ final class LocalASRModelCatalogTests: XCTestCase {
 	func testV2CatalogMetadataDistinguishesMeasuredAndUnmeasuredWhisperVariants() throws {
 		let entries = try LocalASRModelCatalog.load()
 		let turbo = try XCTUnwrap(entries.first { $0.internalName == "openai_whisper-large-v3-v20240930_turbo" })
-		let compressed = try XCTUnwrap(entries.first { $0.internalName == "openai_whisper-large-v3-v20240930_turbo_632MB" })
 		XCTAssertEqual(turbo.group, .recommended)
 		XCTAssertEqual(turbo.literalRating, .reliable)
 		XCTAssertEqual(turbo.recommendedFor, [.literal, .normal])
 		XCTAssertEqual(turbo.engineCapabilities.punctuationControl, .decoderSuppression)
-		XCTAssertEqual(compressed.literalRating, .unverified)
 		XCTAssertTrue(entries.allSatisfy { !$0.languages.isEmpty })
 	}
 

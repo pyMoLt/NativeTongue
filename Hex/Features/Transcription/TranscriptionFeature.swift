@@ -35,6 +35,7 @@ extension DictationSessionRunner.Request {
       resolveSelfCorrections: settings.textProcessing.resolveSelfCorrections,
       spokenPunctuationInNormal: settings.textProcessing.spokenPunctuationInNormal
     )
+    whisperGapFill = settings.whisperGapFill
   }
 }
 

@@ -9,6 +9,10 @@ public enum LocalASRBackend: String, Codable, Equatable, Sendable {
 	case omiMedicalParakeetCoreML
 	case cohereMLX
 	case appleSpeechAnalyzer
+	/// Core AI (macOS 27, experimental): Parakeet Ultra streaming bundle via Apple's CoreAISpeech.
+	case parakeetCoreAI
+	/// Core AI (macOS 27, experimental): Qwen3-ASR 1.7B via the vendored coreai-kit runtime.
+	case qwen3CoreAI
 	/// Streaming-only engines (V2.5).
 	case nemotronStreamingCoreML
 	case voxtralRealtimeMLX
@@ -22,6 +26,8 @@ public enum LocalASRBackend: String, Codable, Equatable, Sendable {
 		case .omiMedicalParakeetCoreML: "Omi Med STT / Core ML"
 		case .cohereMLX: "Cohere Transcribe / MLX"
 		case .appleSpeechAnalyzer: "Apple SpeechAnalyzer (on-device)"
+		case .parakeetCoreAI: "Parakeet / Core AI (macOS 27)"
+		case .qwen3CoreAI: "Qwen3-ASR / Core AI (macOS 27)"
 		case .nemotronStreamingCoreML: "Nemotron Streaming / Core ML"
 		case .voxtralRealtimeMLX: "Voxtral Realtime / MLX"
 		}
@@ -107,6 +113,18 @@ public struct LocalASRModelDescriptor: Codable, Equatable, Identifiable, Sendabl
 	public let streamingOnly: Bool
 	/// Two friendly sentences for the model card ("what is it good for").
 	public let blurb: String?
+	/// Oldest macOS that can run the model ("27.0" for Core AI); nil = the app's base.
+	public let minimumOS: String?
+	/// Short measurement summary for models outside the benchmark table (model-benchmarks.json).
+	public let measured: String?
+
+	/// False for Core AI models on macOS 26: the card shows them as unavailable.
+	public var isSupportedOnThisMac: Bool {
+		guard let minimumOS else { return true }
+		let parts = minimumOS.split(separator: ".").compactMap { Int($0) }
+		let required = OperatingSystemVersion(majorVersion: parts.first ?? 0, minorVersion: parts.dropFirst().first ?? 0, patchVersion: 0)
+		return ProcessInfo.processInfo.isOperatingSystemAtLeast(required)
+	}
 
 	public var id: String { internalName }
 	public var engineCapabilities: EngineCapabilities { capabilities.engineCapabilities(languages: languages) }
@@ -114,7 +132,7 @@ public struct LocalASRModelDescriptor: Codable, Equatable, Identifiable, Sendabl
 	private enum CodingKeys: String, CodingKey {
 		case displayName, internalName, backend, repository, revision, precision, license
 		case languages, size, storageSize, capabilities, experimental, group, literalRating, recommendedFor
-		case streaming, recommendedForStreaming, blurb, streamingOnly
+		case streaming, recommendedForStreaming, blurb, streamingOnly, minimumOS, measured
 	}
 
 	public init(from decoder: Decoder) throws {
@@ -138,6 +156,8 @@ public struct LocalASRModelDescriptor: Codable, Equatable, Identifiable, Sendabl
 		recommendedForStreaming = try values.decodeIfPresent(Bool.self, forKey: .recommendedForStreaming) ?? false
 		blurb = try values.decodeIfPresent(String.self, forKey: .blurb)
 		streamingOnly = try values.decodeIfPresent(Bool.self, forKey: .streamingOnly) ?? false
+		minimumOS = try values.decodeIfPresent(String.self, forKey: .minimumOS)
+		measured = try values.decodeIfPresent(String.self, forKey: .measured)
 	}
 }
 

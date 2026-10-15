@@ -16,12 +16,14 @@ public enum SelfCorrectionResolver {
 		["no", "wait"], ["i", "mean"], ["sorry"], ["actually"],
 	]
 
-	public static func resolve(_ tokens: [TextToken], language: String, vocabulary: Set<String> = []) -> [TextToken] {
+	/// - Parameter strongSignals: Literal fine-tuning: „nein, ich meine“ is a signal, and
+	///   multi-word signals resolve across a sentence end the model inserted.
+	public static func resolve(_ tokens: [TextToken], language: String, vocabulary: Set<String> = [], strongSignals: Bool = false) -> [TextToken] {
 		let english = language.lowercased().hasPrefix("en")
 		var tokens = tokens
 		// Several corrections in one utterance: resolve from the start, one at a time.
 		var guardCount = 0
-		while guardCount < 8, let next = resolveFirst(tokens, english: english, vocabulary: vocabulary) {
+		while guardCount < 8, let next = resolveFirst(tokens, english: english, vocabulary: vocabulary, strongSignals: strongSignals) {
 			tokens = next
 			guardCount += 1
 		}
@@ -36,14 +38,18 @@ public enum SelfCorrectionResolver {
 		let lower: String
 	}
 
-	private static func resolveFirst(_ tokens: [TextToken], english: Bool, vocabulary: Set<String>) -> [TextToken]? {
+	private static let strongGermanSignals: [[String]] = [["nein", "ich", "meine"], ["nein", "ich", "mein"]]
+	private static let strongEnglishSignals: [[String]] = [["no", "i", "mean"]]
+
+	private static func resolveFirst(_ tokens: [TextToken], english: Bool, vocabulary: Set<String>, strongSignals: Bool) -> [TextToken]? {
 		let words: [Word] = tokens.enumerated().compactMap { index, token in
 			guard let text = token.wordText else { return nil }
 			let normalized = CommandGrammar.normalizedWords(text).joined(separator: " ")
 			return normalized.isEmpty ? nil : Word(token: index, text: text, lower: normalized)
 		}
 		guard words.count >= 3 else { return nil }
-		let signals = (english ? englishSignals : germanSignals).sorted { $0.count > $1.count }
+		let extra = strongSignals ? (english ? strongEnglishSignals : strongGermanSignals) : []
+		let signals = (extra + (english ? englishSignals : germanSignals)).sorted { $0.count > $1.count }
 		var tags: [NLTag?]?
 		for start in 1..<words.count {
 			guard let signal = signals.first(where: { phrase in
@@ -51,7 +57,7 @@ public enum SelfCorrectionResolver {
 			}) else { continue }
 			let after = start + signal.count
 			// A sentence end between the earlier words and the signal: it is an answer, not a correction.
-			guard !hasSentenceEnd(tokens, from: words[start - 1].token, to: words[start].token),
+			guard !hasSentenceEnd(tokens, from: words[start - 1].token, to: words[start].token, ignoreModelMarks: strongSignals && signal.count >= 2),
 			      !hasSentenceEnd(tokens, from: words[after - 1].token, to: words[after].token) else { continue }
 			if tags == nil { tags = wordClasses(words.map(\.text), english: english) }
 			guard let match = match(words, signalStart: start, after: after, english: english, vocabulary: vocabulary, tags: tags ?? nil) else { continue }
@@ -115,10 +121,11 @@ public enum SelfCorrectionResolver {
 		return result
 	}
 
-	private static func hasSentenceEnd(_ tokens: [TextToken], from: Int, to: Int) -> Bool {
+	private static func hasSentenceEnd(_ tokens: [TextToken], from: Int, to: Int, ignoreModelMarks: Bool = false) -> Bool {
 		guard from < to else { return false }
 		for index in from...to {
 			let token = tokens[index]
+			if ignoreModelMarks, case .modelMark = token { continue }
 			// The dot of a date („am 3.3., nein“) does not end the sentence.
 			if case .modelMark(".", _) = token, index > 0, let previous = tokens[index - 1].wordText,
 			   previous.range(of: #"^\d{1,2}\.\d{1,2}$"#, options: .regularExpression) != nil { continue }

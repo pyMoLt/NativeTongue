@@ -48,6 +48,8 @@ public struct DictationSessionOptions: Sendable, Equatable {
 	public var spokenPunctuationInNormal = false
 	/// Normalized trigger words → snippet text (plan B6).
 	public var snippets: [[String]: String] = [:]
+	/// Literal fine-tuning of the engine (Whisper/Qwen); nil = none. Only used in Literal mode.
+	public var literalTuning: LiteralTuning?
 
 	public init(
 		mode: DictationMode,
@@ -157,7 +159,18 @@ public enum DictationSessionProcessor {
 		options: DictationSessionOptions,
 		corrector: LexiconCorrector? = nil
 	) -> DictationDocument {
-		let alignedUtterances = joinSplitPhrases(alignedUtterances, language: options.language, englishCommands: options.englishCommands)
+		let tuning = options.mode == .literal ? options.literalTuning : nil
+		var prepared = alignedUtterances
+		if let tuning {
+			if tuning.cleanup { prepared = LiteralTuningRules.cleanEdges(prepared) }
+			if tuning.joinSplitStructural { prepared = LiteralTuningRules.joinSplitStructural(prepared, englishCommands: options.englishCommands) }
+			if tuning.structuralPauseBeforeOnly || tuning.inlineBullets {
+				prepared = LiteralTuningRules.splitAtStructural(
+					prepared, commandPauseMs: options.commandPauseMs, englishCommands: options.englishCommands,
+					pauseBefore: tuning.structuralPauseBeforeOnly, withoutTimings: tuning.structuralWithoutTimings, bullets: tuning.inlineBullets)
+			}
+		}
+		let alignedUtterances = joinSplitPhrases(prepared, language: options.language, englishCommands: options.englishCommands)
 			.map { item in
 				let collapsed = HallucinationFilter.collapsingRepetitionLoops(item.text)
 				// Word gaps only stay valid while the words are unchanged.
@@ -165,13 +178,14 @@ public enum DictationSessionProcessor {
 				                        wordGapsMs: collapsed == item.text ? item.wordGapsMs : nil)
 			}
 		var document = DictationDocument()
-		let classifierContext = ClassifierContext(
+		var classifierContext = ClassifierContext(
 			mode: options.mode,
 			commandPauseMs: options.commandPauseMs,
 			englishCommands: options.englishCommands,
 			boxOpen: options.boxOpen,
 			snippets: options.snippets
 		)
+		classifierContext.structuralPauseBeforeOnly = tuning?.structuralPauseBeforeOnly ?? false
 		for item in alignedUtterances {
 			let durationMs = item.utterance.range.count * 1_000 / max(options.sampleRate, 1)
 			if HallucinationFilter.shouldDrop(text: item.text, utteranceDurationMs: durationMs) { continue }
@@ -209,6 +223,7 @@ public enum DictationSessionProcessor {
 			)
 			var effectiveOptions = pipelineOptions
 			effectiveOptions.spokenPunctuationInNormal = options.spokenPunctuationInNormal
+			effectiveOptions.literalTuning = tuning
 			var tokens = DictationTextPipeline.tokens(for: classification, options: effectiveOptions)
 			var corrections: [LexiconCorrection] = []
 			if let corrector, case .dictation = classification {

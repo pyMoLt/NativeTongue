@@ -15,6 +15,8 @@ public struct ClassifierContext: Sendable, Equatable {
 	public var boxOpen: Bool
 	/// Normalized trigger words → snippet text (plan B6).
 	public var snippets: [[String]: String]
+	/// Literal fine-tuning: a structural command needs only the pause before it.
+	public var structuralPauseBeforeOnly = false
 
 	public init(mode: DictationMode, commandPauseMs: Int = 450, englishCommands: Bool = true, boxOpen: Bool = false, snippets: [[String]: String] = [:]) {
 		self.mode = mode
@@ -61,6 +63,11 @@ public enum UtteranceClassifier {
 			}
 		}
 
+		// Literal fine-tuning: a structural command on its own needs only the pause before it.
+		if context.structuralPauseBeforeOnly, context.mode == .literal, pauseBefore,
+		   let structural = CommandGrammar.isolated(words, in: CommandGrammar.structural, english: english) {
+			return .command(.structural(structural))
+		}
 		var leading: StructuralCommand?
 		var trailing: StructuralCommand?
 		var leadingWordCount = 0
@@ -70,7 +77,7 @@ public enum UtteranceClassifier {
 			leading = match.0
 			leadingWordCount = match.length
 		}
-		if pauseAfter {
+		if pauseAfter || (context.structuralPauseBeforeOnly && context.mode == .literal) {
 			for length in stride(from: min(3, words.count - leadingWordCount - 1), through: 1, by: -1) where length > 0 {
 				let start = words.count - length
 				if let match = CommandGrammar.match(words, at: start, in: CommandGrammar.structural, english: english),

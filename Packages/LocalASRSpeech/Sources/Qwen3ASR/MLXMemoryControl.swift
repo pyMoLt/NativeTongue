@@ -1,3 +1,4 @@
+import Darwin
 import MLX
 
 /// NativeTongue addition (not upstream): process-wide MLX memory controls for
@@ -20,6 +21,15 @@ public enum MLXMemoryControl {
 	/// Returns cached, unused MLX buffers to the system (call after unloading).
 	public static func clearCache() {
 		MLX.Memory.clearCache()
+	}
+
+	/// After unloading a model: drops the MLX cache and hands freed malloc
+	/// pages back to the system. Loading weights leaves hundreds of MB of
+	/// free but still dirty malloc pages that otherwise stay in the app's
+	/// footprint (measured 624 MB after unloading Qwen3-ASR 1.7B).
+	public static func releaseUnusedMemory() {
+		MLX.Memory.clearCache()
+		malloc_zone_pressure_relief(nil, 0)
 	}
 }
 

@@ -108,6 +108,7 @@ struct SettingsFeature {
 	case setASRProfile(ASRProfile)
 	case setSpokenCommandPause(Double)
 	case setIdleUnloadMinutes(Int)
+	case setWhisperGapFill(Bool)
 	case setProfileVocabulary(ASRProfile, String)
     case setOutputLanguage(String?)
     case setSelectedMicrophoneID(String?)
@@ -576,6 +577,10 @@ struct SettingsFeature {
 		let normalized = [0, 2, 5, 10, 30].contains(minutes) ? minutes : 10
 		state.$hexSettings.withLock { $0.idleUnloadMinutes = normalized }
 		return .run { _ in await transcription.configureIdleUnload(normalized) }
+
+	  case let .setWhisperGapFill(enabled):
+		state.$hexSettings.withLock { $0.whisperGapFill = enabled }
+		return .none
 
 	  case let .setProfileVocabulary(profile, vocabulary):
 		state.$hexSettings.withLock { settings in

@@ -2,6 +2,37 @@
 
 All notable NativeTongue changes. The app version is set in the Xcode project.
 
+## 3.2.0
+
+### Added
+
+- **Literal fine-tuning** (module `LiteralTuning`, Literal mode only), one profile per engine family:
+  - Whisper writes no punctuation of its own: every mark, hyphen, bracket or quote in the text comes from a spoken command.
+  - Structural commands ("Neuer Absatz", "Neue Zeile") need only the pause before them, or none right after a spoken mark.
+  - "Spiegelstrich" works anywhere, and commands split by a pause are joined again.
+  - Stricter article rule ("Kleber mit Punkt" → "mit.", "Ein/Aus", "um Punkt 8").
+  - Strong self-corrections ("…, nein ich meine …") work across a model period.
+  - Clean-up of hallucinated "you"/"Thank you" and CJK characters.
+  - Dates "3. März", money "1.250 €", decimals "2,5 mg".
+  - Qwen3-ASR decodes longer segments; every other engine gets the engine-independent rules.
+- **Gap fill for Whisper**: passages Whisper skips after a pause (for example a word list at the end) are decoded again. Normal and Literal mode; switch under Models → Advanced, on by default.
+- **Core AI models (experimental, macOS 27 only)**:
+  - **Parakeet Ultra (Core AI)** with real live streaming and about a third of the memory. Available in Normal, Literal (limited) and Streaming mode.
+  - **Qwen3-ASR 1.7B (Core AI)**: as accurate as the MLX version with about 0.8 GB instead of 7 GB, about half as fast. Not well suited to Literal.
+  - Both run on Apple's Core AI runtime (vendored `CoreAISpeech`, BSD-3-Clause). On macOS 26 they show "Needs macOS 27"; the app itself still runs on macOS 26.
+- **Whisper Large v3 Turbo German** (6-bit, Core ML) and the text models MiniCPM5 1B/2B, G9v3 3B and Granite 4.2 3B (untested model cards).
+- **Text models for maximum quality**: Gemma 4 12B (8-bit, about 13 GB) and Qwen3.5 4B (8-bit, about 5 GB), pinned MLX checkpoints with untested model cards.
+- Model cards of the Core AI models show the measured accuracy, memory and speed.
+
+### Changed
+
+- Removed the legacy Whisper Turbo artifact and the 4-bit compressed Turbo from the catalog; saved selections move to Whisper Large v3 Turbo.
+- Removing a Core AI model also clears its Core AI specialization cache.
+
+### Fixed
+
+- Qwen3-ASR (MLX) hands its memory back when it unloads.
+
 ## 3.0.0
 
 ### Added

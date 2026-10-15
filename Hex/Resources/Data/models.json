@@ -165,6 +165,41 @@
     "blurb": "The fastest accurate option: three minutes of speech in about half a second, German and English included. Great for Normal mode; it may turn a spoken \"Punkt\" into \".\" by itself, so Literal is limited."
   },
   {
+    "displayName": "Parakeet Ultra (Core AI) · macOS 27",
+    "internalName": "parakeet-ultra-coreai",
+    "backend": "parakeetCoreAI",
+    "group": "experimental",
+    "literalRating": "limited",
+    "recommendedFor": [],
+    "repository": "maxffarrell/parakeet-ultra-coreai",
+    "revision": "c8d7dfb71248c128345d15e3cf5d8ba7c76ddac2",
+    "precision": "FP16 · Core AI streaming bundle (Apple export recipe); no 8-bit Core AI build published yet",
+    "license": "CC-BY-4.0 model; BSD-3-Clause runtime (Apple CoreAISpeech)",
+    "languages": [
+      "de",
+      "en",
+      "25 European languages"
+    ],
+    "size": "Core AI · macOS 27 only · experimental",
+    "storageSize": "~1.2 GB",
+    "minimumOS": "27.0",
+    "capabilities": {
+      "wordTimings": true,
+      "contextPrompt": false,
+      "languageHint": false,
+      "supportsAutoLanguage": true,
+      "tokenConfidences": false,
+      "punctuationControl": "stripOnly",
+      "biasing": [],
+      "maxWindowSeconds": null,
+      "diarization": false
+    },
+    "experimental": true,
+    "streaming": "native",
+    "blurb": "Experimental · macOS 27 only. Parakeet Ultra on Apple's new Core AI runtime with real live streaming and about a third of the memory (0.23 GB). In our tests slightly less accurate than the Core ML version, mostly on technical terms. Literal is limited: Parakeet may drop a spoken \"Komma\".",
+    "measured": "M5 Pro, 14 test clips: 11.6 % WER (Core ML version 9.4 %), 0.23 GB RAM, 3 min of audio in about 4 s. Streaming: 19.9 % WER vs 32.4 % for Nemotron."
+  },
+  {
     "displayName": "Qwen3-ASR 0.6B · 8-bit",
     "internalName": "qwen3-asr-0.6b-8bit-mlx",
     "backend": "qwen3MLX",
@@ -233,6 +268,41 @@
     "experimental": true,
     "streaming": "none",
     "blurb": "Larger Qwen speech model on the GPU. More accurate than 0.6B, needs about 6 GB while dictating."
+  },
+  {
+    "displayName": "Qwen3-ASR 1.7B (Core AI) · macOS 27",
+    "internalName": "qwen3-asr-1.7b-coreai",
+    "backend": "qwen3CoreAI",
+    "group": "experimental",
+    "literalRating": "limited",
+    "recommendedFor": [],
+    "repository": "mlboydaisuke/Qwen3-ASR-1.7B-CoreAI",
+    "revision": "11b7087289d5f7bd33d5c5cf79ba06044d0e3a51",
+    "precision": "int8 decoder · fp16 audio encoder · Core AI (GPU-pipelined)",
+    "license": "Apache-2.0 model; BSD-3-Clause runtime (coreai-kit, coreai-models)",
+    "languages": [
+      "de",
+      "en",
+      "multilingual"
+    ],
+    "size": "Core AI · macOS 27 only · experimental",
+    "storageSize": "~3.1 GB",
+    "minimumOS": "27.0",
+    "capabilities": {
+      "wordTimings": false,
+      "contextPrompt": false,
+      "languageHint": true,
+      "supportsAutoLanguage": true,
+      "tokenConfidences": false,
+      "punctuationControl": "stripOnly",
+      "biasing": [],
+      "maxWindowSeconds": 30,
+      "diarization": false
+    },
+    "experimental": true,
+    "streaming": "emulated",
+    "blurb": "Experimental · macOS 27 only. Qwen3-ASR 1.7B on Apple's new Core AI runtime: as accurate as the MLX version with a tenth of the memory (about 0.8 GB instead of 7 GB), but about half as fast. Not well suited to Literal: the model cannot be kept from writing punctuation itself, so spoken commands like \"Komma\" can get lost when you speak fluently.",
+    "measured": "M5 Pro, 14 test clips: 10.7 % WER (MLX version 10.2 %), 0.64-0.76 GB RAM instead of 7.2 GB, 3 min of audio in about 21 s."
   },
   {
     "displayName": "Whisper Tiny",
@@ -376,27 +446,25 @@
     "blurb": "Our all-round pick: accurate German and English, and the most reliable model for Literal mode with spoken punctuation."
   },
   {
-    "displayName": "Whisper Large v3 Turbo · 4-bit compressed",
-    "internalName": "openai_whisper-large-v3-v20240930_turbo_632MB",
+    "displayName": "Whisper Large v3 Turbo German · 6-bit · Core ML",
+    "internalName": "whisper-large-v3-turbo-german-6bit",
     "backend": "whisperKitCoreML",
     "group": "general",
-    "literalRating": "unverified",
+    "literalRating": "reliable",
     "recommendedFor": [],
-    "repository": "argmaxinc/whisperkit-coreml",
-    "precision": "4-bit compressed",
-    "license": "MIT runtime; model artifact metadata pending",
+    "repository": "aoiandroid/whisper-de-large-v3-turbo-whisperkit-coreml-macos",
+    "precision": "6-bit palettized",
+    "license": "Apache-2.0 (primeline German fine-tune of OpenAI Whisper, MIT)",
     "languages": [
-      "de",
-      "en",
-      "multilingual"
+      "de"
     ],
-    "size": "WhisperKit / Core ML · multilingual · 4-bit compressed",
-    "storageSize": "~646 MB",
+    "size": "WhisperKit / Core ML · German fine-tune · 6-bit",
+    "storageSize": "~618 MB",
     "capabilities": {
       "wordTimings": true,
       "contextPrompt": true,
       "languageHint": true,
-      "supportsAutoLanguage": true,
+      "supportsAutoLanguage": false,
       "tokenConfidences": true,
       "punctuationControl": "decoderSuppression",
       "biasing": [
@@ -407,41 +475,7 @@
     },
     "experimental": false,
     "streaming": "emulated",
-    "blurb": "A compressed Whisper Turbo that saves disk space. Accuracy not yet measured."
-  },
-  {
-    "displayName": "Whisper Turbo · legacy artifact · precision unverified",
-    "internalName": "openai_whisper-large-v3-v20240930",
-    "backend": "whisperKitCoreML",
-    "group": "experimental",
-    "literalRating": "unverified",
-    "recommendedFor": [],
-    "repository": "argmaxinc/whisperkit-coreml",
-    "precision": "unverified; 4 decoder layers",
-    "license": "MIT runtime; model artifact metadata pending",
-    "languages": [
-      "de",
-      "en",
-      "multilingual"
-    ],
-    "size": "WhisperKit / Core ML · multilingual · 4 decoder layers",
-    "storageSize": "~1.62 GB",
-    "capabilities": {
-      "wordTimings": true,
-      "contextPrompt": true,
-      "languageHint": true,
-      "supportsAutoLanguage": true,
-      "tokenConfidences": true,
-      "punctuationControl": "decoderSuppression",
-      "biasing": [
-        "promptTokens"
-      ],
-      "maxWindowSeconds": 30,
-      "diarization": false
-    },
-    "experimental": true,
-    "streaming": "emulated",
-    "blurb": "Whisper Large v3 (September 2024 build). Experimental; prefer Turbo."
+    "blurb": "Whisper Turbo fine-tuned on German speech by primeline (community Core ML conversion). Needs about half the memory of Turbo and kept long term lists complete in our tests; on short Literal dictations it sometimes changes word forms. German only."
   },
   {
     "displayName": "Cohere Transcribe 2B · 8-bit · MLX",

@@ -225,6 +225,8 @@ public enum DictationTextPipeline {
 		/// Normal mode also renders spoken punctuation; a mark the model already
 		/// wrote next to it is dropped (plan B4).
 		public var spokenPunctuationInNormal = false
+		/// Literal fine-tuning of the engine (Whisper/Qwen); nil = none.
+		public var literalTuning: LiteralTuning?
 
 		public init(mode: DictationMode, language: String = "de", englishCommands: Bool = true, formatNumbers: Bool = true, agentFormatting: Bool = true,
 		            resolveSelfCorrections: Bool = false, vocabulary: Set<String> = [], commandPauseMs: Int = 450, wordGapsMs: [Int?]? = nil) {
@@ -241,24 +243,32 @@ public enum DictationTextPipeline {
 	}
 
 	public static func process(_ text: String, options: Options) -> [TextToken] {
+		let tuning = options.mode == .literal ? options.literalTuning : nil
+		let text = tuning?.decimalRepair == true ? LiteralTuningRules.repairDecimals(text) : text
 		var tokens = ModelTextTokenizer.tokenize(text)
 		// Pause before each word token, when the timestamps line up with the tokens.
 		let pauses = options.wordGapsMs.flatMap { InlineCommandRenderer.pausesPerWordToken(text: text, gaps: $0) }
 		if options.mode != .streaming { tokens = SpelledWordRenderer.render(tokens) }
 		if options.mode == .literal { tokens = LiteralNormalizer.normalize(tokens) }
 		if options.resolveSelfCorrections {
-			tokens = SelfCorrectionResolver.resolve(tokens, language: options.language, vocabulary: options.vocabulary)
+			tokens = SelfCorrectionResolver.resolve(tokens, language: options.language, vocabulary: options.vocabulary,
+			                                        strongSignals: tuning?.strongSelfCorrection ?? false)
 		}
 		switch options.mode {
 		case .literal:
-			if options.formatNumbers { tokens = SpokenNumberFormatter.format(tokens, language: options.language) }
+			if options.formatNumbers {
+				tokens = SpokenNumberFormatter.format(tokens, language: options.language,
+				                                      dateNames: tuning?.dateNames ?? false, thousandsSeparator: tuning?.thousandsSeparator ?? false)
+			}
 			tokens = InlineCommandRenderer.render(
 				tokens,
 				englishCommands: options.englishCommands,
 				pauseBeforeWord: pauses.flatMap { pauses in tokens.compactMap(\.wordText).count == pauses.count ? pauses : nil },
 				commandPauseMs: options.commandPauseMs,
-				language: options.language
+				language: options.language,
+				strictArticleRule: tuning?.strictArticleRule ?? false
 			)
+			if tuning?.thousandsSeparator == true { tokens = LiteralTuningRules.groupDigitTokens(tokens, language: options.language) }
 		case .normal:
 			if options.formatNumbers { tokens = SpokenNumberFormatter.format(tokens, language: options.language) }
 			if options.spokenPunctuationInNormal {

@@ -221,6 +221,20 @@ actor TranscriptionClientLive {
       try await appleSpeech.install(progress: progressCallback)
       currentModelName = variant
       return
+    case .parakeetCoreAI:
+      guard #available(macOS 27.0, *) else { throw CoreAIParakeetStore.unsupported() }
+      if currentModelName != variant { await unloadCurrentModel() }
+      try await CoreAIParakeetStore.install(progress: progressCallback)
+      try await CoreAIParakeetEngine.shared.load()
+      currentModelName = variant
+      return
+    case .qwen3CoreAI:
+      guard #available(macOS 27.0, *) else { throw CoreAIQwenStore.unsupported() }
+      if currentModelName != variant { await unloadCurrentModel() }
+      try await CoreAIQwenStore.install(progress: progressCallback)
+      try await CoreAIQwenEngine.shared.load()
+      currentModelName = variant
+      return
     case .nemotronStreamingCoreML:
       @Shared(.hexSettings) var hexSettings: HexSettings
       try await NemotronStreamingEngine.install(chunkMs: hexSettings.streaming.nemotronChunkMs) { fraction in
@@ -306,6 +320,19 @@ actor TranscriptionClientLive {
       if currentModelName == variant { currentModelName = nil }
       return
     }
+    if descriptor.backend == .qwen3CoreAI {
+      if #available(macOS 27.0, *) { await CoreAIQwenEngine.shared.unload() }
+      try CoreAIQwenStore.delete()
+      if currentModelName == variant { currentModelName = nil }
+      return
+    }
+    if descriptor.backend == .parakeetCoreAI {
+      if #available(macOS 27.0, *) { await CoreAIParakeetEngine.shared.unload() }
+      await StreamingEngineHost.shared.unloadAll()
+      try CoreAIParakeetStore.delete()
+      if currentModelName == variant { currentModelName = nil }
+      return
+    }
     if descriptor.backend == .appleSpeechAnalyzer {
       // System-managed assets; nothing app-owned to delete.
       if currentModelName == variant { currentModelName = nil }
@@ -363,6 +390,12 @@ actor TranscriptionClientLive {
     if descriptor.backend == .appleSpeechAnalyzer {
       return await appleSpeech.isInstalled()
     }
+    if descriptor.backend == .parakeetCoreAI {
+      return CoreAIParakeetStore.isInstalled()
+    }
+    if descriptor.backend == .qwen3CoreAI {
+      return CoreAIQwenStore.isInstalled()
+    }
     let modelFolderPath = modelPath(for: modelName).path
     let fileManager = FileManager.default
 
@@ -394,7 +427,8 @@ actor TranscriptionClientLive {
   ) async throws -> TranscriptionOutput {
     let model = await resolveVariant(model)
     let descriptor = try LocalASRModelCatalog.descriptor(named: model)
-    if descriptor.backend == .cohereMLX || descriptor.backend == .appleSpeechAnalyzer {
+    if descriptor.backend == .cohereMLX || descriptor.backend == .appleSpeechAnalyzer || descriptor.backend == .parakeetCoreAI
+      || descriptor.backend == .qwen3CoreAI {
       let samples = try AudioFileLoader.load(url: url, targetSampleRate: 16_000)
       let result = try await transcribe(
         samples: samples,
@@ -611,6 +645,15 @@ actor TranscriptionClientLive {
       result = try await cohere.transcribe(samples: samples, options: options)
     case .appleSpeechAnalyzer:
       result = try await appleSpeech.transcribe(samples: samples, options: options)
+    case .parakeetCoreAI:
+      guard #available(macOS 27.0, *) else { throw CoreAIParakeetStore.unsupported() }
+      var parakeetResult = try await CoreAIParakeetEngine.shared.transcribe(samples: samples)
+      parakeetResult.detectedLanguage = options.language
+      result = parakeetResult
+    case .qwen3CoreAI:
+      guard #available(macOS 27.0, *) else { throw CoreAIQwenStore.unsupported() }
+      let text = try await CoreAIQwenEngine.shared.transcribe(samples: samples, language: options.language)
+      result = EngineResult(text: text, detectedLanguage: options.language)
     case .nemotronStreamingCoreML, .voxtralRealtimeMLX:
       throw Self.streamingOnlyError(descriptor)
     case .whisperKitCoreML:
@@ -634,16 +677,18 @@ actor TranscriptionClientLive {
       chunkingStrategy: samples.count > 29 * 16_000 ? .vad : ChunkingStrategy.none
     )
     if options.punctuation == .suppressed, let tokenizer = whisperKit.tokenizer {
-      if whisperPunctuationTokens[model] == nil {
-        let punctuation = CharacterSet(charactersIn: ".,;:!?")
+      // Literal fine-tuning: no punctuation token at all, also no hyphen or bracket.
+      let cacheKey = options.literalTuning ? model + "|literal-tuning" : model
+      if whisperPunctuationTokens[cacheKey] == nil {
+        let punctuation = CharacterSet(charactersIn: options.literalTuning ? WhisperLiteralTuning.suppressedPunctuation : ".,;:!?")
         var ids: [Int] = []
         for id in 0..<tokenizer.specialTokens.specialTokenBegin {
           let piece = tokenizer.decode(tokens: [id]).trimmingCharacters(in: .whitespaces)
           if !piece.isEmpty, piece.unicodeScalars.allSatisfy({ punctuation.contains($0) }) { ids.append(id) }
         }
-        whisperPunctuationTokens[model] = ids
+        whisperPunctuationTokens[cacheKey] = ids
       }
-      decode.supressTokens += whisperPunctuationTokens[model] ?? []
+      decode.supressTokens += whisperPunctuationTokens[cacheKey] ?? []
     }
     func run(_ options: DecodingOptions) async throws -> EngineResult {
       let results = try await whisperKit.transcribe(audioArray: samples, decodeOptions: options)
@@ -736,6 +781,22 @@ actor TranscriptionClientLive {
 
     if descriptor.backend == .appleSpeechAnalyzer {
       if currentModelName != variant { await unloadCurrentModel() }
+      currentModelName = variant
+      return
+    }
+
+    if descriptor.backend == .parakeetCoreAI {
+      guard #available(macOS 27.0, *) else { throw CoreAIParakeetStore.unsupported() }
+      if currentModelName != variant { await unloadCurrentModel() }
+      try await CoreAIParakeetEngine.shared.load()
+      currentModelName = variant
+      return
+    }
+
+    if descriptor.backend == .qwen3CoreAI {
+      guard #available(macOS 27.0, *) else { throw CoreAIQwenStore.unsupported() }
+      if currentModelName != variant { await unloadCurrentModel() }
+      try await CoreAIQwenEngine.shared.load()
       currentModelName = variant
       return
     }
@@ -896,6 +957,10 @@ actor TranscriptionClientLive {
     await qwen.unload()
     await additionalFluidAudio.unload()
     await cohere.unload()
+    if #available(macOS 27.0, *) {
+      await CoreAIParakeetEngine.shared.unload()
+      await CoreAIQwenEngine.shared.unload()
+    }
     await StreamingEngineHost.shared.unloadAll()
   }
 
@@ -962,14 +1027,29 @@ actor TranscriptionClientLive {
       // yields NSURLErrorCannotFindHost in production builds that need
       // to fetch models for the first time. Let WhisperKit use its
       // default repo/host (Hugging Face) by omitting the repo/host arg.
-      let tempFolder = try await WhisperKit.download(
-        variant: variant,
-        downloadBase: nil,
-        useBackgroundSession: false,
-        progressCallback: { progress in
+      let tempFolder: URL
+      if let repository = (try? LocalASRModelCatalog.descriptor(named: variant))?.repository,
+         repository != "argmaxinc/whisperkit-coreml" {
+        // A WhisperKit-layout model in its own Hugging Face repository
+        // (e.g. a fine-tune): the whole repository is the model folder.
+        let downloadBase = FileManager.default.temporaryDirectory
+          .appendingPathComponent("NativeTongue-WhisperDownload-\(UUID().uuidString)", isDirectory: true)
+        tempFolder = try await HubApi(downloadBase: downloadBase, useOfflineMode: false).snapshot(
+          from: HubApi.Repo(id: repository),
+          matching: ["*.mlmodelc/*", "*.mlmodelc/**/*", "config.json", "generation_config.json"]
+        ) { progress in
           progressCallback(progress)
         }
-      )
+      } else {
+        tempFolder = try await WhisperKit.download(
+          variant: variant,
+          downloadBase: nil,
+          useBackgroundSession: false,
+          progressCallback: { progress in
+            progressCallback(progress)
+          }
+        )
+      }
 
       // Ensure target folder exists
       try FileManager.default.createDirectory(at: modelFolder, withIntermediateDirectories: true)

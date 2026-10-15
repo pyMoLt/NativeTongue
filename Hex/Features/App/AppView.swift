@@ -90,6 +90,10 @@ struct AppView: View {
         idleUnloadMinutes: Binding(
           get: { store.hexSettings.idleUnloadMinutes },
           set: { store.send(.settings(.setIdleUnloadMinutes($0))) }
+        ),
+        whisperGapFill: Binding(
+          get: { store.hexSettings.whisperGapFill },
+          set: { store.send(.settings(.setWhisperGapFill($0))) }
         )
       )
     case .vocabulary:
