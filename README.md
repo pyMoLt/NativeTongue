@@ -145,3 +145,5 @@ Thank you, Kit, for building Hex and for sharing it as open source under the MIT
 ## Credits and license
 
 NativeTongue is MIT licensed. It started as a fork of [Hex](https://github.com/kitlangton/Hex) by Kit Langton (MIT) and has since been rebuilt. It uses [WhisperKit](https://github.com/argmaxinc/WhisperKit), [FluidAudio](https://github.com/FluidInference/FluidAudio), [MLX Swift](https://github.com/ml-explore/mlx-swift), Apple's [coreai-models](https://github.com/apple/coreai-models) (CoreAISpeech), [coreai-kit](https://github.com/mattt/coreai-kit) and [The Composable Architecture](https://github.com/pointfreeco/swift-composable-architecture). Model weights have their own licenses, shown in the app before installing.
+
+Maintainers can follow the [GitHub release guide](.github/RELEASING.md) for checks, signing, notarization and publishing.

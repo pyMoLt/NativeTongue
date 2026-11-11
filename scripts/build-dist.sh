@@ -9,9 +9,19 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 SIGN_IDENTITY="${NATIVETONGUE_SIGN_IDENTITY:--}"
-DERIVED=/private/tmp/NativeTongue-Release
+sign_options=(--options runtime)
+package_options=()
+if [[ "${NATIVETONGUE_PUBLIC_RELEASE:-0}" == 1 ]]; then
+  [[ "$SIGN_IDENTITY" == "Developer ID Application: "* ]] || {
+    echo "Public releases require an explicit Developer ID Application identity." >&2
+    exit 1
+  }
+  sign_options+=(--timestamp)
+  package_options+=(-onlyUsePackageVersionsFromResolvedFile)
+fi
+DERIVED=${NATIVETONGUE_DERIVED_DATA:-/private/tmp/NativeTongue-Release}
 xcodebuild -scheme Hex -configuration Release -destination 'platform=macOS,arch=arm64' \
-  -derivedDataPath "$DERIVED" -skipMacroValidation -skipPackagePluginValidation \
+  -derivedDataPath "$DERIVED" "${package_options[@]}" -skipMacroValidation -skipPackagePluginValidation \
   PRODUCT_BUNDLE_IDENTIFIER=com.pymolt.NativeTongue \
   CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CODE_SIGN_STYLE=Manual \
   build | grep -E "error:|BUILD (SUCCEEDED|FAILED)"
@@ -26,9 +36,9 @@ for nested in dist/NativeTongue.app/Contents/{Frameworks,PlugIns,XPCServices,Hel
               dist/NativeTongue.app/Contents/Resources/*.bundle(N); do
   if [[ "$nested" == *.bundle && ! -d "$nested/Contents/MacOS" ]]; then continue; fi
   if [[ "$nested" == *.bundle && -z "$(ls -A "$nested/Contents/MacOS")" ]]; then continue; fi
-  codesign --force --sign "$SIGN_IDENTITY" --options runtime "$nested"
+  codesign --force --sign "$SIGN_IDENTITY" "${sign_options[@]}" "$nested"
 done
-codesign --force --deep --sign "$SIGN_IDENTITY" --options runtime \
+codesign --force --deep --sign "$SIGN_IDENTITY" "${sign_options[@]}" \
   --entitlements Hex/NativeTongue-Direct.entitlements dist/NativeTongue.app
 codesign --verify --deep --strict dist/NativeTongue.app
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" dist/NativeTongue.app/Contents/Info.plist 2>/dev/null || echo "3.2.2")

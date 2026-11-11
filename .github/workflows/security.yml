@@ -1,0 +1,29 @@
+name: Security checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TRIVY_IMAGE: aquasec/trivy:0.69.3@sha256:bcc376de8d77cfe086a917230e818dc9f8528e3c852f7b1aff648949b6258d1c
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Scan tracked source for secrets
+        run: |
+          mkdir -p "$RUNNER_TEMP/source"
+          git archive HEAD | tar -x -C "$RUNNER_TEMP/source"
+          docker run --rm -v "$RUNNER_TEMP/source:/src:ro" "$TRIVY_IMAGE" fs \
+            --scanners secret --format json --output /tmp/secrets.json --exit-code 1 /src
+      - name: Audit Swift packages
+        run: |
+          docker run --rm -v "$RUNNER_TEMP/source:/src:ro" "$TRIVY_IMAGE" fs \
+            --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 /src
