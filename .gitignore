@@ -22,3 +22,5 @@ dist/
 Packages/*/.build/
 HexCore/.swiftpm/xcode/xcuserdata/
 *.profraw
+
+!scripts/release-github.sh
