@@ -13,4 +13,14 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - name: Prepare German lexical tagging for integration tests
+        run: |
+          swift - <<'SWIFT'
+          import NaturalLanguage
+
+          if !NLTagger.availableTagSchemes(for: .word, language: .german).contains(.lexicalClass) {
+              let result = try await NLTagger.requestAssets(for: .german, tagScheme: .lexicalClass)
+              print("German lexical tagging assets: \(result.rawValue)")
+          }
+          SWIFT
       - run: swift test --package-path HexCore
